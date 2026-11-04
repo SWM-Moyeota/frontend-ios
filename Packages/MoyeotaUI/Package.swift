@@ -29,7 +29,8 @@ let package = Package(
     targets: [
         .target(
             name: "MoyeotaDesignSystem",
-            dependencies: [.product(name: "NMapsMap", package: "SPM-NMapsMap")]
+            dependencies: [.product(name: "NMapsMap", package: "SPM-NMapsMap")],
+            resources: [.copy("Resources/Fonts")]
         ),
         .target(
             name: "PresentationCore",

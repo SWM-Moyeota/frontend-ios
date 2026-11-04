@@ -13,7 +13,7 @@ public enum TextLineHeight: Equatable, Sendable {
 /// 화면에는 `.moyeotaText(.BodyMd)` 또는 `.moyeotaText(.bodyMd)` 로 입힌다.
 ///
 /// moyeota-figma-tokens.json 의 core.font 값 그대로.
-/// 폰트 패밀리는 Pretendard 지정이지만 초안에서는 시스템 기본 sans 사용.
+/// 번들에 포함된 Pretendard를 SwiftUI 렌더링과 UIKit/CoreText 측정에 함께 사용한다.
 public struct MoyeotaType: Equatable, Sendable {
     public var fontSize: CGFloat
     public var fontWeight: Font.Weight
@@ -90,11 +90,11 @@ public struct MoyeotaType: Equatable, Sendable {
 
 public extension MoyeotaType {
     var font: Font {
-        .system(size: fontSize, weight: fontWeight)
+        Font(uiFont)
     }
 
     var uiFont: UIFont {
-        .systemFont(ofSize: fontSize, weight: fontWeight.uiFontWeight)
+        PretendardFont.font(size: fontSize, weight: fontWeight)
     }
 
     /// 지정한 줄 높이(pt). 지정이 없으면 nil.
@@ -111,7 +111,7 @@ public extension MoyeotaType {
     /// SwiftUI 에는 「줄 높이」가 없고 `lineSpacing`(줄 **사이** 간격)만 있다. 그래서
     /// 지정 줄 높이 − 폰트 줄 높이를 줄 사이 간격으로 주고, 같은 값을 위아래 절반씩 패딩으로 더해
     /// 첫 줄·마지막 줄까지 Compose 와 같은 줄 상자 높이를 만든다(n 줄 = 지정 줄 높이 × n).
-    /// 한글은 대체 폰트로 그려지지만 SwiftUI 의 줄 높이는 시스템 폰트 값 그대로다(시뮬레이터에서 실측).
+    /// 렌더링과 측정 모두 같은 Pretendard 글꼴의 메트릭을 사용한다.
     var lineHeightDelta: CGFloat {
         guard let target = lineHeightPoints else { return 0 }
         return target - uiFont.lineHeight
@@ -161,22 +161,6 @@ public extension MoyeotaType {
             letterSpacing: 0.5,
             trimsToHangulLineBox: hangulBox > 24
         )
-    }
-}
-
-extension Font.Weight {
-    var uiFontWeight: UIFont.Weight {
-        switch self {
-        case .ultraLight: .ultraLight
-        case .thin: .thin
-        case .light: .light
-        case .medium: .medium
-        case .semibold: .semibold
-        case .bold: .bold
-        case .heavy: .heavy
-        case .black: .black
-        default: .regular
-        }
     }
 }
 

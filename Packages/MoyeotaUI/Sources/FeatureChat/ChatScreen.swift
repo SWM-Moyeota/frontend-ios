@@ -1649,7 +1649,7 @@ func highlightKeyword(text: String, keyword: String) -> AttributedString {
               let upper = AttributedString.Index(end, within: attributed)
         else { continue }
         attributed[lower..<upper].foregroundColor = MoyeotaColor.Primary600
-        attributed[lower..<upper].font = .system(size: 14, weight: .bold)
+        attributed[lower..<upper].font = MoyeotaType(fontSize: 14, fontWeight: .bold).font
     }
     return attributed
 }
