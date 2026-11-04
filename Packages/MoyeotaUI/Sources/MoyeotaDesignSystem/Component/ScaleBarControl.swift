@@ -34,7 +34,7 @@ final class ScaleBarControl: UIView, @preconcurrency NMFMapViewCameraDelegate {
     /// 원본 뷰의 높이. 글자가 막대 왼쪽으로 삐져나와도 잘리지 않게 뷰 자체는 더 크게 잡고 아래쪽 이만큼에 그린다.
     private static let contentHeight: CGFloat = 16
     private static let ink = UIColor(red: 0x44 / 255.0, green: 0x44 / 255.0, blue: 0x44 / 255.0, alpha: 1)
-    private static let font = UIFont.systemFont(ofSize: 9)
+    private static let font = MoyeotaType(fontSize: 9).uiFont
 
     private weak var mapView: NMFMapView?
     private var spec: ScaleBarSpec?

@@ -31,6 +31,7 @@ public struct MoyeotaTheme<Content: View>: View {
     public var body: some View {
         // 와이어프레임은 라이트 단일 테마
         content
+            .font(MoyeotaType.BodyMd.font)
             .tint(LightColorScheme.primary)
             .foregroundStyle(LocalContentColorDefault)
             .environment(\.colorScheme, .light)
