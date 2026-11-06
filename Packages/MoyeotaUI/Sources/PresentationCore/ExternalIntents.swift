@@ -1,4 +1,3 @@
-import MoyeotaDesignSystem
 import Foundation
 import UIKit
 
@@ -176,7 +175,7 @@ enum MoyeotaToast {
         label.numberOfLines = 0
         label.textAlignment = .center
         label.textColor = .white
-        label.font = MoyeotaType(fontSize: 14).uiFont
+        label.font = .systemFont(ofSize: 14)
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let container = UIView()
