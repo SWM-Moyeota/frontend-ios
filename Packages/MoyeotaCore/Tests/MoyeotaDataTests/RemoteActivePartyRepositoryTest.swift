@@ -56,7 +56,7 @@ import Testing
 
     @Test("내가 멤버가 아닌 방이면 기억을 지운다")
     func notAMember() async throws {
-        let notMine = ride(id: 10, status: .ongoing, memberUuid: "someone-else")
+        let notMine = ride(id: 10, status: .matched, memberUuid: "someone-else")
         let rides = FakeRideRepository(details: [10: notMine])
         let storage = FakeActivePartyStorage(RememberedParty(partyId: "10", ownerUuid: Self.MY_UUID))
 
@@ -71,7 +71,7 @@ import Testing
         let rides = FakeRideRepository(
             details: [
                 7: ride(id: 7, status: .completed),
-                8: ride(id: 8, status: .ongoing),
+                8: ride(id: 8, status: .matched),
             ]
         )
         let chats = FakeChatRepository(
@@ -103,7 +103,7 @@ import Testing
     /// 기억은 버리되, 새 계정의 방은 채팅방 목록에서 정상적으로 찾아야 한다.
     @Test("계정이 바뀌면 이전 계정의 기억을 무시하고 지운다")
     func accountChanged() async throws {
-        let rides = FakeRideRepository(details: [99: ride(id: 99, status: .ongoing)])
+        let rides = FakeRideRepository(details: [99: ride(id: 99, status: .matched)])
         let storage = FakeActivePartyStorage(RememberedParty(partyId: "99", ownerUuid: "previous-user-uuid"))
 
         let resolved = try await repository(rides, FakeChatRepository(), storage).resolve()
@@ -160,7 +160,7 @@ import Testing
     /// 그 0 을 그대로 조회하면 방마다 404 한 번씩이다 — 후보에서 아예 빼야 한다.
     @Test("목록이 partyId 를 주면 채팅방 상세를 읽지 않는다")
     func listedPartyIdSkipsRoomDetail() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .ongoing)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
         let chats = FakeChatRepository(rooms: [myChatRoom(roomId: 1, partyId: 8)])
 
         let resolved = try await repository(rides, chats, FakeActivePartyStorage(nil)).resolve()
@@ -177,7 +177,7 @@ import Testing
     /// 돌아갈 길이 없었다(30분 만료까지). 이제 채팅방 상세(`ChatRoomResult.partyId`)로 건져 온다.
     @Test("목록에 partyId 가 없으면 채팅방 상세로 건져 온다")
     func resolvesPartyIdFromRoomDetail() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .ongoing)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
         let chats = FakeChatRepository(
             rooms: [myChatRoom(roomId: 2, partyId: 0)],
             partyIdsByRoom: [2: 8]
@@ -208,7 +208,7 @@ import Testing
     /// 채팅방 상세가 실패해도 다음 후보로 넘어간다 — 한 방의 네트워크 실패가 복구 경로 전체를 막으면 안 된다.
     @Test("채팅방 상세가 실패해도 다른 후보를 계속 본다")
     func roomDetailFailureContinues() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .ongoing)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
         let chats = FakeChatRepository(
             rooms: [myChatRoom(roomId: 2, partyId: 0), myChatRoom(roomId: 1, partyId: 0)],
             partyIdsByRoom: [1: 8],
@@ -386,15 +386,30 @@ private final class FakeRideRepository: RideRepository {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw IllegalStateException("쓰이지 않는다") }
     func leaveParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
     func finishParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw IllegalStateException("쓰이지 않는다") }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw IllegalStateException("쓰이지 않는다") }
-    func confirmEmergencyCall(called: Bool) async throws { throw IllegalStateException("쓰이지 않는다") }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw IllegalStateException("쓰이지 않는다") }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {
+        throw IllegalStateException("쓰이지 않는다")
+    }
+    func departParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
     func previewRoute(
         departureLat: Double,
         departureLng: Double,
         destinationLat: Double,
         destinationLng: Double
     ) async throws -> RouteEstimate { throw IllegalStateException("쓰이지 않는다") }
+
+    // 예약 넷. 이 테스트(「지금 타고 있는 방」 복원)는 예약을 보지 않는다 — 진행 중 방의 단일 출처는
+    // 로컬 기억 + 상세 조회이고, 예약 방도 결국 **같은 상세**로 복원된다(예약 전용 상세가 없다).
+    // 그래서 생성은 끊고, 조회 셋은 빈 목록이 가장 정직한 기본값이다(추천과 같은 판단).
+    func createReservation(request: NewReservation) async throws -> Ride { throw IllegalStateException("쓰이지 않는다") }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 }
 
 private final class FakeChatRepository: ChatRepository {

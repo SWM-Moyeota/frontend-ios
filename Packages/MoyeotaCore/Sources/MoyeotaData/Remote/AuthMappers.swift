@@ -101,6 +101,7 @@ extension Error {
             // 코드를 놓치면 서버 원문(「제공하지 않는 프로필 이미지입니다」)이 그대로 떠서
             // 사용자가 할 일을 알 수 없다. 사용자 입력 문제가 아니라 앱이 잘못된 키를 보낸 것이다.
             case "USER112": error = .invalidProfileImage
+            case "USER113": error = .underMinimumAge
             // 문자 인증. 둘(201/208)만 합치고 나머지는 그대로 남긴다 — 위 표 아래 주석에 근거.
             case "USER201", "USER208": error = .smsUnavailable
             case "USER202": error = .smsCooldown

@@ -23,10 +23,8 @@ public protocol ActivePartyRepository: Sendable {
     ///
     /// "진행 중"은 `Ride.status` 가
     /// `recruiting` ·
-    /// `matched` ·
-    /// `dispatching` ·
-    /// `ongoing` 중 하나인 경우다.
-    /// (COMPLETED·CANCELED 는 끝난 방이다.)
+    /// `matched` 중 하나인 경우다.
+    /// (COMPLETED·CANCELED 는 끝난 방이다.) 기사·배차 단계가 사라져 **진행 중은 이 둘뿐**이다.
     ///
     /// **네트워크 실패로는 예외를 던지지 않고 null 을 돌려준다** — 호출부는 배너를 숨기기만 하면 된다.
     /// 다만 그때 기억은 지우지 않는다: 서버에 닿지 못한 것과 방이 끝난 것은 다르다.

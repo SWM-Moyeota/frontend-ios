@@ -19,14 +19,20 @@ private let DashGray = Color(argb: 0xFFB9C3D6)
 /// 이동(디스크립션):
 /// - 뒤로 → 21 매칭 대기 (onBack)
 /// - 동승자 행 탭 → 23 동승자 프로필 (onPartnerClick)
-/// - 「나가기」 → 14 홈, 탑승 이탈 (onLeave). **모집 중(`RideStatus.recruiting`)일 때만 보인다** —
-///   서버 `Party.leave` 가 `ensureRecruiting()` 으로 ACTIVE 에서만 허용해, 기사 매칭이 시작된 뒤
-///   누르면 409 PARTY_CLOSED 가 온다. 눌리는 버튼을 두고 실패하게 두는 대신 아예 내린다.
+/// - 「나가기」 → 14 홈, 탑승 이탈 (onLeave). **모집 중(`RideStatus.recruiting`)일 때만 보인다.**
+///   그 밖의 단계에서는 버튼 대신 지금 어떤 방인지를 한 줄로 적는다(`stageNotice`).
+///
+///   ⚠️ 서버는 정원이 찬 방(`RideStatus.matched` = 서버 COMPLETED)에서도 나가기를 **허용한다**
+///   (`ensureRecruiting()` 이 ACTIVE·COMPLETED 를 통과시킨다) — 21 매칭 대기는 거기서 「방 나가기」를
+///   보여 준다(`canLeaveParty`). 이 화면만 RECRUITING 으로 좁혀 둔 것은 기사 모드 시절의 기준이 남은
+///   것이고, 지금은 두 화면이 같은 방에 대해 다른 말을 한다. 의도된 차이가 아니므로 둘 중 하나로
+///   모아야 한다 — 다만 그건 문구 정리가 아니라 **동작 변경**이라 이 작업(택시 코드 제거)에서 하지 않았다.
 /// - [미연결] 없음
 ///
-/// 도메인 변경(2026-08-30): 백엔드가 자동 기사 매칭으로 전환하며 **수동 출발**이 사라졌다.
-/// 「이 인원으로 출발」이라는 행위 자체가 없어져 CTA 를 화면에서 제거했고, 21 매칭 대기와 같은
-/// 결정이다. 25 배차 현황으로는 서버 status 전이를 관찰하는 21 이 넘긴다 — 이 화면은 넘기지 않는다.
+/// 도메인 변경(2026-08-30 → 현재): 백엔드에서 **수동 출발**이 사라졌다 — 「이 인원으로 출발」이라는
+/// 행위 자체가 없어져 CTA 를 제거했고, 21 매칭 대기와 같은 결정이다. 그 뒤 기사·배차까지 걷어내면서
+/// **이 화면이 넘길 다음 화면은 아예 없어졌다**(25 배차 현황·26 운행 중 삭제). 여기서 나가는 길은
+/// 뒤로(21) · 동승자 프로필(23) · 나가기(14 홈) 셋이다.
 ///
 /// 방장 표시(2026-10-15): 그때 함께 지웠던 방장 배지는 **되살렸다** — 근거가 달라졌다. 그때는
 /// 서버에 방장 개념이 없어 앱이 `joinedAt` 최소값으로 추정하던 것이었고, 지금은 서버가 멤버마다
@@ -38,10 +44,10 @@ private let DashGray = Color(argb: 0xFFB9C3D6)
 /// 하나로 끝난다 — 예전에는 앱이 자기 내부 Long id 를 몰라 고정값 1 과 비교하던 자리였다.
 /// 평가 API 는 아직 없어 그 줄은 표시하지 않는다.
 ///
-/// 모드 분기(2026-10-13): 정원이 찬 뒤 무슨 일이 일어나는지는 **모드가 가른다**. 동승 모드 서버는
-/// `DISPATCHING` 을 내지 않아 기사가 오지 않는다(`docs/MODE-ROUTES.md`). 그런데 이 화면은 모드를
-/// 모른 채 「정원이 차면 기사님이 자동으로 배차돼요」라고만 말하고 있었다 — 21 매칭 대기는 이미
-/// `taxiEnabled` 로 갈라 말하고 있었는데 여기만 남았다. 기본값은 **동승**이다(모르면 동승, 원칙 2).
+/// 안내 문구(2026-10-13 → 현재): 정원이 찬 뒤 무슨 일이 일어나는지를 한 줄로 적는다. 한동안 이 줄이
+/// 모드(`taxiEnabled`)에 따라 네 갈래로 갈렸는데, 기사·배차를 걷어내면서 **갈릴 것이 없어졌다** —
+/// 기사는 오지 않고, 정원이 차면 채팅으로 만날 곳을 정한다. 21 매칭 대기의 안내 배너와 **같은 말**을
+/// 써야 한다(조건 카드 한 번 탭으로 오가는 두 화면이다).
 ///
 /// 서버가 주지 않는 값(성별 조건·도착 시각·서비스 요금)은 지어내지 않고 요소를 두지 않는다.
 /// 출발 표기는 `Ride.departureLabel` 이 있을 때만, 도착 쪽은 `Ride.estimatedMinutes` 가 있을 때만
@@ -49,7 +55,6 @@ private let DashGray = Color(argb: 0xFFB9C3D6)
 public struct RideDetailScreen: View {
     private let ride: Ride
     private let pickupDistanceMeters: Double?
-    private let taxiEnabled: Bool
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
@@ -58,19 +63,15 @@ public struct RideDetailScreen: View {
 
     /// - Parameters:
     ///   - pickupDistanceMeters: 내 위치 → 탑승 위치 거리(m). 모르면 nil 이고 그 줄을 감춘다
-    ///   - taxiEnabled: 택시 모드(서버 설정). false = 1차 배포 — 정원이 차도 기사를 부르지 않는다.
-    ///     정원 안내 문구가 갈린다(21 매칭 대기의 같은 파라미터와 같은 뜻·같은 기본값).
     public init(
         ride: Ride,
         pickupDistanceMeters: Double? = nil,
-        taxiEnabled: Bool = false,
         onBack: @escaping () -> Void = {},
         onPartnerClick: @escaping (User) -> Void = { _ in },
         onLeave: @escaping () -> Void = {}
     ) {
         self.ride = ride
         self.pickupDistanceMeters = pickupDistanceMeters
-        self.taxiEnabled = taxiEnabled
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
@@ -178,16 +179,11 @@ public struct RideDetailScreen: View {
                         }
                         Spacer().frame(height: 14)
 
-                        // 앱이 출발을 트리거하지 않는다는 사실을 알려주는 지점 (21 매칭 대기와 같은 문구).
-                        // 네 갈래가 21 의 안내 배너와 짝이다 — 한쪽만 고치면 두 화면이 다른 말을 한다.
-                        Text(
-                            rideDetailNotice(
-                                isFull: ride.members.count >= ride.capacity,
-                                taxiEnabled: taxiEnabled
-                            )
-                        )
-                        .moyeotaText(inlineType(12, .medium), color: GrayAsh)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                        // 정원이 찬 뒤 무슨 일이 일어나는지 (21 매칭 대기의 안내 배너와 **짝인 문구**) —
+                        // 한쪽만 고치면 조건 카드 한 번 탭으로 오가는 두 화면이 다른 말을 한다.
+                        Text(rideDetailNotice(isFull: ride.members.count >= ride.capacity))
+                            .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                            .frame(maxWidth: .infinity, alignment: .center)
                         Spacer().frame(height: 12)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -480,26 +476,47 @@ private struct GrayActionButton: View {
     }
 }
 
-/// 정원 안내 문구 네 갈래 — 21 의 안내 배너와 짝이다.
-func rideDetailNotice(isFull: Bool, taxiEnabled: Bool) -> String {
-    if isFull && !taxiEnabled { return "같이 탈 사람이 다 모였어요. 채팅으로 만날 곳을 정해요" }
-    if isFull { return "기사님을 찾고 있어요. 배차되면 바로 알려드릴게요" }
-    if !taxiEnabled { return "정원이 차면 채팅으로 만날 곳을 정해요" }
-    return "정원이 차면 기사님이 자동으로 배차돼요"
+/// 정원 안내 문구 — 21 의 안내 배너와 짝이다.
+func rideDetailNotice(isFull: Bool) -> String {
+    if isFull { return "같이 탈 사람이 다 모였어요. 채팅으로 만날 곳을 정해요" }
+    return "정원이 차면 채팅으로 만날 곳을 정해요"
 }
 
 /// 나가기 버튼 자리에 대신 적는 현재 단계.
 ///
 /// 「왜 나갈 수 없는지」를 사용자가 알 수 있어야 한다 — 버튼만 사라지면 앱이 고장 난 것처럼 보인다.
-/// 배정 여부(DISPATCHING 안의 MATCHING/DRIVER_ASSIGNED 구분)는 이 화면이 알 필요가 없어
-/// 「기사님 찾는 중」 하나로 묶는다.
+///
+/// 기사·배차를 걷어내면서 `DISPATCHING`(「기사님을 찾는 중이라 나갈 수 없어요」)·`ONGOING`
+/// (「운행 중이에요」) 두 줄이 사라졌다 — 서버가 그 status 를 보낼 수 없다.
+///
+/// `RideStatus.matched` 는 **「나갈 수 없다」고 말하지 않는다.** 서버는 정원이 찬 방에서도 나가기를
+/// 허용하고(`ensureRecruiting` = ACTIVE·COMPLETED), 21 매칭 대기가 실제로 그 버튼을 띄운다 — 여기서
+/// 못 나간다고 적으면 거짓이 된다. 이 화면이 그 길을 갖지 않는 것은 사실이므로, 그 사실만 적어
+/// **나갈 수 있는 곳을 가리킨다**(이 화면은 21 의 조건 카드에서 한 번 탭으로 들어온 자리라
+/// 「매칭 대기 화면」은 뒤로 한 번이다).
+///
+/// `switch` 에 `default` 를 두지 않는다 — 단계가 늘면 여기서 컴파일이 막혀야 한다. RECRUITING 은
+/// 버튼이 보이는 경로라 호출부가 부르지 않지만, 분기를 빼면 그 보장을 잃으므로 함께 적어 둔다.
 func stageNotice(status: RideStatus) -> String {
     switch status {
-    case .dispatching: "기사님을 찾는 중이라 나갈 수 없어요"
-    case .ongoing: "운행 중이에요"
+    case .matched: "정원이 다 찼어요. 나가려면 매칭 대기 화면에서 「방 나가기」를 눌러 주세요"
     case .canceled: "취소된 탑승이에요"
     case .completed: "완료된 탑승이에요"
-    // RECRUITING·MATCHED 는 버튼이 보이는 경로라 여기 오지 않는다(방어값)
-    case .recruiting, .matched: "지금은 나갈 수 없어요"
+    // 호출부가 RECRUITING 에서는 나가기 버튼을 그리므로 여기 오지 않는다
+    case .recruiting: "지금은 나갈 수 없어요"
+    }
+}
+
+/// 머티리얼 `IconButton` 자리 — 레이아웃 크기는 최소 터치 영역인 48dp 다.
+struct MatchingBackButton: View {
+    let onBack: () -> Void
+
+    var body: some View {
+        Button(action: onBack) {
+            BackArrowIcon()
+                .frame(width: 48, height: 48)
+                .contentShape(Circle())
+        }
+        .buttonStyle(IconPressStyle())
     }
 }

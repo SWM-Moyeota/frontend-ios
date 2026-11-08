@@ -8,11 +8,8 @@ import FeatureOnboarding
 import MoyeotaDesignSystem
 import MoyeotaDomain
 import Observation
-import os
 import PresentationCore
 import SwiftUI
-
-private let logger = Logger(subsystem: "com.moyeota.presentation", category: "AppMode")
 
 // 37 탈퇴 중 세션이 사라졌을 때 **탈퇴 응답을 기다리는 한도**. 기다리는 대상은 04a 로그인 화면의
 // 안내 문구 하나뿐이고(화면 이동은 어차피 일어난다), 실제로는 한두 프레임이면 결론이 난다.
@@ -23,15 +20,6 @@ private let ACCOUNT_DELETE_RESULT_POLL_MS: Int64 = 16
 // 16 뒤를 덮는 어둡기. 원본은 대화상자 창이 깔아 주는 플랫폼 기본값이고 상태 표시줄·홈 인디케이터 줄에서 15 가 어둡게 비쳐 보인다
 // (`_workspace/screenshots/config-change/16_modal_portrait.png`). 다른 대화상자 오버레이와 같은 60% 다.
 private let DIALOG_DIM_ALPHA = 0.6
-
-/// 개발자 옵션(모드 강제)은 디버그 빌드에서만 그린다. 원본 `FLAG_DEBUGGABLE` 판정의 자리다.
-public var isDebuggableBuild: Bool {
-    #if DEBUG
-    true
-    #else
-    false
-    #endif
-}
 
 /// `authRepository.authState` 를 화면에 내리는 홀더 — 원본 `collectAsState`.
 @MainActor
@@ -74,13 +62,12 @@ public struct MainNavGraph: View {
     private let rideRepository: any RideRepository
     private let placeRepository: any PlaceRepository
     private let chatRepository: any ChatRepository
-    private let dispatchRepository: any DispatchRepository
     private let activePartyRepository: any ActivePartyRepository
     private let rideRecordRepository: any RideRecordRepository
+    private let noShowRepository: any NoShowRepository
     private let pendingChatRoomId: Int64?
     private let onPendingChatRoomHandled: () -> Void
     private let installedVersionCode: Int64
-    private let debuggable: Bool
     private let probe: MainNavGraphProbe?
 
     @HostedViewModel private var authState: AuthStateHolder
@@ -90,23 +77,26 @@ public struct MainNavGraph: View {
     ///
     ///     **필수 인자다.** 기본값을 두면 배선을 빠뜨린 호출부가 컴파일에서 걸리지 않고 **실행 중에만** 34 가
     ///     「불러오지 못했어요」로 떨어진다 — 그 실패는 서버 장애와 구분되지 않는다.
+    ///   - noShowRepository: 38 노쇼 기록·이의 신청(`GET /api/v1/matching/no-shows`).
+    ///
+    ///     **필수 인자다** — `rideRecordRepository` 와 같은 이유다. 기본값을 두면 배선을 빠뜨렸을 때
+    ///     컴파일이 통과하고 **실행 중에만** 38 이 빈 화면으로 떨어진다. 그 화면은 노쇼로 찍힌 사람이
+    ///     이의를 낼 **유일한 창구**라, 조용히 비어 있는 것이 가장 나쁜 실패다.
     ///   - pendingChatRoomId: 채팅 알림 탭으로 열어 달라는 방. 로그인돼 있고 그래프가 준비되면 그 채팅방을 **스택에 쌓고**
     ///     `onPendingChatRoomHandled` 로 소비를 알린다. 미로그인이면 무시한다(로그인 뒤 엉뚱한 방을 여는 것보다 낫다).
     ///   - installedVersionCode: 강제 업데이트 게이트가 비교할 설치 버전.
-    ///   - debuggable: 개발자 옵션을 그릴지. 기본값은 빌드 구성이다.
     public init(
         authRepository: any AuthRepository,
         appConfigRepository: any AppConfigRepository,
         rideRepository: any RideRepository,
         placeRepository: any PlaceRepository,
         chatRepository: any ChatRepository,
-        dispatchRepository: any DispatchRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
+        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64? = nil,
         onPendingChatRoomHandled: @escaping () -> Void = {},
-        installedVersionCode: Int64 = appVersionCode(),
-        debuggable: Bool = isDebuggableBuild
+        installedVersionCode: Int64 = appVersionCode()
     ) {
         self.init(
             authRepository: authRepository,
@@ -114,13 +104,12 @@ public struct MainNavGraph: View {
             rideRepository: rideRepository,
             placeRepository: placeRepository,
             chatRepository: chatRepository,
-            dispatchRepository: dispatchRepository,
             activePartyRepository: activePartyRepository,
             rideRecordRepository: rideRecordRepository,
+            noShowRepository: noShowRepository,
             pendingChatRoomId: pendingChatRoomId,
             onPendingChatRoomHandled: onPendingChatRoomHandled,
             installedVersionCode: installedVersionCode,
-            debuggable: debuggable,
             probe: nil
         )
     }
@@ -131,13 +120,12 @@ public struct MainNavGraph: View {
         rideRepository: any RideRepository,
         placeRepository: any PlaceRepository,
         chatRepository: any ChatRepository,
-        dispatchRepository: any DispatchRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
+        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
-        debuggable: Bool,
         probe: MainNavGraphProbe?
     ) {
         self.authRepository = authRepository
@@ -145,13 +133,12 @@ public struct MainNavGraph: View {
         self.rideRepository = rideRepository
         self.placeRepository = placeRepository
         self.chatRepository = chatRepository
-        self.dispatchRepository = dispatchRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
+        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
-        self.debuggable = debuggable
         self.probe = probe
         _authState = HostedViewModel(wrappedValue: AuthStateHolder(repository: authRepository))
     }
@@ -169,13 +156,12 @@ public struct MainNavGraph: View {
                     rideRepository: rideRepository,
                     placeRepository: placeRepository,
                     chatRepository: chatRepository,
-                    dispatchRepository: dispatchRepository,
                     activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
+                    noShowRepository: noShowRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
                     installedVersionCode: installedVersionCode,
-                    debuggable: debuggable,
                     probe: probe
                 )
             }
@@ -199,13 +185,12 @@ private struct MainNavHost: View {
     let rideRepository: any RideRepository
     let placeRepository: any PlaceRepository
     let chatRepository: any ChatRepository
-    let dispatchRepository: any DispatchRepository
     let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
+    let noShowRepository: any NoShowRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
     let installedVersionCode: Int64
-    let debuggable: Bool
     let probe: MainNavGraphProbe?
 
     // 로그인 상태는 앱을 켤 때 한 번만 시작 화면을 정한다. 이후 전이는 `MainNavContent` 의 효과가 다룬다
@@ -216,8 +201,9 @@ private struct MainNavHost: View {
     // 화면별 뷰모델로 두면 탭을 오갈 때마다 같은 조회가 반복된다.
     @HostedViewModel private var profileViewModel: UserProfileViewModel
 
-    // 서버 운영 설정(동승/택시 모드). 앱 시작 시 받아 21 대기 화면이 「합승 완료」 / 기사 대기를 고른다.
-    // 못 받으면 동승 모드(실배포)다. 모드별 화면 표는 docs/MODE-ROUTES.md.
+    // 서버 운영 설정(`GET /api/v1/config`). 지금 이 값이 정하는 것은 **강제 업데이트 게이트 하나뿐**이다
+    // — 동승/택시 모드(`taxiEnabled`)는 기사·배차와 함께 사라졌고, 그래서 화면이 따를 값과 서버가 준 값을
+    // 가르던 디버그 강제값도 함께 지웠다(AppConfigViewModel 주석).
     @HostedViewModel private var appConfigViewModel: AppConfigViewModel
 
     // 「지금 내가 타고 있는 방」 — 홈·합승 배너, 앱 시작 시 단계 복귀가 같은 값을 본다.
@@ -231,13 +217,12 @@ private struct MainNavHost: View {
         rideRepository: any RideRepository,
         placeRepository: any PlaceRepository,
         chatRepository: any ChatRepository,
-        dispatchRepository: any DispatchRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
+        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
-        debuggable: Bool,
         probe: MainNavGraphProbe?
     ) {
         self.loggedIn = loggedIn
@@ -246,13 +231,12 @@ private struct MainNavHost: View {
         self.rideRepository = rideRepository
         self.placeRepository = placeRepository
         self.chatRepository = chatRepository
-        self.dispatchRepository = dispatchRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
+        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
-        self.debuggable = debuggable
         self.probe = probe
         _navController = HostedViewModel(
             wrappedValue: MoyeotaNavController(startDestination: loggedIn ? .home : .onboardingSaving)
@@ -295,16 +279,16 @@ private struct MainNavHost: View {
                     rideRepository: rideRepository,
                     placeRepository: placeRepository,
                     chatRepository: chatRepository,
-                    dispatchRepository: dispatchRepository,
+                    activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
+                    noShowRepository: noShowRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
-                    debuggable: debuggable,
                     probe: probe
                 )
             }
         }
-        // 합류 시점에 생기는 채팅방을 뒤늦게라도 잡는다(21·25 의 「채팅 열기」가 이 값으로 뜬다).
+        // 합류 시점에 생기는 채팅방을 뒤늦게라도 잡는다(21 의 「채팅 열기」가 이 값으로 뜬다).
         // 뷰 수명이라 화면이 사라지면 함께 멈춘다.
         .task { await activePartyViewModel.pollChatRoom() }
         // 위 폴링(10초 주기 `GET /chat-rooms/me`)을 **앱이 백그라운드로 가면 멈춘다.**
@@ -319,7 +303,8 @@ private struct MainNavHost: View {
         // 탭 진입마다의 재조회는 각 화면(홈·합승)의 `.task` 가 따로 건다.
         .lifecycleEffect(onStart: {
             activePartyViewModel.refresh()
-            // 시작 시 설정 조회가 실패했으면(서버 장애 등) 복귀할 때 다시 받는다 — 그동안은 동승 모드 기본값
+            // 시작 시 설정 조회가 실패했으면(서버 장애 등) 복귀할 때 다시 받는다 —
+            // 그동안은 기준이 nil 인 기본값이라 아무도 업데이트 게이트에 막히지 않는다
             appConfigViewModel.loadIfUnresolved()
         })
     }
@@ -340,11 +325,11 @@ private struct MainNavContent: View {
     let rideRepository: any RideRepository
     let placeRepository: any PlaceRepository
     let chatRepository: any ChatRepository
-    let dispatchRepository: any DispatchRepository
+    let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
+    let noShowRepository: any NoShowRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
-    let debuggable: Bool
     let probe: MainNavGraphProbe?
 
     // ── 화면 사이에 넘겨야 하는 값 ──
@@ -387,14 +372,30 @@ private struct MainNavContent: View {
     // 뜬다 — 이미 끝낸 단계를 다시 하라는 안내다.
     @State private var confirmedOrigin: Place?
     @State private var confirmedDestination: Place?
-    // 26 에서 방금 끝난 방 — 33 도착 완료 요약용. 전이 직전 clearParty() 가 activeRide 를 비우므로 따로 잡아 둔다.
+
+    // 17 예약 날짜 검색의 **도착지 필터**. nil 이면 출발지만으로 찾는다.
     //
-    // 원본은 일부러 저장 상태에 넣지 않았다. `Ride` 는 멤버 목록까지 안은 큰 객체이고, 33 은 이 값이 없어도
-    // **거짓을 말하지 않는다** — 경로·금액·동승자 수를 지어내는 대신 그 줄을 숨긴다.
-    @State private var finishedRide: Ride?
-    // ── 방 id 는 살아남아야 한다 (selectedPartyId · createdPartyId · activePartyId) ──
+    // 서버는 도착지를 **둘 다 또는 둘 다 없이** 받고(400 `INCOMPLETE_DESTINATION`), 보내면
+    // 도착지도 1km 안인 방(`destinationNearby`)을 먼저 준다. 그래서 「없음」이 정상 상태다 —
+    // 기본값을 지어내면 사용자가 고르지 않은 조건으로 걸러진 목록을 보게 된다.
     //
-    // 원본은 이 id 들이 구성 변경에 null 로 돌아가 라우트가 「어느 방인지 모르는」 상태가 됐고, 21·25 는 그 상태에서 예시 방을
+    // 원본이 `rememberSaveable` 이 아니라 `remember` 인 이유: 검색 조건이라 프로세스가 죽었다 살아나면
+    // **지워지는 쪽이 맞다.** 되살리면 날짜는 초기화됐는데 도착지만 남아 사용자가 고르지 않은 조합이 된다.
+    // iOS 의 `@State` 는 프로세스와 함께 사라지므로 위 값들과 같은 선언이 그 약속을 지킨다.
+    @State private var reservationSearchDestination: Place?
+
+    // 15 를 **도착지 필터를 고르러** 열었는가. 평소(홈 검색·방 만들기)에는 false 라 고른 뒤 16 으로 간다.
+    //
+    // 깃발을 쓰는 이유: 15 는 한 화면인데 **돌아갈 곳이 둘**이다(16 모달 / 17 필터). 라우트를 둘로
+    // 쪼개면 같은 화면이 두 벌이 되고, 15 가 들고 있는 검색 상태도 갈린다.
+    @State private var pickingSearchDestination = false
+    // 「방금 끝난 방」을 잡아 두던 `finishedRide` 는 지웠다 — 그 값의 유일한 독자가 33 도착 완료
+    // 화면이었고, 그 화면은 26 운행 중과 함께 사라졌다(서버가 운행 종료를 보낼 수 없다).
+    // 이제 방이 끝나면 21 이 `onPartyClosed` 로 알려 주고, 사용자는 요약 없이 14 홈으로 간다.
+    //
+    // ── 방 id 는 살아남아야 한다 (selectedPartyId · createdPartyId) ──
+    //
+    // 원본은 이 id 들이 구성 변경에 null 로 돌아가 라우트가 「어느 방인지 모르는」 상태가 됐고, 21 은 그 상태에서 예시 방을
     // 그려 **남의 가짜 방**을 보여 줬다(출시 차단 결함, 2026-10-15).
     @State private var selectedPartyId: Int64?
     // 20·22 에서 탭한 동승자 — 23 프로필이 이 값을 그린다.
@@ -405,9 +406,24 @@ private struct MainNavContent: View {
     @State private var selectedPartner: User?
     // 16 에서 만든 방 — 21 매칭 대기가 이 방을 조회한다. 위 selectedPartyId 와 같은 이유로 남긴다
     @State private var createdPartyId: Int64?
-    // 지금 배차·운행 중인 방 — 25 배차 현황과 27 신고가 이 id 로 서버를 조회한다.
-    // 탐색용 selectedPartyId 와 분리한다(탐색 중 다른 방을 눌러도 내 운행이 바뀌면 안 된다).
-    @State private var activePartyId: Int64?
+
+    // 16 도착지 확인을 **시간 정하기로 열까.** 17 탐색의 예약 탭에서 「＋ 새 동승 방 만들기」를 누른
+    // 경우에만 참이다.
+    //
+    // 깃발을 쓰는 이유: 15 → 16 은 두 걸음이고 그 사이에 출발지·도착지가 정해진다. 경로 인자로
+    // 실어 나르면 두 라우트의 주소가 모두 바뀌는데, 이 값은 **어디서 눌렀는지**일 뿐 화면의
+    // 정체성이 아니다. `selectedPartyId`·`createdPartyId` 와 같은 자리에 같은 이유로 둔다
+    // (15 가 위에 쌓여도 남아야 하므로 `@State` — 이 뷰 머리의 `@State` 설명).
+    //
+    // **16 에 들어가지 않는 길에서는 반드시 내린다** — 홈 검색으로 들어온 사람이 직전에 예약 탭을
+    // 봤다는 이유로 시간 정하기 화면을 받으면 안 된다.
+    @State private var createScheduled = false
+    // 탐색용 selectedPartyId 와 진행용 createdPartyId 는 **일부러 둘이다** — 탐색 중 다른 방을 눌러도
+    // 내가 들어 있는 방이 바뀌면 안 된다.
+    //
+    // 셋이었다. `activePartyId`(「지금 배차·운행 중인 방」)는 25 배차 현황·26 운행 중·27 신고가 읽던
+    // 값이고, 그 세 화면이 사라지면서 독자가 하나도 남지 않아 함께 지웠다 — 쓰이지 않는 세 번째 방 id 를
+    // 남겨 두면 「어느 값이 진짜 내 방인가」가 다시 두 갈래가 된다.
     // 로그인 → 미로그인 전이 감지용 직전 값.
     @State private var wasLoggedIn: Bool
     // 진행 중 방 자동 복귀의 빗장. 복귀 효과가 세우고 로그아웃 전이가 되돌린다 — 쓰임은 복귀 효과의 주석에 적었다.
@@ -439,11 +455,11 @@ private struct MainNavContent: View {
         rideRepository: any RideRepository,
         placeRepository: any PlaceRepository,
         chatRepository: any ChatRepository,
-        dispatchRepository: any DispatchRepository,
+        activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
+        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
-        debuggable: Bool,
         probe: MainNavGraphProbe?
     ) {
         self.loggedIn = loggedIn
@@ -455,11 +471,11 @@ private struct MainNavContent: View {
         self.rideRepository = rideRepository
         self.placeRepository = placeRepository
         self.chatRepository = chatRepository
-        self.dispatchRepository = dispatchRepository
+        self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
+        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
-        self.debuggable = debuggable
         self.probe = probe
         _wasLoggedIn = State(initialValue: loggedIn)
     }
@@ -479,16 +495,7 @@ private struct MainNavContent: View {
     /// 진행 중인 방의 **지금 단계 화면**으로 보낸다. 배너·채팅방 헤더·앱 시작 복귀가 모두 여기로 모인다.
     /// 목적지 표와 스택 모양은 `MoyeotaNavController.stageRoute`·`navigateToStage(route:)` 에 있다.
     private func navigateToStage(_ ride: Ride) {
-        if let id = Int64(ride.id) {
-            createdPartyId = id
-            activePartyId = id
-        }
-        // 동승 모드인데 배차·운행 단계가 왔다 = 서버는 택시 모드, 앱 설정이 낡았다(조회 실패·운영 중 전환).
-        // 화면은 status 를 따라 25·26 으로 가고, 설정만 다시 읽어 문구를 맞춘다(docs/MODE-ROUTES.md).
-        if isStageOutsideMode(stage: ride.activeStage, taxiEnabled: appConfigViewModel.config.taxiEnabled) {
-            logger.warning("동승 모드에 \(String(describing: ride.activeStage), privacy: .public) 단계 — 서버 설정 재조회")
-            appConfigViewModel.load()
-        }
+        if let id = Int64(ride.id) { createdPartyId = id }
         guard let route = MoyeotaNavController.stageRoute(ride.activeStage) else {
             activePartyViewModel.clearParty()
             navigateTab(.home)
@@ -501,7 +508,7 @@ private struct MainNavContent: View {
         navController.openActiveChatRoom(roomId: roomId)
     }
 
-    /// 21·25 의 「채팅 열기」. 채팅방을 아직 못 찾았으면 nil 이고 화면이 버튼을 그리지 않는다.
+    /// 21 의 「채팅 열기」. 채팅방을 아직 못 찾았으면 nil 이고 화면이 버튼을 그리지 않는다.
     private var onOpenActiveChat: (() -> Void)? {
         activePartyViewModel.chatRoomId.map { roomId in { openActiveChatRoom(roomId) } }
     }
@@ -815,11 +822,13 @@ private struct MainNavContent: View {
                 activeRide: activePartyViewModel.ride,
                 onSearchClick: {
                     searchInitialQuery = ""
+                    createScheduled = false
                     navController.navigate(.destination)
                 },
                 onActiveRideClick: openActiveStage,
                 onPlaceQuery: { query in
                     searchInitialQuery = query
+                    createScheduled = false
                     navController.navigate(.destination)
                 },
                 onTabSelect: navigateTab
@@ -834,11 +843,21 @@ private struct MainNavContent: View {
                 initialQuery: searchInitialQuery,
                 onBack: back,
                 onConfirmRoute: { origin, place in
-                    confirmedOrigin = origin
-                    confirmedDestination = place
-                    navController.navigate(.destinationConfirm)
+                    if pickingSearchDestination {
+                        // 17 의 도착지 필터만 고른 것이다 — 방을 만들러 온 길이 아니므로 16 을 열지 않는다.
+                        reservationSearchDestination = place
+                        back()
+                    } else {
+                        confirmedOrigin = origin
+                        confirmedDestination = place
+                        navController.navigate(.destinationConfirm)
+                    }
                 }
             )
+            // 15 를 떠날 때 깃발을 **반드시** 내린다. `onBack` 에만 두면 안 된다 — 시스템 뒤로가기
+            // 제스처(가장자리 스와이프)는 그 클로저를 타지 않아, 필터를 고르다 그냥 나온 사용자가 다음에 방을
+            // 만들려고 15 를 열면 16 이 뜨지 않고 고른 도착지가 조용히 필터로 먹힌다.
+            .onDisappear { pickingSearchDestination = false }
         // 16 은 15 위에 뜨는 모달 — body 가 오버레이로 그린다(`projectBackStack`)
         case .destinationConfirm:
             DestinationConfirmRoute(
@@ -847,10 +866,11 @@ private struct MainNavContent: View {
                 placeRepository: placeRepository,
                 origin: confirmedOrigin,
                 destination: confirmedDestination,
+                // 17 예약 탭에서 눌러 온 길이면 시간 정하기로 연다 — 위 createScheduled 참고
+                initiallyScheduled: createScheduled,
                 onDismiss: back,
                 onPartyCreated: { ride in
                     createdPartyId = Int64(ride.id)
-                    activePartyId = createdPartyId
                     // 진행 중 방으로 기억한다 — 앱을 껐다 켜거나 탭을 옮겨도 여기로 돌아올 근거
                     activePartyViewModel.rememberParty(partyId: ride.id)
                     // 모달을 닫고 21 매칭 대기로 — 뒤로 눌러 모달로 돌아오지 않게 한다
@@ -859,7 +879,7 @@ private struct MainNavContent: View {
                     }
                 },
                 // 추천 방을 고르면 19 합류 확인으로 — 모달은 닫고 뒤로 눌러 돌아오지 않게 한다.
-                // 방을 만들지 않았으므로 createdPartyId/activePartyId 는 건드리지 않는다.
+                // 방을 만들지 않았으므로 createdPartyId 는 건드리지 않는다.
                 onCandidateSelected: { ride in
                     selectedPartyId = Int64(ride.id)
                     navController.navigate(.joinConfirm) {
@@ -875,14 +895,31 @@ private struct MainNavContent: View {
         case .explore:
             ExploreRoute(
                 viewModel: navController.retained(for: entry) { ExploreViewModel(repository: rideRepository) },
+                // 예약 조회 뷰모델도 같은 칸에 맡긴다 — 원본에서 둘은 같은 엔트리의 뷰모델이라 수명이 같다.
+                finderViewModel: navController.retained(for: entry) {
+                    ReservationFinderViewModel(repository: rideRepository)
+                },
                 activeRide: activePartyViewModel.ride,
+                // 예약 날짜 검색의 도착지 필터 — 15 를 **고르기 전용**으로 열었다가 돌아온다.
+                searchDestination: reservationSearchDestination,
                 onJoinParty: { ride in
                     selectedPartyId = Int64(ride.id)
                     navController.navigate(.joinConfirm)
                 },
                 // 배너는 **지금 단계 화면**으로 바로 간다
                 onOngoingRideClick: openActiveStage,
-                onCreateRoomClick: { navController.navigate(.destination) },
+                onCreateRoomClick: { scheduled in
+                    createScheduled = scheduled
+                    navController.navigate(.destination)
+                },
+                onPickSearchDestination: {
+                    pickingSearchDestination = true
+                    searchInitialQuery = ""
+                    // 필터만 고르러 가는 길이라 16 을 열지 않는다 — 깃발도 남기지 않는다
+                    createScheduled = false
+                    navController.navigate(.destination)
+                },
+                onClearSearchDestination: { reservationSearchDestination = nil },
                 onTabSelect: navigateTab
             )
             .environment(\.mapCameraMemory, navController.retained(for: entry) { MapCameraMemory() })
@@ -891,6 +928,9 @@ private struct MainNavContent: View {
         case .joinConfirm:
             JoinConfirmRoute(
                 repository: rideRepository,
+                // 합류가 「다른 방에 참여 중」으로 막혔을 때 그 방이 확정된 방인지 알아내는 데 쓴다 —
+                // 확정된 방은 나갈 수가 없어서 안내할 행동이 달라진다(JoinConfirmRoute.alreadyInPartyMessage)
+                activePartyRepository: activePartyRepository,
                 partyId: selectedPartyId,
                 onDismiss: back,
                 // 합류가 끝나면 **방 id 만** 받아 21 매칭 대기로 넘긴다 — 합류 응답은 더 이상 방 상세가
@@ -899,7 +939,6 @@ private struct MainNavContent: View {
                 // (준비/출발 버튼이 사라진 뒤로 합류의 다음 단계는 22 상세가 아니라 대기다)
                 onJoined: { joinedPartyId in
                     createdPartyId = joinedPartyId
-                    activePartyId = joinedPartyId
                     activePartyViewModel.rememberParty(partyId: String(joinedPartyId))
                     navController.navigate(.matchWaiting) {
                         $0.popUpTo(.joinConfirm, inclusive: true)
@@ -911,45 +950,33 @@ private struct MainNavContent: View {
                 }
             )
 
-        // F · 매칭 · 탑승 21–23 · 25
+        // F · 매칭 · 탑승 21–23
         case .matchWaiting:
             MatchWaitingRoute(
                 repository: rideRepository,
                 partyId: createdPartyId,
-                taxiEnabled: appConfigViewModel.config.taxiEnabled,
                 // 나가기 성공 후 14 홈 — 방에서 빠졌으니 진행 중 기억도 함께 지운다
                 onCancelSearch: {
                     activePartyViewModel.clearParty()
                     navigateTab(.home)
                 },
-                // 매칭이 시작되면 서버가 나가기를 막는다(ensureRecruiting). 그 단계의 뒤로가기는
-                // 방을 그대로 두고 홈으로만 보낸다 — 방은 25b 로 이어진다.
+                // 방을 **유지한 채** 화면만 벗어난다 — 어느 방인지 모르는 진입(복원 뒤 id 유실)과
+                // 닫힌 방 한 프레임의 뒤로가기가 여기로 온다. 나가기 쪽으로 모으지 않는다:
+                // 되돌릴 수 없는 일을 뒤로가기로 일으키지 않는다.
                 onExitKeepingParty: { navigateTab(.home) },
                 onCardClick: {
                     selectedPartyId = createdPartyId
                     navController.navigate(.rideDetail)
-                },
-                // 정원이 차면 서버가 스스로 기사 매칭을 시작한다 — 앱은 status 전이를 받아 넘어갈 뿐이다.
-                // 대기 화면은 스택에서 지운다. 남겨두면 뒤로 돌아왔을 때 status 가 여전히 배차 상태라
-                // 다시 앞으로 튕겨나가는 루프가 된다(공통 규칙: 배차 후 되돌리기 차단).
-                onMatchingStarted: {
-                    activePartyId = createdPartyId
-                    // 동승 모드에선 올 수 없는 전이다 — 왔다면 서버가 택시 모드이니 설정을 다시 읽는다
-                    if !appConfigViewModel.config.taxiEnabled {
-                        logger.warning("동승 모드에 배차 전이 — 서버 설정 재조회")
-                        appConfigViewModel.load()
-                    }
-                    // 정원이 찼다 = 채팅방이 생기는 시점. 단계와 채팅방 id 를 같이 다시 읽는다
-                    activePartyViewModel.refresh()
-                    navController.navigate(.dispatchStatus) {
-                        $0.popUpTo(.matchWaiting, inclusive: true)
-                    }
                 },
                 // 방이 닫혔다(내·남의 「합승 완료」, 30분 스윕). 끝난 방이라 진행 중 기억을 지우고 홈으로.
                 onPartyClosed: {
                     activePartyViewModel.clearParty()
                     navigateTab(.home)
                 },
+                // **다음 단계 화면으로 넘기는 콜백(`onMatchingStarted`)은 없다.** 정원이 차면 서버가
+                // 기사 매칭을 시작하고 앱이 25 배차 현황으로 넘어가던 길이 사라졌다 — 서버가
+                // `DISPATCHING` 을 보낼 수 없고 그 화면도 없다. 정원이 찬 방은 21 에 머물며
+                // 채팅으로 만날 곳을 정하고, 방장의 「합승 완료」가 `onPartyClosed` 로 끝낸다.
                 onOpenChat: onOpenActiveChat
             )
             // 시스템 뒤로가기(스와이프)는 기본 pop 이라 헤더 ← 가 타는 분기
@@ -964,15 +991,13 @@ private struct MainNavContent: View {
             RideDetailRoute(
                 repository: rideRepository,
                 partyId: selectedPartyId,
-                // 21 과 같은 설정을 넘긴다 — 정원이 찬 뒤의 안내가 모드별로 갈린다
-                taxiEnabled: appConfigViewModel.config.taxiEnabled,
                 onBack: back,
                 onPartnerClick: { partner in
                     selectedPartner = partner
                     navController.navigate(.partnerProfile)
                 },
-                // 25 배차 현황으로 넘기는 건 status 전이를 관찰하는 21 매칭 대기뿐이다 —
-                // 자동 기사 매칭 전환으로 이 화면에는 수동 출발 CTA 가 없다.
+                // 이 화면에는 다음 단계로 넘기는 길이 없다 — 수동 출발 CTA 는 자동 기사 매칭 전환으로
+                // 사라졌고, 그 자동 매칭마저 걷어낸 뒤로는 넘어갈 화면 자체가 없다.
                 //
                 // 나가기는 **서버 나가기가 성공한 뒤에만** 불린다(RideDetailViewModel.left) —
                 // 21 의 onCancelSearch 와 같은 자리이므로 진행 중 기억도 같이 지운다. 안 지우면
@@ -997,42 +1022,8 @@ private struct MainNavContent: View {
                     ErrorBox(message: "동승자 정보를 불러오지 못했어요", onRetry: back)
                 }
             }
-        case .dispatchStatus:
-            DispatchStatusRoute(
-                rideRepository: rideRepository,
-                dispatchRepository: dispatchRepository,
-                partyId: activePartyId,
-                onStartRide: {
-                    activePartyViewModel.refresh()
-                    // 26 운행 중으로 가며 25·15·16 을 걷어낸다. **홈은 바닥에 남긴다** — resetTo 로
-                    // 스택을 비우면 26 의 뒤로가기가 마지막 한 장을 pop 해 화면 없는 빈 그래프가 되고
-                    // (04a onBack 이 가드를 둔 그 함정), `navigateTab` 도 걷어낼 홈이 없어 탭이 쌓이기만
-                    // 한다. 되돌리기 차단은 popUpTo 가 중간 화면들을 지우는 것으로 족하다.
-                    navController.navigate(.rideOngoing) {
-                        $0.popUpTo(.home)
-                        $0.launchSingleTop = true
-                    }
-                },
-                // 매칭 3분 타임아웃 — 서버가 방을 취소해 되살릴 대상이 없다. 같은 조건으로
-                // 다시 만들려면 14 홈부터 시작해야 하므로 진행 중 방 id 도 함께 비운다.
-                onRetryMatching: {
-                    activePartyId = nil
-                    createdPartyId = nil
-                    // 서버가 방을 CANCELED 로 닫았다 — 되살릴 대상이 없으니 기억도 지운다
-                    activePartyViewModel.clearParty()
-                    navigateTab(.home)
-                },
-                // 배차 단계에는 나가기가 없다(서버가 막는다). 뒤로가기는 방을 유지한 채 홈으로만 —
-                // 스택을 되돌리면 이미 지운 21 자리로 떨어져 상태와 화면이 어긋난다.
-                onBack: { navigateTab(.home) },
-                onOpenChat: onOpenActiveChat
-            )
-            // 화면의 onBack 과 같은 결론으로 모은다 — 배차 후에는 되돌릴 화면이 없다. 21 은
-            // onMatchingStarted 가 이미 스택에서 지웠으므로 기본 pop 은 15·16 방 생성 플로우로
-            // 떨어진다(공통 규칙: 배차 후 되돌리기 차단).
-            .moyeotaBackHandler { navigateTab(.home) }
 
-        // G · 채팅 · 안심 24 · 26 · 27
+        // G · 채팅 24
         case .chat:
             ChatRoute(
                 state: navController.retained(for: entry) { ChatTabState(repository: chatRepository) },
@@ -1042,7 +1033,6 @@ private struct MainNavContent: View {
                 activeChatRoomId: activePartyViewModel.chatRoomId,
                 activePartyId: activePartyViewModel.ride?.id,
                 onOpenMatching: openActiveStage,
-                onOpenRideOngoing: { navController.navigate(.rideOngoing) },
                 onLeaveChat: {
                     // 나간 방 id 를 진행 화면이 들고 있으면 「채팅 열기」가 죽은 방으로 간다 — 캐시를 버린다
                     activePartyViewModel.forgetChatRoom()
@@ -1052,8 +1042,8 @@ private struct MainNavContent: View {
                 onNotParticipant: { activePartyViewModel.forgetChatRoom() }
             )
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })
-        // 24 채팅방 **단독 목적지** — 21·25·26 의 「채팅 열기」가 이 위에 쌓인다.
-        // 뒤로가기 한 번이면 원래 진행 화면으로 돌아온다(탭 이동은 스택을 갈아엎어 그럴 수 없었다).
+        // 24 채팅방 **단독 목적지** — 21 대기 화면의 「채팅 열기」가 이 위에 쌓인다.
+        // 뒤로가기 한 번이면 21 로 돌아온다(탭 이동은 스택을 갈아엎어 그럴 수 없었다).
         // 원본의 「인자 없는 진입」 분기(`roomId == null`)는 `Route.chatRoom(roomId:)` 가 인자를 강제해 생기지 않는다.
         case .chatRoom(let roomId):
             ChatRoomDestinationRoute(
@@ -1065,7 +1055,6 @@ private struct MainNavContent: View {
                 activePartyId: activePartyViewModel.ride?.id,
                 onBack: back,
                 onOpenMatching: openActiveStage,
-                onOpenRideOngoing: { navController.navigate(.rideOngoing) },
                 onLeaveChat: {
                     // 나간 방 id 를 진행 화면이 들고 있으면 「채팅 열기」가 죽은 방으로 간다 — 캐시를 버린다
                     activePartyViewModel.forgetChatRoom()
@@ -1074,70 +1063,14 @@ private struct MainNavContent: View {
                 onTabSelect: navigateTab,
                 onNotParticipant: { activePartyViewModel.forgetChatRoom() }
             )
-        case .rideOngoing:
-            // 33 으로의 전이는 기사측 운행 종료(FINISHED)를 폴링으로 잡아 자동으로 넘어간다.
-            // 데모용 15초 자동 전환 타이머도 이전에 제거된 상태다 — 26 은 27 신고 진입점이라
-            // 사용자가 머무는 동안 화면이 제멋대로 바뀌면 안 된다(QA D-3).
-            RideOngoingRoute(
-                repository: rideRepository,
-                partyId: activePartyId,
-                onBack: { navigateTab(.home) },
-                // 채팅방을 알면 쌓아 열어 뒤로가기로 26 에 돌아오게 한다.
-                // 아직 못 찾았으면(목록 조회 실패 등) 예전처럼 채팅 탭으로 — 길을 아예 막지는 않는다
-                onOpenChat: {
-                    if let roomId = activePartyViewModel.chatRoomId {
-                        openActiveChatRoom(roomId)
-                    } else {
-                        navigateTab(.chat)
-                    }
-                },
-                onReport: { navController.navigate(.emergency) },
-                // 운행이 끝나면 33 도착 완료로 직행하고 26 은 스택에서 지운다. 남겨두면 33 에서 뒤로 왔을 때
-                // status 가 여전히 FINISHED 라 폴링이 다시 33 으로 튕겨내는 루프가 된다(21→25 와 같은 이유).
-                onRideFinished: {
-                    // 운행이 끝났다(서버 FINISHED) — 33 요약용으로 방을 잡아 둔 뒤
-                    // 진행 중 기억을 지워 홈 배너가 따라 사라지게 한다
-                    finishedRide = activePartyViewModel.ride
-                    activePartyViewModel.clearParty()
-                    navController.navigate(.rideComplete) {
-                        $0.popUpTo(.rideOngoing, inclusive: true)
-                    }
-                }
-            )
-            // 화면 ← 와 시스템 뒤로가기를 같은 결론으로 모은다 — 운행 중에는 되돌릴 화면이 없다
-            // (25 는 onStartRide 가 지웠다). 원본 예전 코드는 `back()` 이라 스택이 [rideOngoing] 한 장일 때
-            // 그 한 장을 pop 해 **빈 화면**이 됐다(택시 모드를 켜는 날 터지는 자리였다).
-            .moyeotaBackHandler { navigateTab(.home) }
-        case .emergency:
-            // 확정 흐름(3초 홀드 → 신고 저장 + 즉시 112 다이얼 → 복귀 후 통화 확인 → 26 복귀).
-            // partyId 는 내 운행(activePartyId)이 우선 — 없으면 탐색/생성 값으로 폴백한다
-            // (서버가 IN_RIDE 멤버가 아니면 REPORT_NOT_ALLOWED 로 거절하므로 안전하다).
-            EmergencyRoute(
-                repository: rideRepository,
-                partyId: activePartyId ?? selectedPartyId ?? createdPartyId,
-                // 27 「지금 타고 있는 차」 카드 — 진행 중 방이 없으면 카드를 숨긴다(번호판은 모델에 없다)
-                rideSummary: activePartyViewModel.ride.map { "\($0.origin) → \($0.destination)" },
-                onBack: back,
-                onReportSubmitted: back
-            )
 
-        // I · 완료 33 · 마이페이지 35 · 프로필 수정 36
-        case .rideComplete:
-            // 방금 끝난 방(finishedRide)이 있으면 그 값으로, 없으면(복원 진입 등) 해당 요소를 숨긴다
-            RideCompleteScreen(
-                routeLabel: finishedRide.map { "\($0.origin) → \($0.destination)" },
-                paidAmount: finishedRide.flatMap { $0.farePerPerson > 0 ? $0.farePerPerson : nil },
-                companionCount: finishedRide.flatMap { ride in
-                    let count = ride.members.filter { !$0.isMe }.count
-                    return count > 0 ? count : nil
-                },
-                onDone: { resetTo(.home) }
-            )
+        // I · 마이페이지 35 · 프로필 수정 36
         case .mypage:
             MyPageScreen(
                 userName: profileViewModel.userName,
                 onEditProfile: { navController.navigate(.profileEdit) },
                 onRideHistory: { navController.navigate(.rideHistory) },
+                onNoShowRecords: { navController.navigate(.noShowRecords) },
                 // logout() 은 실패하지 않는다 — 상태 전이는 위 `.task(id: loggedIn)` 이 받아 04a 로 보낸다.
                 // logoutRequested 를 먼저 세워 두면 그 전이를 세션 만료로 오해하지 않는다.
                 onLogout: {
@@ -1146,16 +1079,7 @@ private struct MainNavContent: View {
                     Task { try? await authRepository.logout() }
                 },
                 onDeleteAccount: { navController.navigate(.accountDelete) },
-                onTabSelect: navigateTab,
-                // 디버그 빌드 전용 — 서버 모드와 무관하게 동승/택시 화면을 강제해 본다. 릴리스엔 없다.
-                modeDebug: debuggable
-                    ? ModeDebugOptions(
-                        serverTaxiEnabled: appConfigViewModel.serverConfig.taxiEnabled,
-                        serverResolved: appConfigViewModel.resolved,
-                        override: appConfigViewModel.debugOverride,
-                        onOverride: { appConfigViewModel.setDebugOverride(taxiEnabled: $0) }
-                    )
-                    : nil
+                onTabSelect: navigateTab
             )
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })
         case .profileEdit:
@@ -1175,8 +1099,8 @@ private struct MainNavContent: View {
         case .rideHistory:
             // 34 지난 탑승 기록 — GET /api/v1/users/me/parties.
             //
-            // **진행 중인 방은 여기 나오지 않는다**(실측 2026-11-01, 로컬 :8080: status=MATCHING
-            // 방을 가진 계정도 빈 배열). 그래서 activePartyRepository 를 넘기지 않는다 — 둘은
+            // **진행 중인 방은 여기 나오지 않는다**(실측 2026-11-01, 로컬 :8080: 진행 중인 방을
+            // 가진 계정도 빈 배열). 그래서 activePartyRepository 를 넘기지 않는다 — 둘은
             // 서로를 대체하지 않고, 진행 중인 방은 14·17 의 배너가 보여 준다.
             //
             // 조회가 실패하면 화면은 「불러오지 못했어요 · 다시 시도」로 떨어진다. 조용히 빈 목록을
@@ -1184,6 +1108,19 @@ private struct MainNavContent: View {
             // 사용자는 자기 기록이 사라졌다고 읽는다.
             RideHistoryRoute(
                 repository: rideRecordRepository,
+                onBack: back
+            )
+        case .noShowRecords:
+            // 38 노쇼 기록·이의 신청 — GET /api/v1/matching/no-shows, 최대 20건.
+            //
+            // 34 와 달리 **진행 중인 방과 무관**하다. 노쇼는 이미 끝난 방에서만 생기므로
+            // activePartyRepository 를 넘길 이유가 없다.
+            //
+            // 이 화면이 하는 일의 절반은 **이의 신청**이다. 노쇼는 약속 시간부터 (횟수 × 24시간)
+            // 동안 방 만들기·참여를 막는 실제 제재이고, 잘못 찍힌 사람이 그걸 되돌릴 길은 여기뿐이다
+            // — 조회가 실패하면 빈 목록이 아니라 「불러오지 못했어요 · 다시 시도」로 떨어뜨린다.
+            NoShowRecordsRoute(
+                repository: noShowRepository,
                 onBack: back
             )
         case .accountDelete:
@@ -1207,7 +1144,7 @@ private struct MainNavContent: View {
     }
 
     private var resolvedUserName: String? {
-        if case .resolved(let name, _) = profileViewModel.userName { return name }
+        if case .resolved(let name, _, _, _) = profileViewModel.userName { return name }
         return nil
     }
 }

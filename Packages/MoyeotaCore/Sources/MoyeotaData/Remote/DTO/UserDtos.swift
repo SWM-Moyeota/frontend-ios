@@ -1,5 +1,10 @@
 /// GET /api/v1/local/users/info 의 200 응답.
-/// 백엔드 `UserResponse(UUID uuid, String name, String imageUrl)` 와 필드 1:1.
+/// 백엔드 `MyProfileResponse(UUID uuid, String name, String imageUrl, int noShowCount, Instant restrictedUntil)`
+/// 와 필드 1:1 (`user/local/dto/MyProfileResponse.java`).
+///
+/// **서버 record 이름이 `UserResponse` 가 아니다.** `UserResponse` 는 **가입 응답**의 3필드 record
+/// (`uuid`·`name`·`imageUrl`)이고 제재 필드가 없다 — 이 주석이 오래 그 이름을 적고 있었고, 그 말을
+/// 믿으면 「서버가 노쇼 필드를 안 준다」는 결론으로 간다. 두 record 는 **다른 파일**이다.
 ///
 /// 실측(2026-11-01, localhost:8080, `moyeota1` — 사진을 고른 적 없는 사용자):
 /// `{"uuid":"01a187cc-3d2f-74c3-94d5-b0d8657088ac","name":"모여타일","imageUrl":"https://cdn.moyeota.co.kr/profile/presets/default.png"}`
@@ -19,19 +24,48 @@
 /// `imageUrl` 은 2026-10-15 배포(Backend #235)로 생겼다. **서버는 이 값을 비워 보내지 않는다** —
 /// 고른 적 없는 사용자에게는 기본 이미지의 전체 주소를 준다(`ProfileImages.toUrl` 이 key 가 null 이면
 /// `default-key` 를 붙인다). 기본값 null 은 구버전 서버 대비용이다.
+///
+/// ### `noShowCount`·`restrictedUntil` — **앱이 제재를 보여 줄 수 있는 유일한 자리** ★
+/// 노쇼 제한에 걸린 사용자는 방 만들기·합류·예약 생성이 전부 403 `NO_SHOW_RESTRICTED` 로 막히는데
+/// (실시간 후보 조회는 막히지 않는다 — `UserProfileInfo.restrictedUntil`), 그 403 본문은
+/// **기한을 주지 않는다.** 즉 두 필드가 이 DTO 에 없는 동안 앱은
+/// 「왜 막혔는지」도 「언제 풀리는지」도 말할 수 없었다 — 이 응답에 **키는 내려오고 있었는데**
+/// 받는 자리가 없어 디코더가 조용히 버리던 값이다(그래서 증상이 「서버가 안 준다」로
+/// 보이지 않고 「앱이 아무 말도 못 한다」로 보였다).
+///
+/// `restrictedUntil` 은 서버 record 가 `Instant` 이고 Spring 기본 설정이 ISO-8601 **문자열**로
+/// 직렬화한다(같은 응답의 다른 `Instant` 들과 같다 — `PartyDetailResponse.createdAt`·`departureAt`
+/// 이 그 모양으로 실측됐다: `"2026-08-30T09:00:00Z"`). 그래서 `String?` 으로 받는다 —
+/// 이 계층에서 `Date` 로 바꾸지 않는 이유는 도메인 관례와 같다
+/// (`UserProfileInfo.restrictedUntil`).
+///
+/// **`noShowCount` 는 non-null `Int = 0` 이어도 된다.** 다른 DTO 의 인원수(`currentMembers`)를
+/// nullable 로 받는 이유 — 「0 은 서버가 만들 수 없는 값이라 모른다와 구별해야 한다」 — 가 여기엔
+/// 없다: 노쇼 0회는 **정상이고 흔한 값**이며, 모른다와 0 의 화면 처리가 같다(횟수를 내세우지 않는다).
+/// 서버 record 가 원시 `int` 라 명시적 null 이 올 일도 없다.
 public struct UserProfileResponse: Decodable, Equatable, Sendable {
     public var uuid: String
     public var name: String?
     public var imageUrl: String?
+    public var noShowCount: Int
+    public var restrictedUntil: String?
 
-    public init(uuid: String = "", name: String? = nil, imageUrl: String? = nil) {
+    public init(
+        uuid: String = "",
+        name: String? = nil,
+        imageUrl: String? = nil,
+        noShowCount: Int = 0,
+        restrictedUntil: String? = nil
+    ) {
         self.uuid = uuid
         self.name = name
         self.imageUrl = imageUrl
+        self.noShowCount = noShowCount
+        self.restrictedUntil = restrictedUntil
     }
 
     private enum CodingKeys: String, CodingKey {
-        case uuid, name, imageUrl
+        case uuid, name, imageUrl, noShowCount, restrictedUntil
     }
 
     public init(from decoder: any Decoder) throws {
@@ -39,6 +73,8 @@ public struct UserProfileResponse: Decodable, Equatable, Sendable {
         uuid = try c.decodeOrDefault(.uuid, default: "")
         name = try c.decodeIfPresent(String.self, forKey: .name)
         imageUrl = try c.decodeIfPresent(String.self, forKey: .imageUrl)
+        noShowCount = try c.decodeOrDefault(.noShowCount, default: 0)
+        restrictedUntil = try c.decodeIfPresent(String.self, forKey: .restrictedUntil)
     }
 }
 

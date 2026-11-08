@@ -74,7 +74,24 @@ import Testing
         #expect(await repository.loadCalls == loadsBefore + 1, "실패했는데 목록을 다시 받지 않았다")
     }
 
-    /// 404 가 아닌 실패는 사유를 가리지 않는다 — 사용자가 할 수 있는 일이 재시도뿐이다.
+    /// 홈의 지우기도 15 와 같은 네트워크 문구를 쓴다 — 같은 사실에 앱이 두 가지 말을 하지 않는다.
+    @Test("지우기의 네트워크 실패는 15 와 같은 문구를 쓴다")
+    func deleteNetworkFailureUsesSharedMessage() async {
+        let repository = FakePlaceRepository(
+            favorites: [favorite(19)],
+            batchDeleteError: FavoritePlaceException(code: nil, serverMessage: nil, isNetwork: true)
+        )
+        let viewModel = HomeViewModel(repository: repository)
+        await viewModel.refresh().value
+        viewModel.toggleFavoriteEditing()
+        viewModel.toggleFavoriteSelection(favorite(19))
+
+        await viewModel.deleteSelectedFavorites()?.value
+
+        #expect(viewModel.editState.errorMessage == FavoriteNetworkFailureMessage)
+    }
+
+    /// 404 도 네트워크도 아닌 실패는 사유를 가리지 않는다 — 사용자가 할 수 있는 일이 재시도뿐이다.
     @Test("404 가 아닌 실패는 일반 문구로 알린다")
     func otherFailureUsesGenericMessage() async {
         let repository = FakePlaceRepository(
@@ -252,8 +269,8 @@ import Testing
         #expect(!viewModel.editState.deleting, "취소 뒤에도 잠겨 있으면 손잡이를 다시 못 쓴다")
     }
 
-    /// 원본은 OkHttp `IOException("Canceled")` 을 삭제 실패로 받아 재조회하고 문구를 세운다. 조용히 끝내면
-    /// 아무것도 지워지지 않았는데 편집 화면이 아무 말도 하지 않는다.
+    /// 원본은 OkHttp `IOException("Canceled")` 을 `favoritePlaceCall` 이 `isNetwork` 인 `FavoritePlaceException` 으로 감싸
+    /// 삭제 실패로 받아 재조회하고 네트워크 문구를 세운다. 조용히 끝내면 아무것도 지워지지 않았는데 편집 화면이 아무 말도 하지 않는다.
     @Test("살아 있는 태스크의 URLError(.cancelled) 는 삭제 실패다 — 문구를 세우고 다시 받고 선택을 남긴다")
     func liveUrlCancelledDeleteIsFailure() async {
         let repository = FakePlaceRepository(favorites: [favorite(19)], batchDeleteError: URLError(.cancelled))
@@ -265,7 +282,7 @@ import Testing
         let loadsBefore = await repository.loadCalls
         await viewModel.deleteSelectedFavorites()?.value
 
-        #expect(viewModel.editState.errorMessage != nil)
+        #expect(viewModel.editState.errorMessage == FavoriteNetworkFailureMessage)
         #expect(await repository.loadCalls == loadsBefore + 1)
         #expect(viewModel.editState.selectedIds == [19], "서버가 전부-아니면-전무라 아무것도 지워지지 않았다")
         #expect(!viewModel.editState.deleting)

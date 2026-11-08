@@ -35,7 +35,7 @@ final class FakeAppConfigRepository: AppConfigRepository, @unchecked Sendable {
     func getConfig() async throws -> AppConfig { config }
 }
 
-final class FakeRideRepository: RideRepository, DispatchRepository, @unchecked Sendable {
+final class FakeRideRepository: RideRepository, @unchecked Sendable {
     var ride: Ride?
     var parties: [Ride] = []
     private let lock = NSLock()
@@ -66,13 +66,22 @@ final class FakeRideRepository: RideRepository, DispatchRepository, @unchecked S
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw FakeFailure() }
     func leaveParty(partyId: Int64) async throws {}
     func finishParty(partyId: Int64) async throws {}
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw FakeFailure() }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw FakeFailure() }
-    func confirmEmergencyCall(called: Bool) async throws {}
     func previewRoute(
         departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double
     ) async throws -> RouteEstimate { throw FakeFailure() }
-    func getDriverLocation(partyId: Int64) async throws -> DriverLocation { throw FakeFailure() }
+
+    // 약속 확정·도착·출발 — 새 화면 이동이 없어 그래프 테스트가 부르지 않는다(출발 성공은 `onPartyClosed` 길을 그대로 쓴다).
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
+    func departParty(partyId: Int64) async throws {}
+
+    // 예약 방 — 그래프 테스트는 17 을 실시간 모드로만 연다. 예약 목록은 비어 있고, 16 은 예약 방을 만들지 않는다.
+    func createReservation(request: NewReservation) async throws -> Ride { throw FakeFailure() }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 }
 
 final class FakePlaceRepository: PlaceRepository, @unchecked Sendable {
@@ -136,11 +145,24 @@ final class FakeRideRecordRepository: RideRecordRepository, @unchecked Sendable 
     }
 }
 
-func fakeRide(id: String = "7", status: RideStatus = .recruiting, driverId: Int64? = nil) -> Ride {
+final class FakeNoShowRepository: NoShowRepository, @unchecked Sendable {
+    private let lock = NSLock()
+    private var listCount = 0
+    /// 38 목록 조회 횟수 — 그래프가 이 저장소를 38 에 넘겼는지 본다.
+    var listRequests: Int { lock.withLock { listCount } }
+
+    func getMyNoShows() async throws -> [NoShowRecord] {
+        lock.withLock { listCount += 1 }
+        return []
+    }
+    func submitObjection(partyId: Int64, reason: String) async throws {}
+}
+
+func fakeRide(id: String = "7", status: RideStatus = .recruiting) -> Ride {
     Ride(
         id: id, origin: "부산대", destination: "서면", departureLabel: "지금 출발",
         capacity: 2, members: [], farePerPerson: 0, totalFare: 0,
-        status: status, driverId: driverId
+        status: status
     )
 }
 
@@ -164,6 +186,7 @@ struct GraphHarness: View {
     let rides: FakeRideRepository
     let active: FakeActivePartyRepository
     let chat: FakeChatRepository
+    let noShows: FakeNoShowRepository
     let installedVersionCode: Int64
     let probe: MainNavGraphProbe
     @Bindable var pending: PendingBox
@@ -175,16 +198,15 @@ struct GraphHarness: View {
             rideRepository: rides,
             placeRepository: FakePlaceRepository(),
             chatRepository: chat,
-            dispatchRepository: rides,
             activePartyRepository: active,
             rideRecordRepository: FakeRideRecordRepository(),
+            noShowRepository: noShows,
             pendingChatRoomId: pending.roomId,
             onPendingChatRoomHandled: {
                 pending.roomId = nil
                 pending.handled += 1
             },
             installedVersionCode: installedVersionCode,
-            debuggable: true,
             probe: probe
         )
         // 씬이 없는 창의 scenePhase 는 background 라 `lifecycleEffect` 가 시작하지 않는다. 실기의 전면 상태로 맞춘다.
@@ -200,6 +222,7 @@ final class HostedGraph {
     let rides = FakeRideRepository()
     let active = FakeActivePartyRepository()
     let chat = FakeChatRepository()
+    let noShows = FakeNoShowRepository()
     let probe = MainNavGraphProbe()
     let pending = PendingBox()
     let window: InsetWindow
@@ -219,7 +242,7 @@ final class HostedGraph {
         window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: height))
         host = UIHostingController(
             rootView: GraphHarness(
-                auth: auth, config: config, rides: rides, active: active, chat: chat,
+                auth: auth, config: config, rides: rides, active: active, chat: chat, noShows: noShows,
                 installedVersionCode: installedVersionCode, probe: probe, pending: pending
             )
         )

@@ -28,7 +28,7 @@
 
 파일 이름은 원본과 같게 한다(`RideHistoryRoute.kt` → `RideHistoryRoute.swift`). 대응 모듈에 첫 파일을 넣을 때 `Placeholder.swift` 를 지운다.
 
-기능 모듈끼리는 서로 import 할 수 없다. 원본의 기능 간 참조 다섯 개는 **PresentationCore 로 옮긴다**: `headcountLabel`(home), `CheckMarkIcon`(auth), `authUserMessage`·`NicknamePolicy`·`NicknameCheckState`(auth), `ChatForeground`(chat).
+기능 모듈끼리는 서로 import 할 수 없다. 원본의 기능 간 참조는 **PresentationCore 로 옮긴다**: `headcountLabel`(home), `CheckMarkIcon`(auth), `authUserMessage`·`NicknamePolicy`·`NicknameCheckState`(auth), `ChatForeground`(chat), `KOREA_ZONE`·`RESERVATION_WINDOW_DAYS`·`reservationDates`·`reservationDateApiValue`·`isReservationSearchDate`·`reservationDateLabel`·`reservationTimeLabel`·`reservationCommitmentNotice`(home, `PresentationCore/ReservationRules.swift` — 원본 `ReservationRules.kt` 의 나머지는 FeatureHome 에 남는다), `toMeetingInstantOrNull`(matching, `PresentationCore/MeetingInstant.swift`). 새로 생기면 이 목록에 더한다.
 
 ## 3. 언어 대응
 
@@ -45,7 +45,7 @@ Swift 6 언어 모드(엄격한 동시성), iOS 17, Swift Testing(`import Testin
 | `Flow` / `SharedFlow` / `Channel` | `AsyncStream` / `AsyncThrowingStream` (`onTermination` 에서 정리) |
 | `delay(ms)` | `try await Task.sleep(for: .milliseconds(ms))`. 테스트가 시간을 제어하던 곳은 `sleep: @Sendable (Duration) async throws -> Void` 를 주입 |
 | `Mutex` / `synchronized` / `@Volatile` | `actor` 또는 `OSAllocatedUnfairLock`·`NSLock` |
-| `java.time.LocalDate` | `MoyeotaDomain.LocalDate` (도메인 포팅 때 만든다) |
+| `java.time.LocalDate` · `LocalTime` · `DayOfWeek` | `MoyeotaDomain.LocalDate` · `LocalTime` · `DayOfWeek` (`Support/LocalDate.swift`·`LocalTime.swift`. `atTime(t).atZone(z).toInstant()` 는 `atTime(_:_:)`) |
 | `Log.w` | `os.Logger` |
 | Kotlin 패키지 `internal`, 파일 `private` | 같은 모듈 안 공유는 `internal`, 다른 모듈에서 쓰면 `public`. 테스트는 `@testable import` |
 | 최상위 함수·확장 프로퍼티 | 최상위 함수·extension. 이름 유지 |
@@ -115,7 +115,7 @@ scripts/check.sh app                     # 앱 전체
 - `Diagnostics.report(site:throwable:httpStatus:)` 는 `throws` 다. 취소를 되던지기 때문이다 — `catch` 안에서 `try` 로 부른다.
 - **조용히 끝내도 되는 것은 정말 취소된 태스크(`Task.isCancelled`)뿐이다.** `HttpClient` 는 태스크 취소를 `CancellationError` 로 바꾸므로 `URLError(.cancelled)` 가 그대로 올라왔다면 태스크는 살아 있다(세션 무효화·인증 챌린지 취소 등). 원본에서 이 값은 OkHttp `IOException("Canceled")`, 곧 네트워크 실패다. 화면 계층에서 `if isCancellation(throwable: error) { return }` 으로 끝내면 아무도 스피너·잠금을 풀어 주지 않는다. 원본의 `catch (e: CancellationException) { throw e }` 자리에는 `if Task.isCancelled { return }` 을 쓰고, 문구가 네트워크 실패로 갈리는 화면은 `failureOnLiveTask(error:transportCancelled:)`(`PresentationCore`, 인증은 `authFailureOnLiveTask`)로 같은 실패 값을 만든다. `isCancellation(throwable:)` 은 전송 실패를 분류하는 데이터 계층(`Diagnostics` 포함)의 판정이다 — `Diagnostics.report` 는 `URLError(.cancelled)` 도 되던지므로 살아 있는 태스크에서 실패로 남겨야 하면 `try?` 로 부른다.
 - `for try await` 수집이 취소되면 오류 없이 루프가 끝난다(코루틴은 예외를 던진다). 루프 뒤 코드가 「스트림이 끝났다」를 뜻하면 그 앞에서 `try Task.checkCancellation()` 을 부른다. **`MatchWaitingRoute` 의 `streamEnded` 가 대표 사례다.**
-- 프로토콜에 정적 멤버를 둘 수 없어 `ChatRepository.DEFAULT_PAGE_SIZE` 는 `ChatRepositoryDefaults.DEFAULT_PAGE_SIZE`, `RideRecordRepository` 도 같은 꼴이다.
+- 프로토콜에 정적 멤버를 둘 수 없어 `ChatRepository.DEFAULT_PAGE_SIZE` 는 `ChatRepositoryDefaults.DEFAULT_PAGE_SIZE`, `RideRecordRepository`·`NoShowRepository`(`NoShowRepositoryDefaults.HISTORY_LIMIT`) 도 같은 꼴이다.
 - `LocalDate.of(_:_:_:)` 는 Java 처럼 던지고, `LocalDate(year:month:dayOfMonth:)` 는 실패 시 nil 이다(원본 `runCatching { LocalDate.of(...) }.getOrNull()` 자리). 파라미터 이름은 Kotlin 이름을 유지한다(`isOldEnough(birthDate:today:)`).
 - 문자열 보조는 `MoyeotaDomain/Support/KotlinText.swift`(`String.trim()`, `isBlank`, Kotlin 문자 판정)를 쓴다. Swift 기본 동작과 다른 경우가 있어 임의로 대체하지 않는다.
-- 서버 `Instant` 파싱은 소수 초 유무를 모두 받아야 한다. `ChatRoute.kt`·`RideHistoryDisplay.kt` 의 시간 표시를 옮길 때 원본과 같은 입력을 받는지 테스트한다.
+- 서버 `Instant` 파싱은 소수 초 유무를 모두 받아야 한다. `ChatRoute.kt`·`RideHistoryDisplay.kt` 의 시간 표시와 `PresentationCore/MeetingInstant.swift`(원본 `MeetingFlow.kt` 의 `toMeetingInstantOrNull` — 21 약속·17·20 예약이 함께 쓴다)를 옮길 때 원본과 같은 입력을 받는지 테스트한다.

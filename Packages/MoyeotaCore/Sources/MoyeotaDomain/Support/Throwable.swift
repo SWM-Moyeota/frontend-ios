@@ -13,8 +13,8 @@ extension Throwable {
     public var errorDescription: String? { message }
 }
 
-/// `java.lang.IllegalStateException` 의 자리. `RideRepository.reportEmergency` 처럼 **한국어 메시지를 실어**
-/// 던지는 계약이 있고, 그 메시지를 화면이 보여 준다.
+/// `java.lang.IllegalStateException` 의 자리. 있어선 안 되는 상태를 만났다는 뜻이다 — STOMP·SSE 의
+/// 프로토콜 위반, 값을 돌려줘야 하는 호출이 본문 없는 응답을 받은 경우 등.
 public struct IllegalStateException: Throwable {
     public let message: String?
     public let cause: (any Error)?

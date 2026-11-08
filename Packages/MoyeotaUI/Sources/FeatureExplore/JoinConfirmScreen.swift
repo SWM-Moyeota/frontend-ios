@@ -54,6 +54,11 @@ public struct JoinConfirmScreen: View {
     private let onOpenJoinedRide: (Ride) -> Void
     private let onMemberClick: (User) -> Void
 
+    // 예약 방의 「오늘 오후 6:30」을 셈하는 기준 시각. **한 번만 읽는다** — 그릴 때마다
+    // 시계를 읽을 이유가 없고(날짜 경계를 넘길 만큼 머무는 화면이 아니다), 읽으면 같은 방이
+    // 프레임마다 다른 글자를 갖는다. 「한 번」은 화면이 보일 때마다 한 번이다(`body` 끝의 `.onAppear`).
+    @State private var now = Date()
+
     /// - Parameters:
     ///   - pickupDistanceMeters: 내 위치 → 이 방의 탑승 위치 거리(m). 모르면 nil 이고 그 줄을 감춘다.
     ///     「도보 N분」은 쓰지 않는다 — 보행 속도를 지어내야 하고, 거리와 달리 잰 값이 아니다.
@@ -113,6 +118,7 @@ public struct JoinConfirmScreen: View {
         let routeMeters = polylineDistanceMeters(points: routePath)
         let routeKm = routeMeters > 0.0 ? routeMeters / 1000.0 : nil
         let etaLabel = buildRouteChipLabel(estimatedMinutes: ride.estimatedMinutes, routeKm: routeKm)
+        let fare = joinFareOrNull(totalFare: ride.totalFare, farePerPerson: ride.farePerPerson)
 
         let sheetShape = UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .circular)
 
@@ -190,17 +196,33 @@ public struct JoinConfirmScreen: View {
                             RouteCard(
                                 origin: ride.origin,
                                 destination: ride.destination,
-                                departureLabel: ride.departureLabel.isBlank ? nil : ride.departureLabel,
+                                // 예약 방은 **언제 출발하는지가 합류 판단의 전부**다(사흘 뒤 오전 9시 방에
+                                // 들어가는 일이다). 서버가 주는 `departureLabel` 이 비어 올 수 있어
+                                // 약속 시각에서 직접 만든다 — 실시간 방은 예전 표기를 그대로 둔다
+                                // (그쪽 라벨에는 거리가 함께 들어 있다).
+                                departureLabel: joinDepartureLabel(ride: ride, now: now)
+                                    ?? (ride.departureLabel.isBlank ? nil : ride.departureLabel),
                                 pickupDistanceMeters: pickupDistanceMeters,
                                 durationLabel: ride.estimatedMinutes.map { "약 \($0)분" }
                             )
 
                             Spacer().frame(height: 16)
-                            FareCard(
-                                totalFare: ride.totalFare,
-                                farePerPerson: ride.farePerPerson,
-                                capacity: ride.capacity
-                            )
+                            // **요금을 모르는 방에는 요금 카드를 그리지 않는다**(`joinFareOrNull`) —
+                            // 예전에는 예약 방에서 「총 예상 요금 0원 · 합류 시 1인 부담 0원」을 그렸다.
+                            if let fare {
+                                FareCard(
+                                    totalFare: fare.totalFare,
+                                    farePerPerson: fare.farePerPerson,
+                                    capacity: ride.capacity
+                                )
+                            } else {
+                                Text(joinFareAbsentNotice(roomType: ride.roomType))
+                                    .moyeotaText(bodyLargeText(13, .medium), color: GrayMute)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 18)
+                                    .background(FareCardBg, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+                            }
 
                             Spacer().frame(height: 16)
                             Text("이미 참여한 사람 · \(joinedCount)명")
@@ -216,10 +238,34 @@ public struct JoinConfirmScreen: View {
                                 )
                             }
 
+                            // ★ **예약 방은 합류하면 나갈 수 없다.** 누르기 **전에** 말해야 하는 사실이라
+                            // 안내 줄보다 눈에 들게 적는다(`reservationCommitmentNotice` 주석의 근거):
+                            // 실시간 방은 「그만 찾기」로 빠져나올 수 있어서 사용자는 합류를 되돌릴 수 있는
+                            // 선택으로 배워 왔고, 이 버튼은 같은 모양으로 전혀 다른 약속을 하게 만든다.
+                            //
+                            // 배너(NoticeBanner)로 띄우지 않는다 — 이 화면은 **배너를 하나만** 쓴다는 규칙이
+                            // 있고(막힌 사유·서버 실패가 그 자리다) 둘이 되면 어느 쪽이 지금 중요한지
+                            // 알 수 없게 된다. 오류가 아니므로 빨강도 쓰지 않는다.
+                            if ride.roomType == .reservation {
+                                Spacer().frame(height: 12)
+                                Text(reservationCommitmentNotice(joining: true))
+                                    .moyeotaText(bodyLargeText(13, .bold), color: MoyeotaColor.InkPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .background(PillBg, in: RoundedRectangle(cornerRadius: 12, style: .circular))
+                            }
+
                             Spacer().frame(height: 14)
-                            Text("합류하면 바로 채팅방에 들어가요 · 1인 부담금은 정원 기준 예상 금액이에요")
-                                .moyeotaText(bodyLargeText(12, .medium), color: GrayAsh)
-                                .padding(.horizontal, 4)
+                            // 요금이 없는 방에서는 **1인 부담금 절을 뺀다** — 없는 금액의 계산 방식을
+                            // 설명하는 문장이 되고, 바로 위에 「요금이 없다」고 적어 둔 것과 모순된다.
+                            Text(
+                                fare != nil
+                                    ? "합류하면 바로 채팅방에 들어가요 · 1인 부담금은 정원 기준 예상 금액이에요"
+                                    : "합류하면 바로 채팅방에 들어가요"
+                            )
+                            .moyeotaText(bodyLargeText(12, .medium), color: GrayAsh)
+                            .padding(.horizontal, 4)
                             Spacer().frame(height: 16)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -281,6 +327,10 @@ public struct JoinConfirmScreen: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CanvasBg)
+        // 기준 시각도 원본은 `remember` 라 23 동승자 프로필에 덮였다 돌아오면 다시 읽힌다 — 덮인 동안의
+        // 낡은 기준이 남으면 자정을 넘긴 뒤에도 「내일 …」로 보여 출발일이 하루 밀린다. 처음 뜰 때도
+        // 불리지만 init 직후의 값이다.
+        .onAppear { now = Date() }
     }
 }
 
@@ -304,9 +354,7 @@ func joinStatusBadge(status: RideStatus) -> JoinStatusBadge {
     switch status {
     case .recruiting: JoinStatusBadge(kind: .success, text: "모집 중")
     case .matched: JoinStatusBadge(kind: .waiting, text: "모집 마감된 방")
-    case .dispatching: JoinStatusBadge(kind: .waiting, text: "기사님 찾는 방")
-    case .ongoing: JoinStatusBadge(kind: .info, text: "운행 중인 방")
-    case .completed: JoinStatusBadge(kind: .info, text: "운행이 끝난 방")
+    case .completed: JoinStatusBadge(kind: .info, text: "합승이 끝난 방")
     case .canceled: JoinStatusBadge(kind: .error, text: "취소된 방")
     }
 }
@@ -319,7 +367,7 @@ enum JoinGate {
     /// 이미 내가 이 방의 멤버다 — 합류가 아니라 돌아갈 자리다
     case alreadyJoined
 
-    /// 모집 중이 아닌 방(마감·배차·운행·취소)
+    /// 모집 중이 아닌 방(모집 마감·종료·취소)
     case notRecruiting
 
     /// 상태는 모집 중인데 자리가 없다
@@ -376,6 +424,57 @@ func joinGateMessage(gate: JoinGate) -> String? {
 func joinHeadcountLine(joinedCount: Int, capacity: Int, iAmMember: Bool) -> String {
     let base = "\(joinedCount)명 참여 · 목표 \(capacity)명"
     return iAmMember ? "\(base) · 이미 참여 중" : "\(base) · 내가 \(joinedCount + 1)번째"
+}
+
+/// 요금 카드가 그릴 두 금액. 하나라도 알 때만 만들어지고, 모르면 아예 없다(`joinFareOrNull`).
+struct JoinFare: Equatable {
+    var totalFare: Int
+    var farePerPerson: Int
+}
+
+/// 요금을 **말할 수 있는 방인가** — 말할 수 없으면 nil 이고 호출부가 카드를 그리지 않는다.
+///
+/// ### 왜 필요해졌나 — 예약 방이 「0원」이었다 ★
+/// 서버는 예약 방(`POST /matching/reservations`)에 **요금·경로·소요 시간을 넣지 않는다.** 도메인
+/// `Ride.totalFare`·`Ride.farePerPerson` 은 옵셔널이 아닌 `Int` 라 그 방은 0 으로 와서, 이 화면이
+/// 「총 예상 요금 0원」·「합류 시 1인 부담 0원」을 **금액으로** 그렸다. 0원은 「모른다」가 아니라
+/// **「공짜로 탄다」**로 읽히고, 그건 합류 직전에 보여 주는 가장 나쁜 거짓이다.
+///
+/// 0 을 「모른다」로 읽는 것은 이 저장소의 기존 관례다(`headcountLabel` 의 `joined <= 0`,
+/// `RideHistoryDisplay.fareOrNull` 의 둘 다 nil). 실제로 0원인 택시 요금은 없으므로 이 판정이
+/// 참값을 가리는 경우도 없다.
+///
+/// 한쪽만 아는 응답은 실측에서 본 적이 없지만(서버가 같은 값에서 둘을 만든다) **있는 쪽만** 그리지
+/// 않고 둘 다 그린다 — 0 쪽은 어차피 「모른다」라서, 둘 중 하나라도 알면 카드를 세우고 모르는 칸은
+/// 0원으로 보이는 것보다 서버가 준 값을 그대로 보여 주는 편이 낫다(그 조합은 지금 오지 않는다).
+func joinFareOrNull(totalFare: Int, farePerPerson: Int) -> JoinFare? {
+    totalFare <= 0 && farePerPerson <= 0 ? nil : JoinFare(totalFare: totalFare, farePerPerson: farePerPerson)
+}
+
+/// 요금 카드가 있던 자리의 한 줄 — **자리를 비워 두지 않는다**(빈 자리는 로딩 실패로 읽힌다).
+///
+/// 예약 방은 **왜 없는지**를 말할 수 있다(서버가 그 방에 요금을 넣지 않는다). 실시간 방에서 요금이
+/// 0 인 경우는 사유를 모르므로 **모른다고만** 한다 — 「예약이라서」라고 쓰면 틀린 설명이 된다.
+/// 16 도착지 확인이 예약 모드에서 쓰는 문구와 **같은 사실**을 말하지만 문장이 다른 이유는 그쪽은
+/// 만들기 전(요금이 생기지 않을 것이다)이고 이쪽은 만들어진 뒤(그 방에 요금이 없다)이기 때문이다.
+func joinFareAbsentNotice(roomType: RoomType) -> String {
+    switch roomType {
+    case .reservation: "예약 방은 예상 요금이 없어요. 요금은 탈 때 미터기로 정해져요"
+    case .realtime: "예상 요금을 받지 못했어요"
+    }
+}
+
+/// 20 합류 확인의 출발 표기 — **예약 방일 때만** 약속 시각에서 만든다. 실시간 방은 nil 이고
+/// 호출부가 서버 `departureLabel` 을 그대로 쓴다(그 라벨에는 거리가 함께 들어 있다).
+///
+/// 예약에서 이 줄이 비면 사용자는 **언제 출발하는지 모르고 합류**한다 — 사흘 뒤 오전 9시 방에
+/// 들어가는 일인데 목록에서 본 시각이 이 화면에는 없게 된다. 서버 `departureLabel` 을 믿지 않는
+/// 이유: 그 값은 목록·상세 응답에 따라 비어 올 수 있고, 약속 시각(`departureAt`)이 **원본**이다.
+///
+/// 읽을 수 없으면 nil 이다 — 「시간 미정」 같은 자리값을 두면 확정된 방을 미정으로 보여 준다.
+func joinDepartureLabel(ride: Ride, now: Date) -> String? {
+    guard ride.roomType == .reservation else { return nil }
+    return reservationDepartureLabel(departureAt: ride.departureAt, now: now).map { "\($0) 출발" }
 }
 
 // ─── 조각 ───────────────────────────────────────────────────────────────────

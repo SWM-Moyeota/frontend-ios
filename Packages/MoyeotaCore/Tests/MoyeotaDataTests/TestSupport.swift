@@ -30,3 +30,14 @@ func isClose(_ expected: Double, _ actual: Double?, _ delta: Double) -> Bool {
 func fieldNames<Keys: CodingKey & CaseIterable>(_ keys: Keys.Type) -> [String] {
     keys.allCases.map(\.stringValue)
 }
+
+extension Collection {
+    /// Kotlin `single()` 자리 — 원소가 정확히 하나가 아니면 던진다. `first` 로 바꾸면 「하나뿐이다」라는
+    /// 원본의 단언이 사라진다.
+    func single() throws -> Element {
+        guard count == 1, let only = first else {
+            throw CocoaError(.coderValueNotFound, userInfo: [NSDebugDescriptionErrorKey: "원소가 \(count)개다 — 하나여야 한다"])
+        }
+        return only
+    }
+}

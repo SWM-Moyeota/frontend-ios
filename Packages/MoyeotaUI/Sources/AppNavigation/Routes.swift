@@ -44,12 +44,11 @@ public enum Routes {
     public static let MATCH_WAITING = "matching/waiting"             // 21 S11
     public static let RIDE_DETAIL = "ride/detail"                    // 22 S12
     public static let PARTNER_PROFILE = "ride/partner-profile"       // 23 S13
-    public static let DISPATCH_STATUS = "ride/dispatch"              // 25 S14
 
     // G · 채팅 · 안심
     public static let CHAT = "chat"                                  // 24 S16 (+24a 메뉴 · 24b 공유 시트)
 
-    /// 24 S16 — **채팅방 단독 목적지**. 21·25·26 의 「채팅 열기」가 이리로 push 한다.
+    /// 24 S16 — **채팅방 단독 목적지**. 21 대기 화면의 「채팅 열기」가 이리로 push 한다.
     ///
     /// 채팅 탭(`CHAT`)으로 보내면 매칭 화면이 스택에서 빠져 뒤로가기로 돌아올 곳이 없어진다
     /// (사용자 신고: "채팅방에서 매칭 진행 화면으로 돌아갈 수 없다"). 방을 **쌓아** 열면
@@ -58,11 +57,7 @@ public enum Routes {
 
     public static func chatRoom(roomId: Int64) -> String { "chat/room/\(roomId)" }
 
-    public static let RIDE_ONGOING = "ride/ongoing"                  // 26 S15
-    public static let EMERGENCY = "ride/emergency"                   // 27 S17
-
-    // I · 완료 · 마이페이지
-    public static let RIDE_COMPLETE = "ride/complete"                // 33 S18
+    // I · 마이페이지
     public static let MYPAGE = "mypage"                              // 35 S24
     public static let PROFILE_EDIT = "mypage/profile-edit"           // 36 신규 (닉네임 수정)
 
@@ -73,6 +68,14 @@ public enum Routes {
     /// 지금 이 화면은 **하차까지 끝난 탑승만** 그린다 — 서버가 그것만 주기 때문이다.
     /// 진행 중인 방은 홈·탐색 배너가 맡으므로 35 와의 순환 링크도 되살리지 않았다.
     public static let RIDE_HISTORY = "mypage/ride-history"           // 34 재도입 (지난 탑승 기록)
+
+    /// 38 노쇼 기록·이의 신청 (신규, 2026-11-06) — `GET /api/v1/matching/no-shows` +
+    /// `POST /api/v1/matching/rooms/{partyId}/no-show-objection`.
+    ///
+    /// 34 와 가르는 이유: 34 는 **탄** 방을, 38 은 **안 탄 것으로 기록된** 방을 보여 준다. 노쇼로
+    /// 찍힌 방은 탑승 기록에서 빠지므로(서버) 한 화면에 섞으면 「없는 방」과 「없어진 방」이 한 목록에
+    /// 들어간다. 38 은 그 방에 **이의를 내는 창구**이기도 해서 행마다 할 수 있는 일이 다르다.
+    public static let NO_SHOW_RECORDS = "mypage/no-shows"            // 38 신규 (노쇼 기록·이의 신청)
 
     /// 37 회원 탈퇴 (신규, 2026-10) — `DELETE /api/v1/users/me`. 앱 계정 삭제 요건.
     ///
@@ -94,11 +97,10 @@ public enum Route: Hashable, Sendable {
     case profileSetup, mannerPledge, signupComplete
     case home, destination, destinationConfirm
     case explore, joinConfirm
-    case matchWaiting, rideDetail, partnerProfile, dispatchStatus
+    case matchWaiting, rideDetail, partnerProfile
     case chat
     case chatRoom(roomId: Int64)
-    case rideOngoing, emergency
-    case rideComplete, mypage, profileEdit, rideHistory, accountDelete
+    case mypage, profileEdit, rideHistory, noShowRecords, accountDelete
 
     /// 원본 `NavDestination.route` — 인자를 채우기 **전**의 패턴이다. 목적지가 같은지는 이 값으로 가른다
     /// (`popBackStack` · `launchSingleTop` · 저장된 스택의 열쇠가 모두 목적지 단위다).
@@ -120,15 +122,12 @@ public enum Route: Hashable, Sendable {
         case .matchWaiting: Routes.MATCH_WAITING
         case .rideDetail: Routes.RIDE_DETAIL
         case .partnerProfile: Routes.PARTNER_PROFILE
-        case .dispatchStatus: Routes.DISPATCH_STATUS
         case .chat: Routes.CHAT
         case .chatRoom: Routes.CHAT_ROOM
-        case .rideOngoing: Routes.RIDE_ONGOING
-        case .emergency: Routes.EMERGENCY
-        case .rideComplete: Routes.RIDE_COMPLETE
         case .mypage: Routes.MYPAGE
         case .profileEdit: Routes.PROFILE_EDIT
         case .rideHistory: Routes.RIDE_HISTORY
+        case .noShowRecords: Routes.NO_SHOW_RECORDS
         case .accountDelete: Routes.ACCOUNT_DELETE
         }
     }

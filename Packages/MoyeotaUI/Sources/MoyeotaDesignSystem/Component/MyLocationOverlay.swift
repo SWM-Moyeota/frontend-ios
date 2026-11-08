@@ -14,12 +14,6 @@ private let MinMoveM = 0.5
 /// 오차 원이 화면을 통째로 덮어 렌더러를 괴롭히지 않도록 두는 상한(pt)
 private let MaxAccuracyRadiusPx = 4000.0
 
-/// 안드로이드 SDK 기본 원의 반경(dp). 원본 26 렌더에서 잰 값이다.
-private let AndroidDefaultCircleRadius: CGFloat = 18
-
-/// 안드로이드 SDK 기본 원의 색. 원본 26 렌더의 #F7F7F7 지도 위 #EEF1F7 에서 역산했다(#1666F0, 불투명도 약 4%).
-private let androidDefaultCircleColor = UIColor(red: 22 / 255, green: 102 / 255, blue: 240 / 255, alpha: 10 / 255)
-
 /// 내 위치 파란 점 — 네이버 SDK 내장 `NMFLocationOverlay`.
 ///
 /// 지도를 쓰는 화면이 공유한다(14 홈 · 17~19 합승 · 26 운행 중). 일반 `NMFMarker` 를
@@ -40,14 +34,11 @@ private let androidDefaultCircleColor = UIColor(red: 22 / 255, green: 102 / 255,
 ///     되지 않는 화면에서는 넘기지 않는다
 ///   - bearingDegrees: 이동 방향. 모르는 fix 는 화살표를 띄우지 않는다 — 없는 방향을 북쪽이라고
 ///     그리면 사용자가 반대로 걸어간다
-///   - sdkDefaultCircle: 26 전용. 원본 26 은 공용 오버레이 대신 축약판을 써서 원을 건드리지 않고, 안드로이드 SDK 기본 원이 남는다.
-///     iOS SDK 기본은 원을 그리지 않아 같은 원을 직접 준다. `accuracyMeters` 보다 우선한다
 public struct MyLocationOverlay: View {
     private let map: NMFMapView?
     private let position: LatLng
     private let accuracyMeters: Float?
     private let bearingDegrees: Float?
-    private let sdkDefaultCircle: Bool
 
     @State private var rendered: LatLng
 
@@ -55,14 +46,12 @@ public struct MyLocationOverlay: View {
         map: NMFMapView?,
         position: LatLng,
         accuracyMeters: Float? = nil,
-        bearingDegrees: Float? = nil,
-        sdkDefaultCircle: Bool = false
+        bearingDegrees: Float? = nil
     ) {
         self.map = map
         self.position = position
         self.accuracyMeters = accuracyMeters
         self.bearingDegrees = bearingDegrees
-        self.sdkDefaultCircle = sdkDefaultCircle
         _rendered = State(initialValue: position)
     }
 
@@ -105,11 +94,6 @@ public struct MyLocationOverlay: View {
                 guard let map else { return nil }
                 let accuracy = accuracyMeters
                 let overlay = map.locationOverlay
-                if sdkDefaultCircle {
-                    overlay.circleRadius = AndroidDefaultCircleRadius
-                    overlay.circleColor = androidDefaultCircleColor
-                    return nil
-                }
                 let applyRadius = { overlay.circleRadius = accuracyRadius(map, accuracy) }
                 applyRadius()
                 let listener = MapCameraChangeListener(onChange: applyRadius)

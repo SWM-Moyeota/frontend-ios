@@ -203,16 +203,19 @@ public final class RemoteActivePartyRepository: ActivePartyRepository {
 
     fileprivate static let CHAT_ROOM_SCAN_LIMIT = 5
 
-    /// "진행 중"으로 볼 상태들.
+    /// "진행 중"으로 볼 상태들. **둘뿐이다** — 기사·배차 단계(DISPATCHING·ONGOING)가 사라졌다
+    /// (서버가 `MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE` 를 보낼 수 없게 됐다).
     ///
-    /// `RideStatus.matched` 가 들어 있는 게 중요하다 — 서버 `COMPLETED`(정원 충족, 기사 매칭 직전)가
-    /// 여기로 매핑된다(`partyStatusToRideStatus`). 이걸 빼면 정원이 막 찬
-    /// 방, 즉 사용자가 화면을 가장 보고 싶어 하는 그 순간의 방이 "끝난 방"으로 지워진다.
+    /// `RideStatus.matched` 가 들어 있는 게 중요하다 — 서버 `COMPLETED`(정원 충족)가 여기로
+    /// 매핑된다(`partyStatusToRideStatus`). 이걸 빼면 정원이 막 찬 방,
+    /// 즉 사용자가 화면을 가장 보고 싶어 하는 그 순간의 방이 "끝난 방"으로 지워진다.
+    ///
+    /// 남은 둘(COMPLETED·CANCELED)은 끝난 방이다. 모르는 서버 문자열은 매퍼가
+    /// `RideStatus.recruiting` 으로 떨어뜨리므로 **진행 중으로 남는다** — 옛 서버의
+    /// `MATCHING` 방을 「끝났다」로 지워 복귀 경로를 잃는 쪽보다 낫다.
     fileprivate static let ACTIVE_STATUSES: Set<RideStatus> = [
         .recruiting,
         .matched,
-        .dispatching,
-        .ongoing,
     ]
 }
 

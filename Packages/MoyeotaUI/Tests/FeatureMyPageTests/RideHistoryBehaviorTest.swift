@@ -240,14 +240,4 @@ private func page(_ ids: [Int64], next: Int64? = nil) -> Result<RideRecordPage, 
         #expect(wonLabel(amount: 1_234_567) == "1,234,567원")
         #expect(wonLabel(amount: -1_500) == "-1,500원")
     }
-
-    @Test("도착 완료 요약은 값이 있는 칸만 만든다")
-    func rideCompleteCells() {
-        let both = rideCompleteSummaryCells(paidAmount: 4000, companionCount: 2)
-        #expect(both.map(\.value) == ["4,000원", "2명"])
-        #expect(both.map(\.label) == ["1인 부담", "함께 탄 사람"])
-
-        #expect(rideCompleteSummaryCells(paidAmount: nil, companionCount: 2).map(\.label) == ["함께 탄 사람"])
-        #expect(rideCompleteSummaryCells(paidAmount: nil, companionCount: nil).isEmpty)
-    }
 }

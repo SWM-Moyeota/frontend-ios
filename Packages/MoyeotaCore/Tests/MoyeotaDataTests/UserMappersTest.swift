@@ -83,12 +83,94 @@ import Testing
         #expect(dto.toDomain().imageUrl == nil)
     }
 
+    /// **제재 두 필드가 도메인까지 흐르는지.** 서버 `MyProfileResponse` 에는 2026-11-06 기준
+    /// `noShowCount`·`restrictedUntil` 이 있고, 앱 DTO 에 그 자리가 없던 동안 디코더가
+    /// **조용히 버리고 있었다** — 즉 「서버가 안 준다」가 아니라 「앱이 안 받는다」였고, 그래서 제재당한
+    /// 사용자는 방 만들기·합류가 403 으로 막히는 이유를 알 수 없었다.
+    ///
+    /// 본문 모양은 서버 컨트롤러 테스트(`LocalUserControllerUnitTest`)가 못 박은 것과 같다 —
+    /// `restrictedUntil` 은 숫자(epoch)가 아니라 **ISO-8601 문자열**이다(레포에 Jackson
+    /// `WRITE_DATES_AS_TIMESTAMPS` 설정이 없고 `@JsonFormat` 도 없다).
+    @Test("노쇼 횟수와 제한 기한이 도메인까지 흐른다")
+    func sanctionFieldsFlow() throws {
+        let body = """
+            {"uuid":"u-1","name":"김성윤","imageUrl":"https://cdn.moyeota.co.kr/profile/presets/01.png",
+             "noShowCount":2,"restrictedUntil":"2026-11-04T08:30:00Z"}
+            """
+
+        let info = try decodeJSON(UserProfileResponse.self, body).toDomain()
+
+        #expect(info.noShowCount == 2)
+        #expect(info.restrictedUntil == "2026-11-04T08:30:00Z")
+    }
+
+    /// 제한이 없으면 서버가 **키는 남기고 값만 null** 로 준다(`@JsonInclude` 가 레포 전체에 없어
+    /// Jackson 기본값 `ALWAYS` 다 — 서버 테스트가 `jsonPath("$.restrictedUntil").value(nullValue())`
+    /// 로 확인한다). 논-널로 선언했다면 **제재가 없는 평범한 사용자**의 내 정보 조회가 통째로 터져
+    /// 로그인 직후 화면이 열리지 않는다 — 가장 흔한 경우에서 깨지는 쪽이다.
+    @Test("제한 기한이 null 이면 제한 없음으로 읽는다")
+    func nullRestrictedUntil() throws {
+        let body = #"{"uuid":"u-1","name":"김성윤","noShowCount":0,"restrictedUntil":null}"#
+
+        let info = try decodeJSON(UserProfileResponse.self, body).toDomain()
+
+        #expect(info.noShowCount == 0)
+        #expect(info.restrictedUntil == nil)
+    }
+
+    /// 구버전 서버에는 두 키가 **아예 없다**. 기본값으로 떨어져야 하고, 그 기본값은
+    /// 「제재 없음」과 같은 모양이어야 한다 — 화면이 「모른다」와 「없다」를 따로 다루지 않기 때문이다
+    /// (`UserProfileInfo.noShowCount` 주석).
+    @Test("제재 키가 아예 없어도 파싱되고 기본값으로 떨어진다")
+    func missingSanctionKeys() throws {
+        let info = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤"}"#).toDomain()
+
+        #expect(info.noShowCount == 0)
+        #expect(info.restrictedUntil == nil)
+    }
+
+    /// ⚠️ **소수점 아래가 붙어도 문자열로 그대로 흘러야 한다.** 서버 컬럼이 `timestamp(6)` 이라
+    /// 실제 값에 마이크로초가 실릴 수 있다. 이 계층이 파싱하지 않는 것이 그 대비이고
+    /// (`Date` 로 바꿨다면 고정 패턴을 쓴 코드가 여기서 깨진다), 화면은 소수 초 유무를 모두 받는 파서로 읽는다.
+    @Test("마이크로초가 붙은 제한 기한도 그대로 흐른다")
+    func microsecondRestrictedUntil() throws {
+        let body = #"{"uuid":"u-1","noShowCount":1,"restrictedUntil":"2026-11-04T08:30:00.123456Z"}"#
+
+        #expect(
+            try decodeJSON(UserProfileResponse.self, body).toDomain().restrictedUntil
+                == "2026-11-04T08:30:00.123456Z"
+        )
+    }
+
+    /// 이름·이미지와 달리 **제한 기한에는 공백 정규화를 걸지 않는다.** 두 필드의 「없음」은 뜻이 다르다:
+    /// 이름의 null 은 「표시할 이름이 없다」이고 이쪽은 **「제한이 없다」는 사실 판정**이다. 정규화를
+    /// 끼우면 서버가 뭔가 보냈는데 비어 있었던 경우가 「제한 없음」으로 조용히 접히고, 화면은 막힌
+    /// 사용자에게 아무 안내도 하지 않는다. 그래서 **빈 문자열은 빈 문자열로 올라가고**, 읽을 수 없는
+    /// 값이라는 판정은 화면이 한다(`NoShowRecordsDisplay` 가 파싱 실패를 「제한 없음」이 아니라
+    /// 「기한 미표시」로 떨어뜨린다).
+    @Test("제한 기한의 공백을 매퍼가 접지 않는다")
+    func restrictedUntilNotNormalized() {
+        #expect(UserProfileResponse(uuid: "u-1", restrictedUntil: "").toDomain().restrictedUntil == "")
+        #expect(UserProfileResponse(uuid: "u-1", restrictedUntil: "  ").toDomain().restrictedUntil == "  ")
+    }
+
     @Test("모르는 필드가 늘어나도 파싱이 깨지지 않는다")
     func unknownFields() throws {
         // DTO 가 가진 필드를 여기 쓰면 "모르는 필드"가 아니게 되어 아무것도 검사하지 않는 테스트가 된다.
         let body = #"{"uuid":"u-1","name":"김성윤","badgeId":3,"mannerScore":4.5}"#
 
         #expect(try decodeJSON(UserProfileResponse.self, body).toDomain().name == "김성윤")
+    }
+
+    // 원본에는 없는 테스트다 — 이슈 #35 §3. 프로필 DTO 는 호환 키(`badgeId`·`taxiEnabled`·`taxiDriverId`)를
+    // 하나도 받지 않는다. 서버가 그 키들을 지우는 날에도 프로필이 그대로 읽히는지 가장 작은 본문으로 본다
+    // (위 테스트는 반대로 키가 **있을 때** 흘리는 쪽이다).
+    @Test("호환 키 없이도 프로필이 디코딩된다")
+    func decodesWithoutCompatKeys() throws {
+        let info = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤"}"#).toDomain()
+
+        #expect(info.uuid == "u-1")
+        #expect(info.name == "김성윤")
     }
 
     /// 목록 본문은 **엔벨로프 없는 벗은 배열**이다. 그리고 `ProfileImage.key` 는 서버에 보내는 값,

@@ -16,8 +16,19 @@ public final class RemotePlaceRepository: PlaceRepository {
         try await api.reverseGeocode(latitude: latitude, longitude: longitude).toReverseAddressOrNull()
     }
 
+    /// **삭제와 같은 경계를 쓴다** — 등록도 실패를 `FavoritePlaceException` 으로 좁힌다.
+    /// raw `HttpException` 으로 올리면 presentation 이 네트워크 계층을 모르므로
+    /// (`MoyeotaUI` 는 `MoyeotaDomain` 만 본다) 화면이 `catch` 하나로 뭉개는 것밖에
+    /// 할 수 없고, 실제로 그랬다.
+    ///
+    /// 등록 실패는 **409 두 가지**이고 상태 코드로는 안 갈린다 —
+    /// `FAVORITE_PLACE_DUPLICATED`(이미 담겼다, 할 일 없음)와
+    /// `FAVORITE_PLACE_LIMIT_EXCEEDED`(상한이 찼다, 하나를 빼면 담긴다).
+    /// 사용자가 할 일이 반대라 화면이 `isDuplicated`·`isLimitExceeded` 로 가른다.
     public func addFavoritePlace(place: Place) async throws {
-        try await api.addFavoritePlace(request: place.toFavoriteRequestDto())
+        try await favoritePlaceCall {
+            try await api.addFavoritePlace(request: place.toFavoriteRequestDto())
+        }
     }
 
     /// 서버가 정렬을 보장한다는 언급이 없어(placeSequence 만 내려줌) 앱에서 순서를 확정한다

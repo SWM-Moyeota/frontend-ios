@@ -96,15 +96,31 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
     func finishParty(partyId: Int64) async throws { throw TestFailure() }
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw TestFailure() }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw TestFailure() }
-    func confirmEmergencyCall(called: Bool) async throws { throw TestFailure() }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
+    func departParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(
         departureLat: Double,
         departureLng: Double,
         destinationLat: Double,
         destinationLng: Double
     ) async throws -> RouteEstimate { throw TestFailure() }
+
+    // 예약 방 — 이 테스트가 보는 동작에는 쓰이지 않는다.
+    func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(
+        swLat: Double,
+        swLng: Double,
+        neLat: Double,
+        neLng: Double
+    ) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 }
 
 @MainActor
@@ -356,7 +372,7 @@ struct ExploreViewModelTest {
         viewModel.onScreenStop()
         await eventually("대기 취소") { sleeper.waitingCount == 0 }
         let requestsBefore = sleeper.requests.count
-        _ = ExploreRoute(viewModel: viewModel)
+        _ = ExploreRoute(viewModel: viewModel, finderViewModel: ReservationFinderViewModel(repository: repository))
 
         let gate = AsyncStream<Void>.makeStream()
         repository.enqueue {

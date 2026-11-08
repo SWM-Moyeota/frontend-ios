@@ -14,7 +14,7 @@ import SwiftUI
 enum MaterialTextStyle {
     /// `typography.bodyLarge` — 줄 높이 24, 자간 0.5.
     ///
-    /// 33 제목·35 제목 아래가 모두 이 값으로 내려간다.
+    /// 35 제목 아래가 이 값으로 내려간다.
     static func bodyLarge(fontSize: CGFloat, fontWeight: Font.Weight = .regular) -> MoyeotaType {
         MoyeotaType.inheritedBodyLarge(fontSize: fontSize, fontWeight: fontWeight)
     }

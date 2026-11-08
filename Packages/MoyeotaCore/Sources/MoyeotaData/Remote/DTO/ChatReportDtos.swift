@@ -2,10 +2,11 @@
 /// (백엔드 chat/report/dto/ChatReportRequest.java 와 필드 1:1). 응답은 **201, 본문 없음**이다 —
 /// reportId 를 주지 않으므로 응답 DTO 가 없다.
 ///
-/// **기존 긴급 신고(`ReportRequestDto`)와 다른 것이다.** 그쪽은 「파티 + 내 좌표」를 신고하고 사유
-/// 필드가 아예 없다(`ReportRequestDto` 주석의 「임의로 추가하지 말 것」). 이쪽은 **메시지 1건**을
-/// 사유와 함께 신고한다. 둘을 한 DTO 로 합치면 어느 쪽이든 서버가 400 으로 거절한다 —
-/// `ChatReportContractTest` 가 그 합침을 막는다.
+/// **앱에 남은 유일한 신고 본문이다.** 운행 중 긴급 신고(`POST /api/v1/reports` 의
+/// `ReportRequestDto`)가 따로 있었지만 기사·배차와 함께 지웠다 — 그쪽은 「파티 + 내 좌표」를 보내고
+/// 사유 필드가 아예 없었다. 이쪽은 **메시지 1건**을 사유와 함께 신고한다. 없어진 긴급 신고를 이
+/// 본문에 끼워 되살리면(좌표를 더하거나 사유를 떼면) 서버가 400 으로 거절한다 —
+/// `AuthenticatedPathContractTest` 가 그 합침을 막는다.
 ///
 /// ### 필드
 /// - `chatMessageId` — 서버가 `@NotNull @Positive` 로 받는다. 0 을 보내면 400 `INVALID_REQUEST`

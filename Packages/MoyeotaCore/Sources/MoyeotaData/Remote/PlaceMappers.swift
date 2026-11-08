@@ -121,12 +121,16 @@ extension Array where Element == Int64 {
 }
 
 extension Error {
-    /// 즐겨찾기 삭제 실패를 `FavoritePlaceException` 으로 좁힌다 — presentation 이 HTTP 를 모르게 하는
-    /// 경계다(`toChatException` 과 같은 방식).
+    /// 즐겨찾기 등록·삭제 실패를 `FavoritePlaceException` 으로 좁힌다 — presentation 이 HTTP 를 모르게
+    /// 하는 경계다(`toChatException` 과 같은 방식).
     ///
-    /// 상태 코드만으로 갈리지 않는다: **404 하나에 「이미 지워졌다」·「없는 id」·「남의 id」가 전부
-    /// 들어 있다**(실측(2026-11-01, 로컬 `:8080`) — 403 이 아니다). 그래서 코드까지 읽어 두고,
-    /// 화면은 `FavoritePlaceException.isNotFound` 로만 분기한다.
+    /// 상태 코드만으로 갈리지 않는다. **양쪽 다 한 상태에 여러 뜻이 들어 있다**:
+    /// - 삭제의 404 하나에 「이미 지워졌다」·「없는 id」·「남의 id」가 전부 들어 있다
+    ///   (실측(2026-11-01, 로컬 `:8080`) — 403 이 아니다).
+    /// - 등록의 409 하나에 `FAVORITE_PLACE_DUPLICATED` 와 `FAVORITE_PLACE_LIMIT_EXCEEDED` 가 들어 있다.
+    ///
+    /// 그래서 코드까지 읽어 둔다. 화면은 삭제는 `FavoritePlaceException.isNotFound` 로,
+    /// 등록은 `FavoritePlaceException.isLimitExceeded`·`FavoritePlaceException.isDuplicated` 로 분기한다.
     ///
     /// 본문 파싱 실패를 null 로 접는 이유: `{code,message}` 가 아닌 응답이 실제로 온다 —
     /// `POST .../favorite-places/all` 은 405 에 Spring 기본 `{timestamp,status,error,path}` 를 싣는다(실측).
@@ -153,7 +157,7 @@ extension Error {
     }
 }
 
-/// 즐겨찾기 삭제 호출을 감싸 실패를 `FavoritePlaceException` 으로 통일한다.
+/// 즐겨찾기 등록·삭제 호출을 감싸 실패를 `FavoritePlaceException` 으로 통일한다.
 /// 취소는 그대로 통과시킨다 — 취소를 에러로 바꾸면 화면 이탈이 에러 문구로 보인다.
 func favoritePlaceCall<T>(
     isolation: isolated (any Actor)? = #isolation,

@@ -27,23 +27,41 @@ Mixpanel 을 아는 파일은 리포터 하나라서 Amplitude 로 바꾸더라�
 | 순서 | 이벤트 | 기록 시점 | 프로퍼티 |
 |---|---|---|---|
 | 1 | `complete_signup` | 12 매너 서약에서 가입 + 자동 로그인이 **모두** 끝났을 때 | `gender`(male/female/undisclosed), `age_band`(10s·20s·…·60s+) |
-| 2 | `request_match` | 16 방 만들기 또는 20 합류가 서버에 받아들여졌을 때 | `method`(create/join), `capacity`, `origin_area`, `destination_area`, `estimated_fare` |
+| 2 | `request_match` | 16 실시간 방 만들기 또는 20 합류(예약 방 포함)가 서버에 받아들여졌을 때 | `method`(create/join), `capacity`, `origin_area`, `destination_area`, `estimated_fare` |
 | 3 | `complete_match` | 21 매칭 대기가 방 상태를 정원 충족(MATCHED) 이상으로 처음 봤을 때 | `capacity`, `member_count`, `waited_seconds`(화면 진입 기준) |
+
+`complete_match` 정원 판정은 **status 로만** 한다: `MATCHED` 충족, `RECRUITING`·`COMPLETED`·`CANCELED` 아님.
+(예전에는 `DISPATCHING`·`ONGOING` 도 충족에 들어갔다. 둘은 기사·배차와 함께 지웠다 — **Android 와 대시보드의 같은 판정도 함께 맞춰야 한다.**)
 
 ### 나머지
 
 | 종류 | 이벤트 | 기록 시점 | 프로퍼티 |
 |---|---|---|---|
 | View | `view_screen` | 내비게이션 스택의 맨 위가 바뀔 때마다 | `screen` = `Route.destination`(예: `home`, `matching/waiting`, `chat/room/{roomId}`) |
-| Click | `click_create_party` | 16 「방 만들기」를 눌러 요청이 나감 | `capacity` |
+| Click | `click_create_party` | 16 「지금 출발」로 「같이 탈 사람 찾기」를 눌러 요청이 나감 | `capacity` — 고른 칩 값이 아니라 **실제로 보내는 값**(선택 범위로 접은 정원) |
 | Click | `click_join_party` | 20 「합류하기」를 눌러 요청이 나감 | — |
 | Action | `complete_login` | 04a 아이디 로그인 성공 | — |
-| Action | `fail_match_request` | 방 만들기·합류가 거절됨 | `method`, `reason`(already_in_party·party_full·party_closed·party_not_found·already_joined·same_departure_destination·out_of_service_area·invalid_capacity·route_unavailable·network·unknown) |
+| Action | `fail_match_request` | 실시간 방 만들기·합류(예약 방 포함)가 거절됨 | `method`, `reason`(already_in_party·party_full·party_closed·party_not_found·already_joined·same_departure_destination·out_of_service_area·invalid_capacity·route_unavailable·network·unknown) |
 | Action | `cancel_match` | 21 「그만 찾기」·「방 나가기」 성공 | `capacity`, `member_count` |
 | Action | `finish_party` | 동승 모드 「합승 완료」 성공(방장) | `member_count` |
-| Action | `finish_ride` | 택시 모드에서 운행 종료를 감지해 33 으로 넘어감 | — |
-| Action | `trigger_emergency` | 27 긴급 신고 3초 홀드 완료 | — |
 | Action | `delete_account` | 37 탈퇴가 204 를 받음 | — |
+
+**은퇴한 이름 — `finish_ride` · `trigger_emergency`.** 유일한 기록 지점이던 26 운행 중·27 긴급 신고를
+택시 제거(2026-11-04)로 지워 보내는 곳이 없어졌다. 보드에 옛 데이터가 남아 있으니 **다른 뜻으로
+되살려 쓰지 않는다** — 이름이 같고 뜻이 다른 두 시기가 한 퍼널에 섞인다.
+
+**아직 이벤트가 없는 것 — 약속 확정·출발지 도착·출발(2026-11-06).** 21 에 들어온 세 행동은 기록 지점이 없다.
+이름은 두 플랫폼이 먼저 합의하고 동시에 넣는다(frontend-ios#35 §3). 확정된 방은 「출발」로만 끝나고 그때
+`finish_party` 를 보내지 않는다 — 그래서 `finish_party` 는 이제 **확정 전 방**의 「합승 완료」만 센다(확정된 방에서는
+버튼이 숨고 서버도 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 로 막는다).
+
+**아직 이벤트가 없는 것 — 예약 방 만들기·노쇼 이의 신청(2026-11-07).** 16 「시간 정하기」로 예약 방을 만들면
+iOS 는 `click_create_party`·`request_match`·`fail_match_request` 를 **하나도 보내지 않는다**. Android 는 같은 세 이벤트에
+`method = create` 로 싣지만(예약 방은 요금이 없어 `estimated_fare` 키가 빠진다), 새 기능의 이름은 두 플랫폼이 먼저
+합의한다(frontend-ios#35 §3) — 그 전에 보내면 같은 이름이 플랫폼마다 다른 것을 센다. 그래서 iOS 의 `method = create` 는
+지금 **실시간 방만** 센다. 예약 방에 **합류**하는 길은 새 기능이 아니라 기존 20 합류라 Android 와 같이 `click_join_party`·
+`request_match`·`fail_match_request` 를 `method = join` 으로 보낸다(방 상세에 요금이 없으면 `estimated_fare` 키가 빠진다).
+38 노쇼 이의 신청에는 이벤트가 없다(두 플랫폼 모두).
 
 모든 이벤트에 리포터가 `build`(debug/release)를 super property 로 붙인다. Mixpanel SDK 가 OS·앱 버전·기기 모델을 알아서 붙인다.
 

@@ -55,11 +55,57 @@ struct JoinFailureMessageTest {
         #expect(joinFailureMessage(e: failure(code: nil, httpStatus: 404)) == expected)
     }
 
-    @Test("다른 방에 참여 중 - 그 방을 먼저 정리하라고 말한다")
-    func inAnotherParty() {
+    @Test("확정 전 다른 방에 참여 중 - 그 방을 먼저 정리하라고 말한다")
+    func inAnotherUnconfirmedParty() {
         // 확인 결과 내가 이 방 멤버가 아니었을 때(또는 확인 자체가 실패했을 때) 여기로 떨어진다.
-        let message = joinFailureMessage(e: failure(code: PartyJoinException.ALREADY_JOINED_OTHER_PARTY))
+        let message = joinFailureMessage(
+            e: failure(code: PartyJoinException.ALREADY_JOINED_OTHER_PARTY),
+            blockingConfirmed: false
+        )
         #expect(message == "이미 참여 중인 방이 있어요. 그 방에서 나온 뒤 합류해 주세요")
+    }
+
+    /// ★ 못 박는 것: **할 수 없는 일을 시키지 않는다.**
+    ///
+    /// 막은 방이 약속이 정해진 방이면 「그 방에서 나온 뒤」가 **불가능한 지시**다 — 나가기는 409
+    /// `CANNOT_LEAVE_CONFIRMED_PARTY`, 방 종료는 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 로 막힌다.
+    /// 끝내는 길은 출발지에 가서 「출발」을 누르는 것 하나뿐이라, 그 길을 말해 준다.
+    ///
+    /// 이 상태는 드물지 않다: 약속을 정해 둔 사용자가 17 탐색을 둘러보다 다른 방에 합류를 누르면
+    /// 바로 여기다. 나가기 버튼을 찾아 헤매게 하면 그 사람은 앱이 고장 난 줄 안다.
+    @Test("약속이 정해진 방이 막고 있으면 나가라고 하지 않는다")
+    func confirmedBlockingPartyDoesNotSayLeave() {
+        let message = joinFailureMessage(
+            e: failure(code: PartyJoinException.ALREADY_JOINED_OTHER_PARTY),
+            blockingConfirmed: true
+        )
+
+        #expect(message == "약속이 정해진 방에 참여 중이에요. 출발지에서 「출발」을 눌러 그 방을 끝낸 뒤에 합류할 수 있어요")
+        #expect(!message.contains("나온 뒤"), "나갈 수 없는 방에서 나오라고 시킨다")
+    }
+
+    /// 막은 방을 못 찾았을 때(기억이 없고 채팅방 훑기로도 안 나옴). **단정하지 않는다** —
+    /// 틀릴 수 있는 지시보다 틀릴 수 없는 안내가 낫고, 그 방으로 보내면 방 화면이 사실을 말해 준다.
+    @Test("막은 방을 모르면 나가라고도 출발하라고도 하지 않는다")
+    func unknownBlockingPartyDoesNotPrescribe() {
+        let message = joinFailureMessage(
+            e: failure(code: PartyJoinException.ALREADY_JOINED_OTHER_PARTY),
+            blockingConfirmed: nil
+        )
+
+        #expect(message == "이미 참여 중인 방이 있어요. 홈에서 진행 중인 방을 확인해 주세요")
+        #expect(!message.contains("나온 뒤"))
+        #expect(!message.contains("출발"))
+    }
+
+    /// 세 경우가 서로 다른 말을 한다 — 같은 문구로 뭉개면 가린 의미가 사라진다.
+    @Test("막은 방의 사정마다 다른 말을 한다")
+    func everyBlockingCaseSaysSomethingDifferent() {
+        let messages = ([true, false, nil] as [Bool?]).map {
+            joinFailureMessage(e: failure(code: PartyJoinException.ALREADY_JOINED_OTHER_PARTY), blockingConfirmed: $0)
+        }
+
+        #expect(Set(messages).count == 3, "\(messages)")
     }
 
     @Test("이미 참여한 방 코드 - 확인은 못 했지만 재시도를 권하지는 않는다")

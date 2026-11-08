@@ -49,14 +49,6 @@ struct FinishFailureMessageTest {
         )
     }
 
-    @Test("기사가 배정됐다 - 직접 끝낼 방이 아니라고 말한다")
-    func driverAssigned() {
-        #expect(
-            finishFailureMessage(e: failure(PartyFinishException.DRIVER_ALREADY_ASSIGNED))
-                == "이미 기사가 배정된 방이라 직접 완료할 수 없어요"
-        )
-    }
-
     @Test("사라진 방")
     func partyNotFound() {
         #expect(
@@ -65,8 +57,11 @@ struct FinishFailureMessageTest {
         )
     }
 
-    /// **서버가 코드를 늘려도 앱이 지어내면 안 된다.** 403·409 가 각각 두 가지 뜻이라 상태 코드만으로
+    /// **서버가 코드를 늘려도 앱이 지어내면 안 된다.** 403 이 두 가지 뜻이라 상태 코드만으로
     /// 사유를 고르면 반드시 절반은 틀린 말이 된다 — 모르면 일반 문구로 떨어진다.
+    ///
+    /// 사라진 `DRIVER_ALREADY_ASSIGNED` 도 이 경로로 떨어진다(서버가 코드를 지웠다). 옛 서버가 보내도
+    /// 앱은 지어내지 않는다 — `RemoteRideRepositoryTest` 가 그 한 건을 따로 고정한다.
     @Test("모르는 코드는 일반 문구로 떨어진다 - 상태 코드로 추측하지 않는다")
     func unknownCode() {
         #expect(finishFailureMessage(e: failure("PARTY_SOMETHING_NEW")) == general)
@@ -83,13 +78,27 @@ struct FinishFailureMessageTest {
         #expect(finishFailureMessage(e: failure(nil, httpStatus: nil)) == general)
     }
 
+    /// 409 — **확정된 방이다.** 그 방을 끝내는 길은 「출발」 하나이고(노쇼가 거기서 기록된다),
+    /// 화면이 확정된 방에서 이 버튼을 **숨기므로**(`canFinishParty`) 평소에는 오지 않는다.
+    ///
+    /// 그래도 분기를 두는 이유는 `NOT_PARTY_HOST` 와 같다: 확정 사실은 SSE 로 오고 그 프레임을
+    /// 놓치면 내 스냅샷이 낡은 채로 버튼을 보여 준다. 그 틈에 눌린 것을 받아 **다음에 눌러야 할
+    /// 버튼 이름**을 말해 준다 — 「완료할 수 없어요」만 적으면 그 방을 끝낼 길이 없어 보인다.
+    @Test("확정된 방이면 눌러야 할 버튼 이름을 말한다")
+    func useDepartForConfirmedParty() {
+        let message = finishFailureMessage(e: failure(PartyFinishException.USE_DEPART_FOR_CONFIRMED_PARTY))
+
+        #expect(message == "약속 시간이 정해진 방이에요. 「출발」을 눌러 끝내 주세요")
+        #expect(message.contains("출발"), "화면에 있는 버튼 이름이어야 한다")
+    }
+
     private var allFailures: [PartyFinishException] {
         [
             failure(PartyFinishException.NOT_PARTY_HOST, httpStatus: 403),
             failure(PartyFinishException.NOT_PARTY_MEMBER, httpStatus: 403),
             failure(PartyFinishException.PARTY_NOT_COMPLETED),
-            failure(PartyFinishException.DRIVER_ALREADY_ASSIGNED),
             failure(PartyFinishException.PARTY_NOT_FOUND, httpStatus: 404),
+            failure(PartyFinishException.USE_DEPART_FOR_CONFIRMED_PARTY),
             failure(nil, httpStatus: nil),
         ]
     }
@@ -103,7 +112,7 @@ struct FinishFailureMessageTest {
 
     /// 지키지 못할 약속을 넣지 않는다. 이 저장소는 거짓 문구 19건을 들어낸 이력이 있고
     /// (`ProductClaimsTest` 주석), 여기서 특히 위험한 건 **재시도 안내**다 —
-    /// 403·409 는 다시 눌러도 같은 답이다. 방 사정(방장·정원·기사)이 바뀌어야 풀린다.
+    /// 403·409 는 다시 눌러도 같은 답이다. 방 사정(방장·정원)이 바뀌어야 풀린다.
     @Test("다시 누르면 된다고 약속하지 않는다")
     func noRetryPromise() {
         let allMessages = allFailures.map { finishFailureMessage(e: $0) }

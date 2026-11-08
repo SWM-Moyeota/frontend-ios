@@ -175,15 +175,6 @@ private struct FakeSession: UserSession {
         #expect(try await repository.getPartiesWithin(swLat: 35.20, swLng: 129.05, neLat: 35.26, neLng: 129.12).isEmpty)
     }
 
-    @Test("배정된 기사 요약을 도메인 모델로 돌려준다")
-    func assignedDriver() async throws {
-        let driver = try await RemoteRideRepository(api: FakeMatchingApi(), session: session()).getAssignedDriver(partyId: 7)
-
-        #expect(driver.seats == 4)
-        #expect(driver.plateNumber == "12가 3456")
-        #expect(driver.vehicleType == "쏘나타")
-    }
-
     @Test("경로 미리보기는 좌표 4개를 본문으로 보내고 path 를 encodedPath 로 돌려준다")
     func previewRouteMapsPath() async throws {
         let api = FakeMatchingApi()
@@ -294,9 +285,14 @@ private struct FakeSession: UserSession {
         #expect(!error.isNotHost)
     }
 
-    /// 409 도 두 가지다 — 정원 미달과 기사 배정은 사용자가 할 일이 정반대다(기다리기 / 기다릴 일 없음).
-    @Test("합승 완료 409 두 가지를 코드로 가른다")
-    func finish409TwoMeanings() async throws {
+    /// 409 는 이제 **정원 미달 하나뿐**이다. `DRIVER_ALREADY_ASSIGNED` 는 서버가 기사·배차를 걷어내며
+    /// **에러 코드째 지웠다**(서버 `MatchingErrorCode` 에 없다).
+    ///
+    /// 그래도 그 코드가 오는 경우를 함께 고정한다 — 옛 서버나 되돌린 배포가 보낼 수 있고, 그때 앱은
+    /// **사유를 추측하지 않고** 코드만 들고 와 일반 문구로 떨어져야 한다. 삭제한 분기가 「어느 사유도
+    /// 아님」으로 떨어지는 것까지가 이 삭제의 안전함이다.
+    @Test("합승 완료 409 는 정원 미달뿐이고 사라진 기사 코드는 사유가 되지 않는다")
+    func finish409OnlyNotCompleted() async throws {
         let notCompleted = try await thrownError(PartyFinishException.self) {
             try await RemoteRideRepository(
                 api: FakeMatchingApi(finishFailure: conflict("PARTY_NOT_COMPLETED", "정원이 다 차지 않은 방입니다.")),
@@ -304,7 +300,7 @@ private struct FakeSession: UserSession {
             ).finishParty(partyId: 7)
         }
 
-        let driverAssigned = try await thrownError(PartyFinishException.self) {
+        let removedDriverCode = try await thrownError(PartyFinishException.self) {
             try await RemoteRideRepository(
                 api: FakeMatchingApi(finishFailure: conflict("DRIVER_ALREADY_ASSIGNED", "이미 기사가 배정된 방입니다.")),
                 session: session()
@@ -312,9 +308,11 @@ private struct FakeSession: UserSession {
         }
 
         #expect(notCompleted.isNotCompleted)
-        #expect(!notCompleted.isDriverAssigned)
-        #expect(driverAssigned.isDriverAssigned)
-        #expect(!driverAssigned.isNotCompleted)
+
+        #expect(removedDriverCode.code == "DRIVER_ALREADY_ASSIGNED")
+        #expect(!removedDriverCode.isNotCompleted)
+        #expect(!removedDriverCode.isNotHost)
+        #expect(!removedDriverCode.isNotMember)
     }
 
     /// **서버가 코드를 늘려도 앱이 틀린 말을 하면 안 된다.** 모르는 코드·빈 본문은 code = null 로 올라와
@@ -336,7 +334,8 @@ private struct FakeSession: UserSession {
         // 모르는 코드는 그대로 들고 오지만 어느 사유도 아니다.
         #expect(unknownCode.code == "PARTY_SOMETHING_NEW")
         #expect(!unknownCode.isNotCompleted)
-        #expect(!unknownCode.isDriverAssigned)
+        #expect(!unknownCode.isNotHost)
+        #expect(!unknownCode.isNotMember)
 
         #expect(bodyless.code == nil)
         #expect(!bodyless.isNotHost)
@@ -485,6 +484,271 @@ private struct FakeSession: UserSession {
         #expect(!error.isPartyNotFound)
     }
 
+    // MARK: - 약속 확정 (방을 끝내는 정식 경로의 첫 단계)
+    //
+    // 실패 사유가 일곱 가지인데 **상태 코드로는 셋으로밖에 안 갈린다**(400·403·409). 그래서 코드로
+    // 갈라 두고, 액션마다 예외 타입을 따로 둔다 — 같은 코드가 도착·출발에서는 다른 문장을 요구한다
+    // (`PartyConfirmException` 주석의 표).
+
+    /// 본문은 **약속 시간 하나**다. 장소를 싣지 않는 게 계약이다 — 약속 장소는 늘 방의 출발지다.
+    /// 좌표를 같이 보내고 싶어지는 자리라, 보내는 것이 그 하나뿐임을 값으로 못박는다.
+    @Test("약속 확정은 partyId 와 약속 시간만 보낸다")
+    func confirmSendsPartyIdAndTime() async throws {
+        let api = FakeMatchingApi()
+
+        try await RemoteRideRepository(api: api, session: session())
+            .confirmMeeting(partyId: 7, departureAt: "2026-11-03T08:30:00Z")
+
+        #expect(api.confirmCall.value == 7)
+        #expect(api.confirmRequest.value == ConfirmMeetingRequestDto(departureAt: "2026-11-03T08:30:00Z"))
+        // 성공 뒤 상세를 다시 읽지 않는다 — 확정 사실·시간·상태가 모두 SSE `confirmed` 에 실려 온다.
+        #expect(api.detailCallCount.value == 0)
+    }
+
+    /// 앱은 시간을 **검사하지 않고 그대로 싣는다** — 범위 판정은 서버 것이고, 두 벌 들면 한쪽만 낡는다.
+    @Test("약속 시간 문자열을 앱이 고치지 않고 그대로 싣는다")
+    func confirmSendsTimeVerbatim() async throws {
+        let api = FakeMatchingApi()
+
+        // 오프셋이 +09:00 인 모양도 서버가 받는다(ISO-8601 instant). 앱이 Z 로 바꿔 쓰지 않는다.
+        try await RemoteRideRepository(api: api, session: session())
+            .confirmMeeting(partyId: 7, departureAt: "2026-11-03T17:30:00+09:00")
+
+        #expect(api.confirmRequest.value?.departureAt == "2026-11-03T17:30:00+09:00")
+    }
+
+    /// 같은 403 이지만 뜻이 다르다 — 멤버가 아닌 사람에게 「방장을 기다려 주세요」라고 말하면 안 된다.
+    @Test("약속 확정 403 은 방장 아님과 멤버 아님으로 갈린다")
+    func confirm403HostOrMember() async throws {
+        let notHost = try await confirmError(httpError(403, "NOT_PARTY_HOST", "방장만 수행할 수 있습니다."))
+        let notMember = try await confirmError(httpError(403, "NOT_PARTY_MEMBER", "해당 방에 참여하고 있지 않습니다."))
+
+        #expect(notHost.isNotHost)
+        #expect(!notHost.isNotMember)
+        #expect(notMember.isNotMember)
+        #expect(!notMember.isNotHost)
+        #expect(notHost.serverMessage == "방장만 수행할 수 있습니다.")
+        #expect(notHost.httpStatus == 403)
+    }
+
+    /// **409 가 네 가지다.** 섞이면 「2명 이상 모여야 해요」를 이미 확정한 방에, 「이미 정했어요」를
+    /// 예약 방에 말하게 된다 — 네 사유의 다음 행동이 전부 다르다(기다린다 / 상세를 다시 읽는다 /
+    /// 아무것도 못 한다 / 홈으로 간다).
+    @Test("약속 확정 409 네 가지가 각 code 로 갈린다")
+    func confirm409ByCode() async throws {
+        let reserved = try await confirmError(conflict("NOT_REALTIME_PARTY", "실시간 방에서만 할 수 있습니다."))
+        let already = try await confirmError(conflict("ALREADY_CONFIRMED", "이미 약속 시간을 확정한 방입니다."))
+        let notRecruiting = try await confirmError(conflict("PARTY_NOT_RECRUITING", "모집 중인 방이 아닙니다."))
+        let alone = try await confirmError(conflict("NOT_ENOUGH_MEMBERS", "함께 탈 인원이 부족합니다."))
+
+        #expect(reserved.isNotRealtimeParty)
+        #expect(already.isAlreadyConfirmed)
+        #expect(notRecruiting.isNotRecruiting)
+        #expect(alone.isNotEnoughMembers)
+        // 서로 섞이지 않는다 — 한 사유가 다른 사유로도 참이면 화면이 두 문구를 동시에 띄운다.
+        #expect(!reserved.isAlreadyConfirmed)
+        #expect(!already.isNotRecruiting)
+        #expect(!notRecruiting.isNotEnoughMembers)
+        #expect(!alone.isNotRealtimeParty)
+    }
+
+    /// 400 `INVALID_MEETING_TIME` — 지금부터 1시간 밖이다. 화면이 프리셋으로만 고르게 하므로 거의
+    /// 오지 않지만 **60분 프리셋이 경계에 붙어 있어** 고르고 누르는 사이 밀리면 떨어진다.
+    @Test("약속 확정 400 은 약속 시간 범위로 갈린다")
+    func confirm400InvalidTime() async throws {
+        let error = try await confirmError(
+            httpError(400, "INVALID_MEETING_TIME", "약속 시간은 지금부터 1시간 이내여야 합니다.")
+        )
+
+        #expect(error.isInvalidMeetingTime)
+        #expect(!error.isNotHost)
+        #expect(error.httpStatus == 400)
+    }
+
+    /// 404 는 방이 사라진 것. **코드가 없는 404 는 사유로 쓰지 않는다** — 상태 코드로 사유를 지어내지 않는다.
+    @Test("약속 확정 404 는 코드가 있을 때만 방 없음이다")
+    func confirm404OnlyWithCode() async throws {
+        #expect(try await confirmError(httpError(404, "PARTY_NOT_FOUND", "존재하지 않는 방입니다.")).isPartyNotFound)
+
+        let bodyless = try await confirmError(bodylessError(404))
+        #expect(bodyless.code == nil)
+        #expect(!bodyless.isPartyNotFound)
+        #expect(bodyless.httpStatus == 404)
+    }
+
+    // MARK: - 출발지 도착
+
+    /// 본문은 **지금 내 위치**다. 방 출발지 좌표를 그대로 보내면 서버의 100m 검사가 **늘 통과**해
+    /// 「오지 않은 사람이 도착」이 되고, 그 상태로 누가 출발을 누르면 실제로 안 온 사람에게 노쇼가
+    /// 안 찍힌다 — 즉 이 테스트가 깨지면 **노쇼 기록이 조용히 틀린다**.
+    @Test("도착은 지금 내 위치를 본문에 싣는다")
+    func arriveSendsMyLocation() async throws {
+        let api = FakeMatchingApi()
+
+        try await RemoteRideRepository(api: api, session: session())
+            .arriveAtDeparture(partyId: 7, latitude: 37.4979, longitude: 127.0276)
+
+        #expect(api.arriveCall.value == 7)
+        #expect(api.arriveRequest.value == ArriveRequestDto(latitude: 37.4979, longitude: 127.0276))
+        // 위도·경도가 뒤바뀌면 (127, 37) 은 서비스 지역 밖이라 400 OUT_OF_SERVICE_AREA 다.
+        #expect(isClose(37.4979, api.arriveRequest.value?.latitude, 1e-9))
+        #expect(isClose(127.0276, api.arriveRequest.value?.longitude, 1e-9))
+    }
+
+    /// 400 이 두 가지다. 「멀다」와 「서비스 지역 밖」은 사용자가 할 일이 다르고(걸어간다 / 좌표를
+    /// 의심한다), 뒤쪽은 **측위 실패를 0.0 으로 채워 보냈을 때**도 온다.
+    @Test("도착 400 은 거리와 서비스 지역으로 갈린다")
+    func arrive400ByCode() async throws {
+        let tooFar = try await arriveError(httpError(400, "TOO_FAR_FROM_DEPARTURE", "출발지에서 100m 안에 있어야 합니다."))
+        let outside = try await arriveError(httpError(400, "OUT_OF_SERVICE_AREA", "서비스 지역을 벗어난 좌표입니다."))
+
+        #expect(tooFar.isTooFarFromDeparture)
+        #expect(!tooFar.isOutOfServiceArea)
+        #expect(outside.isOutOfServiceArea)
+        #expect(!outside.isTooFarFromDeparture)
+    }
+
+    /// 409 가 셋이다. **「도착 창이 아직 안 열렸다」를 「멀다」와 뭉개면 이미 출발지에 서 있는 사람에게
+    /// 더 가까이 가라고 말한다** — 이 액션에서 가장 쉽게 나는 오안내다.
+    @Test("도착 409 는 닫힘 미확정 창안열림으로 갈린다")
+    func arrive409ByCode() async throws {
+        let closed = try await arriveError(conflict("PARTY_CLOSED", "마감된 방입니다."))
+        let notConfirmed = try await arriveError(conflict("PARTY_NOT_CONFIRMED", "약속 시간이 확정되지 않은 방입니다."))
+        let notOpen = try await arriveError(conflict("ARRIVAL_NOT_OPEN", "도착은 약속 시간 10분 전부터 누를 수 있습니다."))
+
+        #expect(closed.isPartyClosed)
+        #expect(notConfirmed.isNotConfirmed)
+        #expect(notOpen.isArrivalNotOpen)
+        #expect(!notOpen.isTooFarFromDeparture)
+        #expect(!notOpen.isNotConfirmed)
+    }
+
+    /// **도착과 출발은 시간 코드가 다르다.** 도착이 안 열린 것은 `ARRIVAL_NOT_OPEN`(약속 10분 전 경계,
+    /// 백엔드 PR #307)이고 `MEETING_NOT_STARTED` 는 **출발**의 코드다(약속 시간 경계).
+    ///
+    /// 둘을 한 속성으로 묶으면 화면이 틀린 시각을 말한다 — 도착은 10분 전부터, 출발은 약속 시간
+    /// 뒤부터다. 그래서 도착 예외에 `MEETING_NOT_STARTED` 가 와도 **사유가 되지 않는** 것까지 고정한다.
+    @Test("도착에 출발의 시간 코드가 오면 사유가 되지 않는다")
+    func arriveIgnoresDepartTimeCode() async throws {
+        let error = try await arriveError(conflict("MEETING_NOT_STARTED", "아직 약속 시간이 되지 않았습니다."))
+
+        #expect(error.code == "MEETING_NOT_STARTED")
+        #expect(!error.isArrivalNotOpen)
+        #expect(!error.isNotConfirmed)
+        #expect(!error.isPartyClosed)
+        #expect(!error.isTooFarFromDeparture)
+    }
+
+    // MARK: - 출발 (되돌릴 수 없고 남에게 제재를 남긴다)
+
+    /// 본문이 **없다**. 주체는 Bearer 토큰이고, 방장이 아니어도 된다 — 도착한 멤버면 누구나.
+    @Test("출발은 본문 없이 partyId 만 보낸다")
+    func departSendsPartyIdOnly() async throws {
+        let api = FakeMatchingApi()
+
+        try await RemoteRideRepository(api: api, session: session()).departParty(partyId: 7)
+
+        #expect(api.departCall.value == 7)
+        // 합승 완료(finish)와 **다른 엔드포인트**다 — 확정된 방에 finish 를 부르면 409 다.
+        #expect(api.finishCall.value == nil)
+        #expect(api.detailCallCount.value == 0)
+    }
+
+    /// 409 가 다섯이다. 그중 `NOT_ARRIVED` 는 **다음 행동이 명확한 유일한 사유**다 — 「출발지 도착했어요」를
+    /// 먼저 누르면 된다. 「다시 시도」로 뭉개면 같은 409 를 영원히 맞는다.
+    @Test("출발 409 는 다섯 가지로 갈린다")
+    func depart409ByCode() async throws {
+        let notArrived = try await departError(conflict("NOT_ARRIVED", "출발지에 도착한 사람만 출발할 수 있습니다."))
+        let notStarted = try await departError(conflict("MEETING_NOT_STARTED", "아직 약속 시간이 되지 않았습니다."))
+        let alone = try await departError(conflict("NOT_ENOUGH_MEMBERS", "함께 탈 인원이 부족합니다."))
+        let notConfirmed = try await departError(conflict("PARTY_NOT_CONFIRMED", "약속 시간이 확정되지 않은 방입니다."))
+        let closed = try await departError(conflict("PARTY_CLOSED", "마감된 방입니다."))
+
+        #expect(notArrived.isNotArrived)
+        #expect(notStarted.isMeetingNotStarted)
+        #expect(alone.isNotEnoughMembers)
+        #expect(notConfirmed.isNotConfirmed)
+        #expect(closed.isPartyClosed)
+        #expect(!notArrived.isMeetingNotStarted)
+        #expect(!closed.isNotArrived)
+    }
+
+    /// **출발은 방장 전용이 아니다** — 그래서 `NOT_PARTY_HOST` 를 사유로 두지 않았다. 옛 서버나
+    /// 되돌린 배포가 그 코드를 보내도 **사유가 되지 않고** 일반 문구로 떨어져야 한다
+    /// (「방장만 할 수 있어요」라고 말하면 도착한 멤버가 출발을 포기한다).
+    @Test("출발에 방장 전용 코드가 와도 사유가 되지 않는다")
+    func departIgnoresHostCode() async throws {
+        let error = try await departError(httpError(403, "NOT_PARTY_HOST", "방장만 수행할 수 있습니다."))
+
+        #expect(error.code == "NOT_PARTY_HOST")
+        #expect(!error.isNotMember)
+        #expect(!error.isNotArrived)
+        #expect(error.httpStatus == 403)
+    }
+
+    /// 세 액션 모두 **모르는 코드·빈 본문·HTML 본문·네트워크 실패**에서 사유를 지어내지 않는다 —
+    /// code = null 이면 화면이 일반 문구로 떨어진다(서버가 코드를 늘려도 앱이 틀린 말을 하지 않는다).
+    @Test("세 액션의 모르는 코드와 본문 없는 실패는 사유를 추측하지 않는다")
+    func meetingActionsDoNotGuess() async throws {
+        let unknownConfirm = try await confirmError(conflict("PARTY_SOMETHING_NEW", "새 규칙입니다."))
+        #expect(unknownConfirm.code == "PARTY_SOMETHING_NEW")
+        #expect(!unknownConfirm.isAlreadyConfirmed)
+        #expect(!unknownConfirm.isNotRecruiting)
+
+        // 게이트웨이가 가로챈 응답(HTML)·본문 없는 응답은 code 가 없다.
+        let html = try await arriveError(htmlError(503))
+        #expect(html.code == nil)
+        #expect(html.serverMessage == nil)
+        #expect(!html.isTooFarFromDeparture)
+        #expect(html.httpStatus == 503)
+
+        let bodyless = try await departError(bodylessError(409))
+        #expect(bodyless.code == nil)
+        #expect(!bodyless.isNotArrived)
+        #expect(!bodyless.isPartyClosed)
+
+        // 응답 자체를 못 받은 실패도 같은 예외로 좁힌다 — httpStatus 조차 없다.
+        let network = try await confirmError(IOException("connection reset"))
+        #expect(network.code == nil)
+        #expect(network.httpStatus == nil)
+        #expect(!network.isNotHost)
+    }
+
+    /// 도착·출발이 함께 쓰는 나머지 두 사유. **멤버 아님(403)과 방 없음(404)은 「다시 시도」가 아니라
+    /// 「홈으로」**이고, 두 액션에서 뜻이 같아 같은 자리에서 본다.
+    ///
+    /// 404 는 **코드가 있을 때만** 방 없음이다(본문 없는 404 는 경로 오타·게이트웨이일 수 있어
+    /// 사유로 삼지 않는다 — 확정 쪽 테스트와 같은 정책).
+    @Test("도착과 출발의 멤버 아님과 방 없음도 사유로 갈린다")
+    func arriveDepartMemberAndNotFound() async throws {
+        let arriveNotMember = try await arriveError(httpError(403, "NOT_PARTY_MEMBER", "해당 방에 참여하고 있지 않습니다."))
+        let departNotMember = try await departError(httpError(403, "NOT_PARTY_MEMBER", "해당 방에 참여하고 있지 않습니다."))
+        let arriveGone = try await arriveError(httpError(404, "PARTY_NOT_FOUND", "존재하지 않는 방입니다."))
+        let departGone = try await departError(httpError(404, "PARTY_NOT_FOUND", "존재하지 않는 방입니다."))
+
+        #expect(arriveNotMember.isNotMember)
+        #expect(!arriveNotMember.isPartyNotFound)
+        #expect(departNotMember.isNotMember)
+        #expect(arriveGone.isPartyNotFound)
+        #expect(departGone.isPartyNotFound)
+
+        // 본문 없는 404 는 사유가 아니다 — 상태 코드로 「방이 사라졌어요」를 지어내지 않는다.
+        let arriveBodyless = try await arriveError(bodylessError(404))
+        let departBodyless = try await departError(bodylessError(404))
+        #expect(!arriveBodyless.isPartyNotFound)
+        #expect(!departBodyless.isPartyNotFound)
+    }
+
+    /// 더미 저장소도 세 액션을 구현한다 — 디버그/프리뷰 빌드가 버튼을 눌러도 터지지 않아야 한다.
+    @Test("더미 저장소의 세 액션은 성공한 척한다")
+    func dummyMeetingActionsSucceed() async throws {
+        let repository = DummyRideRepository()
+
+        try await repository.confirmMeeting(partyId: 1, departureAt: "2026-11-03T08:30:00Z")
+        try await repository.arriveAtDeparture(partyId: 1, latitude: 37.4979, longitude: 127.0276)
+        try await repository.departParty(partyId: 1)
+    }
+
     // MARK: - SSE 재연결 백오프
     //
     // 이 두 테스트가 **여기 있는 건 원본 배치를 따랐기 때문**이다(제자리는 `PartySseEventTest` 다).
@@ -589,6 +853,267 @@ private struct FakeSession: UserSession {
         #expect(!realtime.isRouteUnavailable)
     }
 
+    /// 예약 생성이 **같은 `Ride`** 로 돌아오고, 서버가 주는 두 사실이
+    /// 그대로 실린다: 예약 방이고(`RoomType.reservation`) **처음부터 확정**이다.
+    ///
+    /// 확정은 「나갈 수 없다」는 뜻이라(409 `CANNOT_LEAVE_CONFIRMED_PARTY`) 이 값이 false 로 새면
+    /// 화면이 누를 수 없는 「그만 찾기」를 띄운다. 그리고 요금·경로가 **비어 있는 것이 정상**이다 —
+    /// 서버가 예약 방의 경로를 추정하지 않는다(공짜라서가 아니다).
+    @Test("예약 생성은 확정된 예약 방을 돌려주고 요금 경로가 비어 있다")
+    func reservationReturnsConfirmedRoom() async throws {
+        let api = FakeMatchingApi()
+
+        let ride = try await RemoteRideRepository(api: api, session: session()).createReservation(
+            request: NewReservation(
+                departureLat: 37.4979,
+                departureLng: 127.0276,
+                destinationLat: 37.3948,
+                destinationLng: 127.1112,
+                departure: "강남역",
+                destination: "판교역",
+                capacity: 3,
+                departureAt: "2026-11-13T08:00:00Z"
+            )
+        )
+
+        #expect(ride.id == "31")
+        #expect(ride.roomType == .reservation)
+        #expect(ride.isConfirmed, "예약 방은 처음부터 확정이다")
+        #expect(ride.departureAt == "2026-11-13T08:00:00Z")
+        #expect(ride.members.count == 1)
+        // 서버가 추정하지 않으므로 비어 있다 — 0 을 「공짜」로 그리면 안 된다.
+        #expect(ride.estimatedFare == nil)
+        #expect(ride.estimatedMinutes == nil)
+        #expect(ride.routePolyline == nil)
+        #expect(ride.farePerPerson == 0)
+    }
+
+    /// 요청 본문에 실리는 것은 **여덟 개뿐**이고 도착지 이름이 **전체 이름**이다 —
+    /// 실시간 후보 본문(`destLat`)·검색 쿼리(`depLat`/`destLat`)와 **셋이 다르다**.
+    /// 앱이 정원을 접지도, 시각을 고치지도 않는다(판정은 서버 몫 — 400 이 나야 앱 버그가 드러난다).
+    @Test("예약 생성 요청은 좌표 이름 정원 출발시각을 그대로 싣는다")
+    func reservationSendsRequestVerbatim() async throws {
+        let api = FakeMatchingApi()
+
+        _ = try await RemoteRideRepository(api: api, session: session()).createReservation(
+            request: NewReservation(
+                departureLat: 37.4979,
+                departureLng: 127.0276,
+                destinationLat: 37.3948,
+                destinationLng: 127.1112,
+                departure: "강남역",
+                destination: "판교역",
+                // 서버가 거절할 값. 앱이 2 로 끌어올리면 안 된다.
+                capacity: 1,
+                departureAt: "2026-11-13T08:00:00Z"
+            )
+        )
+
+        let sent = try #require(api.reserveRequest.value)
+        #expect(isClose(37.3948, sent.destinationLat, 1e-9))
+        #expect(isClose(127.1112, sent.destinationLng, 1e-9))
+        #expect(sent.departure == "강남역")
+        #expect(sent.capacity == 1)
+        #expect(sent.departureAt == "2026-11-13T08:00:00Z")
+    }
+
+    /// 예약 생성 실패는 **방 생성과 같은 `PartyOpenException`** 으로 좁혀진다 — 서버가 두 액션에
+    /// 같은 record 로 응답하고 코드도 여섯이 겹치기 때문이다(예외를 하나로 둔 근거는 그 주석에 있다).
+    ///
+    /// 실시간 표에 갈래가 없는 사유가 갈리는지가 핵심이다. 특히 403 `NO_SHOW_RESTRICTED` 와
+    /// 409 `PARTY_TIME_CONFLICT` 를 뭉개면 둘 다 「잠시 후 다시 시도」가 되는데 **둘 다 영구히
+    /// 거짓**이다(제재는 시각이 지나야, 충돌은 시간을 옮겨야 풀린다).
+    @Test("예약 생성 실패는 예약 전용 사유까지 갈린다")
+    func reservationFailuresSplit() async throws {
+        let restricted = try await reserveError(httpError(403, "NO_SHOW_RESTRICTED", "노쇼로 이용이 제한된 상태입니다."))
+        #expect(restricted.isNoShowRestricted)
+        #expect(!restricted.isAlreadyInAnotherParty)
+        #expect(!restricted.isRouteUnavailable, "제재는 경로 실패가 아니다")
+        #expect(restricted.httpStatus == 403)
+        #expect(restricted.serverMessage == "노쇼로 이용이 제한된 상태입니다.")
+
+        // 「다른 방에 있다」와 「그 시간대가 찼다」는 사용자가 할 일이 다르다 —
+        // 전자는 그 방을 정리해야 하고, 후자는 **시간을 옮기면 된다**(예약은 여러 건 가질 수 있다).
+        let conflict = try await reserveError(httpError(409, "PARTY_TIME_CONFLICT", "해당 시간대에 이미 예약이 있습니다."))
+        #expect(conflict.isPartyTimeConflict)
+        #expect(!conflict.isAlreadyInAnotherParty)
+
+        let joined = try await reserveError(httpError(409, "ALREADY_JOINED_OTHER_PARTY", "이미 참여 중인 방이 있습니다."))
+        #expect(joined.isAlreadyInAnotherParty)
+        #expect(!joined.isPartyTimeConflict)
+
+        let badTime = try await reserveError(httpError(400, "INVALID_DEPARTURE_TIME", "출발 시각이 올바르지 않습니다."))
+        #expect(badTime.isInvalidDepartureTime)
+        #expect(!badTime.isInvalidCapacity)
+
+        // 겹치는 코드들도 그대로 갈린다(방 생성과 같은 표).
+        #expect(try await reserveError(httpError(400, "SAME_DEPARTURE_DESTINATION", "x")).isSameDepartureDestination)
+        #expect(try await reserveError(httpError(400, "OUT_OF_SERVICE_AREA", "x")).isOutOfServiceArea)
+        #expect(try await reserveError(httpError(400, "INVALID_CAPACITY", "x")).isInvalidCapacity)
+
+        // 모르는 코드·본문 없음은 사유를 추측하지 않는다 — 화면이 일반 문구로 떨어진다.
+        let unknown = try await reserveError(httpError(409, "SOMETHING_NEW", "x"))
+        #expect(!unknown.isPartyTimeConflict)
+        #expect(!unknown.isAlreadyInAnotherParty)
+        #expect(try await reserveError(bodylessError(409)).code == nil)
+    }
+
+    /// 예약에도 **방 생성과 같은 사유 표**가 적용되지만, 경로 실패는 **올 수 없다**(서버가 추정하지 않는다).
+    @Test("예약 생성에는 경로 실패가 사유로 오지 않는다")
+    func reservationRouteFailureOnlyByStatus() async throws {
+        // 서버가 이 코드를 예약에서 던지지는 않는다. 와도 같은 갈래로 떨어지는 것까지만 확인한다 —
+        // 분기를 지우지 않는 이유는 502 를 상태 코드로도 받기 때문이다(게이트웨이 응답).
+        #expect(try await reserveError(bodylessError(502)).isRouteUnavailable)
+    }
+
+    /// **예약 정원 1 은 `INVALID_CAPACITY` 로 오지 않는다** — 서버 Bean Validation(`@Min(2)`)이
+    /// 도메인 `Capacity`(1~3 허용)보다 먼저 돌아 400 `INVALID_REQUEST` 로 떨어진다.
+    ///
+    /// 그 범용 코드를 `PartyOpenException.isInvalidCapacity` 에 넣지 **않았다**는 것을 못 박는다:
+    /// 넣으면 실시간 쪽에서 본문이 깨진 실패에까지 「인원을 다시 고르세요」라고 말하게 된다.
+    /// 즉 이 경우는 **사유를 알 수 없는 400** 이 맞고, 화면이 칩을 2·3 으로 묶어 막는다.
+    @Test("예약 정원 하한 위반은 사유 없는 400 으로 떨어진다")
+    func reservationCapacityBelowMinimumHasNoReason() async throws {
+        let error = try await reserveError(httpError(400, "INVALID_REQUEST", "정원은 2명 이상이어야 합니다."))
+
+        #expect(error.code == "INVALID_REQUEST")
+        #expect(!error.isInvalidCapacity, "범용 400 을 정원 사유로 읽으면 본문 오류까지 「인원을 고치세요」가 된다")
+        #expect(!error.isInvalidDepartureTime)
+        #expect(!error.isSameDepartureDestination)
+    }
+
+    /// 기간 목록은 두 문자열을 **그대로** 넘기고, 예약 방으로 매핑해 돌려준다.
+    @Test("기간 목록은 from to 를 그대로 넘기고 예약 방으로 돌려준다")
+    func reservationRangePassesThrough() async throws {
+        let api = FakeMatchingApi(reservations: [reservationItem()])
+
+        let rides = try await RemoteRideRepository(api: api, session: session())
+            .getReservations(from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z")
+
+        #expect(api.reservationRange.value == ["2026-11-13T00:00:00Z", "2026-11-14T00:00:00Z"])
+        let ride = try rides.single()
+        #expect(ride.id == "12")
+        #expect(ride.roomType == .reservation)
+        #expect(ride.isConfirmed)
+    }
+
+    /// 「곧 출발」은 좌표를 **남서 → 북동 순서 그대로** 넘긴다(`getPartiesWithin` 과 같은 순서).
+    /// 섞이면 서버가 400 `INVALID_MAP_BOUNDS` 를 준다.
+    ///
+    /// 돌려주는 것은 **`Ride` 그대로**다 — 이 응답에는 `destinationNearby`
+    /// 가 없으므로 검색 결과로 감싸지 않는다.
+    @Test("곧 출발은 남서 북동 순서 그대로 넘긴다")
+    func reservationSoonKeepsArgumentOrder() async throws {
+        let api = FakeMatchingApi(reservations: [reservationItem()])
+
+        let rides = try await RemoteRideRepository(api: api, session: session())
+            .getReservationsSoon(swLat: 35.20, swLng: 129.05, neLat: 35.26, neLng: 129.12)
+
+        #expect(api.reservationSoonCall.value == [35.20, 129.05, 35.26, 129.12])
+        #expect(try rides.single().id == "12")
+    }
+
+    /// ### 도착지는 **둘 다 또는 둘 다 아니다** ★
+    /// 하나만 가면 서버가 400 `INCOMPLETE_DESTINATION` 이다. 저장소가 한 값(`ReservationDestination`)
+    /// 에서 두 쿼리를 만들기 때문에 **쌍이 깨질 길이 없다** — 그 보장을 값으로 확인한다.
+    /// (실제 URL 에서 두 키가 함께 빠지는지는 `ReservationSearchQueryTest` 가 본다.)
+    ///
+    /// `date` 도 **그대로** 넘긴다 — KST 달력 날짜를 만드는 일은 호출부 책임이고, 저장소가 기기
+    /// 시간대로 다시 만들면 화면이 고른 날짜와 서버가 보는 날짜가 두 군데서 계산되어 어긋난다.
+    @Test("검색은 도착지를 둘 다 넘기거나 둘 다 빼고 날짜를 고치지 않는다")
+    func searchSendsDestinationAsPair() async throws {
+        let withDestination = FakeMatchingApi(reservations: [reservationItem(destinationNearby: true)])
+        let results = try await RemoteRideRepository(api: withDestination, session: session()).searchReservations(
+            departureLat: 37.4979,
+            departureLng: 127.0276,
+            date: "2026-11-13",
+            destination: ReservationDestination(latitude: 37.3948, longitude: 127.1112)
+        )
+
+        #expect(
+            withDestination.reservationSearchCall.value
+                == ReservationSearchCall(depLat: 37.4979, depLng: 127.0276, date: "2026-11-13", destLat: 37.3948, destLng: 127.1112)
+        )
+        #expect(try results.single().destinationNearby == true)
+
+        let withoutDestination = FakeMatchingApi(reservations: [reservationItem()])
+        let plain = try await RemoteRideRepository(api: withoutDestination, session: session()).searchReservations(
+            departureLat: 37.4979,
+            departureLng: 127.0276,
+            date: "2026-11-13"
+        )
+
+        // 둘 다 nil — 하나만 nil 인 상태를 만들 길이 없다.
+        #expect(
+            withoutDestination.reservationSearchCall.value
+                == ReservationSearchCall(depLat: 37.4979, depLng: 127.0276, date: "2026-11-13", destLat: nil, destLng: nil)
+        )
+        // **nil 은 false 가 아니라 「물어보지 않았다」다.**
+        #expect(try plain.single().destinationNearby == nil, "도착지를 안 물었는데 false 로 접혔다")
+    }
+
+    /// 세 조회 모두 빈 목록이 정상이다 — 그 날 그 범위에 예약이 없을 뿐이다.
+    @Test("예약 조회 셋 모두 빈 목록이 정상이다")
+    func reservationQueriesEmpty() async throws {
+        let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session())
+
+        #expect(try await repository.getReservations(from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z").isEmpty)
+        #expect(try await repository.getReservationsSoon(swLat: 1.0, swLng: 2.0, neLat: 3.0, neLng: 4.0).isEmpty)
+        #expect(try await repository.searchReservations(departureLat: 1.0, departureLng: 2.0, date: "2026-11-13").isEmpty)
+    }
+
+    /// 더미 저장소는 예약을 **지어내지 않는다** — 없는 약속 시간을 그리면 프리뷰가 거짓이 된다.
+    @Test("더미 저장소의 예약 조회는 빈 목록이다")
+    func dummyReservationsEmpty() async throws {
+        let dummy = DummyRideRepository()
+
+        #expect(try await dummy.getReservations(from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z").isEmpty)
+        #expect(try await dummy.getReservationsSoon(swLat: 1.0, swLng: 2.0, neLat: 3.0, neLng: 4.0).isEmpty)
+        #expect(try await dummy.searchReservations(departureLat: 1.0, departureLng: 2.0, date: "2026-11-13").isEmpty)
+        // 생성은 성공한 척하되 **예약 방의 성질**은 서버와 같게 맞춘다.
+        let created = try await dummy.createReservation(request: newReservation())
+        #expect(created.roomType == .reservation)
+        #expect(created.isConfirmed)
+    }
+
+    // 예약 생성 실패만 바꿔 끼우는 호출 — `openError` 와 같은 모양이다(요청 값은 어느 테스트에서도 같다).
+    private func reserveError(_ failure: any Error) async throws -> PartyOpenException {
+        try await thrownError(PartyOpenException.self) {
+            _ = try await RemoteRideRepository(api: FakeMatchingApi(reserveFailure: failure), session: session())
+                .createReservation(request: newReservation())
+        }
+    }
+
+    private func newReservation() -> NewReservation {
+        NewReservation(
+            departureLat: 37.4979,
+            departureLng: 127.0276,
+            destinationLat: 37.3948,
+            destinationLng: 127.1112,
+            departure: "강남역",
+            destination: "판교역",
+            capacity: 3,
+            departureAt: "2026-11-13T08:00:00Z"
+        )
+    }
+
+    private func reservationItem(destinationNearby: Bool? = nil) -> ReservationItemDto {
+        ReservationItemDto(
+            partyId: 12,
+            departure: "강남역",
+            destination: "판교역",
+            currentMembers: 2,
+            capacity: 3,
+            status: "ACTIVE",
+            departureLat: 37.4979,
+            departureLng: 127.0276,
+            destinationLat: 37.3948,
+            destinationLng: 127.1112,
+            departureAt: "2026-11-13T08:00:00Z",
+            destinationNearby: destinationNearby
+        )
+    }
+
     // 생성 실패만 바꿔 끼우는 호출 — 네 좌표·라벨·정원은 어느 테스트에서도 같다.
     private func openError(_ failure: any Error) async throws -> PartyOpenException {
         try await thrownError(PartyOpenException.self) {
@@ -601,6 +1126,27 @@ private struct FakeSession: UserSession {
         try await thrownError(PartyLeaveException.self) {
             try await RemoteRideRepository(api: FakeMatchingApi(leaveFailure: failure), session: session())
                 .leaveParty(partyId: 7)
+        }
+    }
+
+    private func confirmError(_ failure: any Error) async throws -> PartyConfirmException {
+        try await thrownError(PartyConfirmException.self) {
+            try await RemoteRideRepository(api: FakeMatchingApi(confirmFailure: failure), session: session())
+                .confirmMeeting(partyId: 7, departureAt: "2026-11-03T08:30:00Z")
+        }
+    }
+
+    private func arriveError(_ failure: any Error) async throws -> PartyArriveException {
+        try await thrownError(PartyArriveException.self) {
+            try await RemoteRideRepository(api: FakeMatchingApi(arriveFailure: failure), session: session())
+                .arriveAtDeparture(partyId: 7, latitude: 37.4979, longitude: 127.0276)
+        }
+    }
+
+    private func departError(_ failure: any Error) async throws -> PartyDepartException {
+        try await thrownError(PartyDepartException.self) {
+            try await RemoteRideRepository(api: FakeMatchingApi(departFailure: failure), session: session())
+                .departParty(partyId: 7)
         }
     }
 
@@ -675,7 +1221,11 @@ struct RemoteRideRepositoryBoundaryTest {
             finishFailure: cancellation,
             realtimeFailure: cancellation,
             openFailure: cancellation,
-            leaveFailure: cancellation
+            leaveFailure: cancellation,
+            confirmFailure: cancellation,
+            arriveFailure: cancellation,
+            departFailure: cancellation,
+            reserveFailure: cancellation
         )
         let repository = RemoteRideRepository(api: api, session: session())
 
@@ -690,6 +1240,17 @@ struct RemoteRideRepositoryBoundaryTest {
         await expectCancellation { _ = try await repository.joinParty(partyId: 7) }
         await expectCancellation { try await repository.leaveParty(partyId: 7) }
         await expectCancellation { try await repository.finishParty(partyId: 7) }
+        await expectCancellation { try await repository.confirmMeeting(partyId: 7, departureAt: "2026-11-03T08:30:00Z") }
+        await expectCancellation { try await repository.arriveAtDeparture(partyId: 7, latitude: 37.4979, longitude: 127.0276) }
+        await expectCancellation { try await repository.departParty(partyId: 7) }
+        await expectCancellation {
+            _ = try await repository.createReservation(
+                request: NewReservation(
+                    departureLat: 1, departureLng: 2, destinationLat: 3, destinationLng: 4,
+                    departure: "가", destination: "나", capacity: 3, departureAt: "2026-11-13T08:00:00Z"
+                )
+            )
+        }
         await expectCancellation {
             _ = try await repository.findRealtimeCandidates(
                 departureLat: 1, departureLng: 2, destinationLat: 3, destinationLng: 4
@@ -737,115 +1298,6 @@ struct RemoteRideRepositoryBoundaryTest {
         let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session())
 
         #expect(repository.getNearbyParties() == DummyRideRepository().getNearbyParties())
-    }
-
-    @Test("신고 배선이 없으면 한국어 메시지로 실패한다")
-    func reportNotWired() async throws {
-        let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session())
-
-        let report = try await thrownError(IllegalStateException.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        let confirm = try await thrownError(IllegalStateException.self) {
-            try await repository.confirmEmergencyCall(called: true)
-        }
-
-        #expect(report.message == "신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-        #expect(confirm.message == "신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-    }
-
-    @Test("신고는 파티와 실측 좌표를 위도·경도 순서로 싣고 신고 id 를 돌려준다")
-    func reportSendsLocation() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { (37.5, 127.0) }
-        )
-
-        let id = try await repository.reportEmergency(partyId: 7)
-
-        #expect(id == 99)
-        #expect(reports.requests.value == [ReportRequestDto(partyId: 7, latitude: 37.5, longitude: 127.0)])
-    }
-
-    /// 통화가 최우선이다 — 측위 실패가 신고 저장까지 막으면 안 된다.
-    @Test("측위 실패는 신고를 막지 않고 좌표만 비운다")
-    func reportSurvivesLocationFailure() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { throw IOException("권한 없음") }
-        )
-
-        _ = try await repository.reportEmergency(partyId: nil)
-
-        #expect(reports.requests.value == [ReportRequestDto(partyId: nil, latitude: nil, longitude: nil)])
-    }
-
-    @Test("측위 중 취소는 신고를 보내지 않고 그대로 올린다")
-    func reportLocationCancellation() async {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { throw CancellationError() }
-        )
-
-        await #expect(throws: CancellationError.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        #expect(reports.requests.value.isEmpty)
-    }
-
-    @Test("신고 저장 실패는 원인과 무관하게 한국어 메시지 하나로 올린다")
-    func reportFailureMessage() async throws {
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: FakeReportApi(failure: HttpException(Response<Void>.error(500, "")))
-        )
-
-        let report = try await thrownError(IllegalStateException.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        let confirm = try await thrownError(IllegalStateException.self) {
-            try await repository.confirmEmergencyCall(called: true)
-        }
-
-        #expect(report.message == "긴급 신고 저장에 실패했어요")
-        #expect(report.cause is HttpException)
-        #expect(confirm.message == "112 통화 결과 저장에 실패했어요")
-    }
-
-    @Test("신고 저장 중 취소는 실패 메시지로 바꾸지 않는다")
-    func reportCallCancellation() async {
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: FakeReportApi(failure: CancellationError())
-        )
-
-        await #expect(throws: CancellationError.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        await #expect(throws: CancellationError.self) {
-            try await repository.confirmEmergencyCall(called: false)
-        }
-    }
-
-    @Test("통화 결과는 called 값만 싣는다")
-    func confirmSendsCalled() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session(), reportApi: reports)
-
-        try await repository.confirmEmergencyCall(called: true)
-
-        #expect(reports.confirmed.value == [CallResultRequestDto(called: true)])
     }
 
     @Test("SSE 를 주입하지 않으면 흐름은 바로 끝난다")
@@ -973,25 +1425,14 @@ struct RemoteRideRepositoryBoundaryTest {
     }
 }
 
-private final class FakeReportApi: ReportApi {
-    private let failure: (any Error)?
-    let requests = Locked<[ReportRequestDto]>([])
-    let confirmed = Locked<[CallResultRequestDto]>([])
-
-    init(failure: (any Error)? = nil) {
-        self.failure = failure
-    }
-
-    func report(request: ReportRequestDto) async throws -> ReportResponse {
-        if let failure { throw failure }
-        requests.append(request)
-        return ReportResponse(reportId: 99)
-    }
-
-    func confirmCallResult(request: CallResultRequestDto) async throws {
-        if let failure { throw failure }
-        confirmed.append(request)
-    }
+/// 검색 호출이 받은 다섯 값 — 원본의 `listOf<Any?>(depLat, depLng, date, destLat, destLng)` 자리.
+/// 도착지 두 값이 **함께** nil 인지까지 한 번에 비교한다.
+private struct ReservationSearchCall: Equatable, Sendable {
+    let depLat: Double
+    let depLng: Double
+    let date: String
+    let destLat: Double?
+    let destLng: Double?
 }
 
 private final class FakeMatchingApi: MatchingApi {
@@ -1001,13 +1442,28 @@ private final class FakeMatchingApi: MatchingApi {
     private let realtimeFailure: (any Error)?
     private let openFailure: (any Error)?
     private let leaveFailure: (any Error)?
+    private let confirmFailure: (any Error)?
+    private let arriveFailure: (any Error)?
+    private let departFailure: (any Error)?
+    private let reserveFailure: (any Error)?
+    private let reservations: [ReservationItemDto]
     private let detailFailure: (any Error)?
     private let detailVersion: Int64?
+
+    let reserveRequest = Locked<OpenReservationRequestDto?>(nil)
+    let reservationRange = Locked<[String]?>(nil)
+    let reservationSoonCall = Locked<[Double]?>(nil)
+    let reservationSearchCall = Locked<ReservationSearchCall?>(nil)
 
     let realtimeRequest = Locked<RealTimeMatchingRequestDto?>(nil)
     let joinCall = Locked<Int64?>(nil)
     let finishCall = Locked<Int64?>(nil)
     let leaveCall = Locked<Int64?>(nil)
+    let confirmCall = Locked<Int64?>(nil)
+    let confirmRequest = Locked<ConfirmMeetingRequestDto?>(nil)
+    let arriveCall = Locked<Int64?>(nil)
+    let arriveRequest = Locked<ArriveRequestDto?>(nil)
+    let departCall = Locked<Int64?>(nil)
     let openRequest = Locked<OpenPartyRequestDto?>(nil)
     let detailCallCount = Locked(0)
     let withinCall = Locked<[Double]?>(nil)
@@ -1020,6 +1476,11 @@ private final class FakeMatchingApi: MatchingApi {
         realtimeFailure: (any Error)? = nil,
         openFailure: (any Error)? = nil,
         leaveFailure: (any Error)? = nil,
+        confirmFailure: (any Error)? = nil,
+        arriveFailure: (any Error)? = nil,
+        departFailure: (any Error)? = nil,
+        reserveFailure: (any Error)? = nil,
+        reservations: [ReservationItemDto] = [],
         detailFailure: (any Error)? = nil,
         detailVersion: Int64? = nil
     ) {
@@ -1029,6 +1490,11 @@ private final class FakeMatchingApi: MatchingApi {
         self.realtimeFailure = realtimeFailure
         self.openFailure = openFailure
         self.leaveFailure = leaveFailure
+        self.confirmFailure = confirmFailure
+        self.arriveFailure = arriveFailure
+        self.departFailure = departFailure
+        self.reserveFailure = reserveFailure
+        self.reservations = reservations
         self.detailFailure = detailFailure
         self.detailVersion = detailVersion
     }
@@ -1099,8 +1565,67 @@ private final class FakeMatchingApi: MatchingApi {
         if let leaveFailure { throw leaveFailure }
     }
 
-    func getAssignedDriver(partyId: Int64) async throws -> DriverSummaryResponse {
-        DriverSummaryResponse(seats: 4, plateNumber: "12가 3456", type: "쏘나타")
+    // 셋 다 204 라 돌려줄 값이 없다 — 확인할 것은 **무엇을 보냈는가** 뿐이다.
+    func confirmMeeting(partyId: Int64, request: ConfirmMeetingRequestDto) async throws {
+        confirmCall.value = partyId
+        confirmRequest.value = request
+        if let confirmFailure { throw confirmFailure }
+    }
+
+    func arriveAtDeparture(partyId: Int64, request: ArriveRequestDto) async throws {
+        arriveCall.value = partyId
+        arriveRequest.value = request
+        if let arriveFailure { throw arriveFailure }
+    }
+
+    func departParty(partyId: Int64) async throws {
+        departCall.value = partyId
+        if let departFailure { throw departFailure }
+    }
+
+    /// 예약 생성. **응답이 방 생성과 같은 record** 이고(`OpenPartyResponse`) 다른 점은 서버가
+    /// 실제로 그렇게 주는 세 가지다: `roomType = "RESERVED"`, `departureAt` 이 요청 값,
+    /// 그리고 **경로·요금·시간이 nil**(서버가 예약 방의 경로를 추정하지 않는다).
+    func createReservation(request: OpenReservationRequestDto) async throws -> OpenPartyResponse {
+        reserveRequest.value = request
+        if let reserveFailure { throw reserveFailure }
+        return OpenPartyResponse(
+            id: 31,
+            departureLat: request.departureLat,
+            departureLng: request.departureLng,
+            destinationLat: request.destinationLat,
+            destinationLng: request.destinationLng,
+            departure: request.departure,
+            destination: request.destination,
+            capacity: request.capacity,
+            currentMembers: 1,
+            status: "ACTIVE",
+            roomType: "RESERVED",
+            departureAt: request.departureAt
+        )
+    }
+
+    func getReservations(from: String, to: String) async throws -> ReservationListResponse {
+        reservationRange.value = [from, to]
+        return ReservationListResponse(list: reservations)
+    }
+
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> ReservationListResponse {
+        reservationSoonCall.value = [swLat, swLng, neLat, neLng]
+        return ReservationListResponse(list: reservations)
+    }
+
+    func searchReservations(
+        depLat: Double,
+        depLng: Double,
+        date: String,
+        destLat: Double?,
+        destLng: Double?
+    ) async throws -> ReservationListResponse {
+        reservationSearchCall.value = ReservationSearchCall(
+            depLat: depLat, depLng: depLng, date: date, destLat: destLat, destLng: destLng
+        )
+        return ReservationListResponse(list: reservations)
     }
 
     // 실서버(localhost:8080) 응답을 축약한 값 — 폴리라인 필드명이 path 다.
@@ -1111,6 +1636,17 @@ private final class FakeMatchingApi: MatchingApi {
             estimateTime: 35,
             path: "ub`vEwtzrW?BQxA"
         )
+    }
+
+    // 노쇼 두 경로는 같은 MatchingApi 에 얹혀 있지만(서버가 /api/v1/matching 아래에 두었다)
+    // 이 파일이 보는 것은 RemoteRideRepository 다 — 부를 일이 없으므로 불리면 실패로 드러낸다.
+    // 노쇼 쪽 검증은 RemoteNoShowRepositoryTest 가 자기 가짜로 한다.
+    func getMyNoShows() async throws -> MyNoShowListResponse {
+        throw IllegalStateException("RemoteRideRepository 는 노쇼를 조회하지 않는다")
+    }
+
+    func submitNoShowObjection(partyId: Int64, request: NoShowObjectionRequestDto) async throws {
+        throw IllegalStateException("RemoteRideRepository 는 이의를 신청하지 않는다")
     }
 
     // 정원이 차서 서버가 COMPLETED 로 마감한 방 — 앱이 매칭 시작을 트리거하지 않는다.

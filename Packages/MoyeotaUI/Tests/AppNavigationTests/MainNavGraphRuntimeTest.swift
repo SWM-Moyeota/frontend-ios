@@ -41,11 +41,11 @@ import UIKit
 
     @Test("강제 업데이트 게이트 - 서버가 막으면 스택이 헐리고 풀리면 다시 선다")
     func updateGate() async throws {
-        let graph = HostedGraph(config: AppConfig(taxiEnabled: false, minVersionCode: 200), installedVersionCode: 100)
+        let graph = HostedGraph(config: AppConfig(minVersionCode: 200), installedVersionCode: 100)
         await graph.waitUntil("스택이 헐린다") { graph.navigationController == nil && graph.probe.navController != nil }
         await graph.close()
 
-        let passing = HostedGraph(config: AppConfig(taxiEnabled: false, minVersionCode: 50), installedVersionCode: 100)
+        let passing = HostedGraph(config: AppConfig(minVersionCode: 50), installedVersionCode: 100)
         await passing.waitForViewControllers(1)
         await passing.settle()
         #expect(passing.navigationController != nil)
@@ -160,10 +160,8 @@ import UIKit
         await graph.close()
     }
 
-    @Test("21·25·26 의 스와이프는 pop 대신 홈으로 간다", arguments: [
+    @Test("21 의 스와이프는 pop 대신 홈으로 간다", arguments: [
         (RideStatus.recruiting, Route.matchWaiting),
-        (RideStatus.dispatching, Route.dispatchStatus),
-        (RideStatus.ongoing, Route.rideOngoing),
     ])
     func progressScreensInterceptSwipe(status: RideStatus, route: Route) async throws {
         let graph = HostedGraph(activeRide: fakeRide(status: status))
@@ -313,8 +311,8 @@ import UIKit
         await graph.settle(8)
         let before = graph.rides.detailRequests.count
 
-        // 덮여 있는 동안 서버가 배차로 넘어갔다 — 원본은 21 이 멈춰 있어 사용자가 돌아와야 움직인다
-        graph.rides.ride = fakeRide(status: .dispatching)
+        // 덮여 있는 동안 서버가 방을 닫았다 — 원본은 21 이 멈춰 있어 사용자가 돌아와야 움직인다
+        graph.rides.ride = fakeRide(status: .completed)
         // 폴백 주기(6초)보다 길게 기다린다
         try? await Task.sleep(for: .seconds(7))
         await graph.settle(4)
@@ -322,8 +320,8 @@ import UIKit
         #expect(graph.routes == [.home, .explore, .destination, .matchWaiting, .chatRoom(roomId: 3)], "덮인 21 이 채팅방을 걷어냈다")
 
         try graph.nav.popBackStack()
-        await graph.waitUntil("돌아오면 21 이 읽고 25 로 간다") {
-            graph.routes == [.home, .explore, .destination, .dispatchStatus]
+        await graph.waitUntil("돌아오면 21 이 읽고 홈으로 간다") {
+            graph.routes == [.home]
         }
         await graph.close()
     }
@@ -512,6 +510,28 @@ import UIKit
         await graph.close()
     }
 
+    @Test("35 「노쇼 기록」은 38 을 쌓고 그 화면이 그래프의 노쇼 저장소로 목록을 읽는다")
+    func noShowRecordsWired() async throws {
+        let graph = HostedGraph()
+        await graph.waitForViewControllers(1)
+        let nav = try graph.nav
+        nav.navigateTab(.mypage)
+        await graph.settle(8)
+
+        nav.navigate(.noShowRecords)
+        await graph.waitForViewControllers(2)
+        #expect(graph.routes == [.home, .mypage, .noShowRecords])
+        // 배선을 빠뜨리면 38 이 조용히 비어 있다(`MainNavGraph` 의 `noShowRepository` 주석) — 조회가 실제로 나갔는지 본다
+        await graph.waitUntil("38 목록 조회") { graph.noShows.listRequests > 0 }
+        await graph.settle(16)
+        let top = graph.insetSpacerFrames(in: graph.topView).filter { $0.minY < 1 }
+        #expect(top.contains { abs($0.height - InsetWindow.insets.top) < 0.5 }, "38 상태바 여백 \(top)")
+
+        nav.popBackStack()
+        await graph.waitUntil("35 로 복귀") { graph.routes == [.home, .mypage] }
+        await graph.close()
+    }
+
     // ─── 탭 상태 ───
 
     @Test("35 스크롤 위치는 탭을 다녀와도 남고 로그아웃하면 사라진다")
@@ -545,8 +565,12 @@ import UIKit
         nav.navigateTab(.explore)
         nav.retained(for: nav.backStack[1]) { TabSavedState() }.set("explore.sheetState", state)
         await graph.settle(30)
-        // 목록은 half·full 에서만 있다 — 지도 안의 스크롤 뷰와 섞이지 않게 내용이 있는 세로 스크롤만 센다
-        let lists = graph.scrollViews.filter { $0.contentSize.height > 0 && $0.bounds.height > 0 }
+        // 목록은 half·full 에서만 있다 — 지도 안의 스크롤 뷰와 섞이지 않게 내용이 있는 세로 스크롤만 센다.
+        // 지도 위 모드 칩 줄(「실시간 / 곧 출발 / 날짜로 찾기」)은 시트 단계와 상관없이 늘 있는 **가로** 스크롤이라 뺀다
+        // — 세로 스크롤은 내용 폭이 뷰 폭에 맞춰지고, 가로 스크롤은 내용이 제 폭을 갖는다.
+        let lists = graph.scrollViews.filter {
+            $0.contentSize.height > 0 && $0.bounds.height > 0 && abs($0.contentSize.width - $0.bounds.width) < 0.5
+        }
         #expect(!lists.isEmpty == listShown, "목록 스크롤 \(lists.count) 개, 기대 \(listShown)")
         await graph.close()
     }
