@@ -41,6 +41,12 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
     func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw NetworkFailure() }
+
+    // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
+    // leave/finish 처럼 람다로 바꿔 호출을 세면 된다.
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw NetworkFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw NetworkFailure() }
+    func departParty(partyId: Int64) async throws { throw NetworkFailure() }
 }
 
 private let origin = Place(name: "서울대입구역", roadName: "서울 관악구 남부순환로 1820", latitude: 37.48, longitude: 126.95)

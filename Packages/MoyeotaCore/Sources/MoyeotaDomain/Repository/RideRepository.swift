@@ -181,6 +181,73 @@ public protocol RideRepository: Sendable {
     /// 문구로 떨어진다.
     func finishParty(partyId: Int64) async throws
 
+    /// POST /api/v1/matching/rooms/{partyId}/confirm (204) — 방장이 **약속 시간을 확정한다**.
+    /// 본문은 `{"departureAt": "..."}` 하나이고, 장소는 싣지 않는다 — 약속 장소는 **늘 방의 출발지**다.
+    ///
+    /// 이게 방을 끝내는 **정식 경로의 첫 단계**다: 확정 → 각자 「출발지 도착」 → 누군가 「출발」.
+    /// `finishParty` 는 **확정 전 방에만** 남는다 — 확정된 방에 부르면 서버가 409
+    /// `USE_DEPART_FOR_CONFIRMED_PARTY` 로 거절한다.
+    ///
+    /// ### `departureAt` 의 모양이 곧 성패다 ★
+    /// ISO-8601 **순간**(instant) 문자열이어야 한다 — `"2026-11-03T08:30:00Z"` 처럼 `Z` 로 끝나거나
+    /// `+09:00` 같은 오프셋이 붙어야 하고, `ISO8601DateFormatter` 의 기본 출력(UTC, `Z`)을 그대로 넣으면 맞다.
+    /// **오프셋 없는 로컬 시각(`"2026-11-03T17:30:00"`)은 400 이다** — 서버가 `Instant` 로 읽지 못한다.
+    /// 그 400 은 `PartyConfirmException` 의 어느 사유도 아니라
+    /// (code 는 `INVALID_REQUEST`) 화면에 일반 문구로 떨어진다 — 원인을 찾기 가장 어려운 실패다.
+    ///
+    /// 서버가 받는 범위는 **지금부터 1시간 안**이고 과거 쪽으로는 1분의 시계 오차만 봐준다. 그래서
+    /// 화면은 프리셋(10·20·30·45·60분 후)으로만 고르게 한다 — 자유 입력은 사용자가 만들 수 있는 400 이다.
+    ///
+    /// 성공하면 **방의 성질이 바뀐다**: 모집이 끝나고(ACTIVE→COMPLETED) 아무도 나갈 수 없다
+    /// (409 `CANNOT_LEAVE_CONFIRMED_PARTY`). 화면 갱신은 따로 읽지 않아도 된다 —
+    /// SSE `PartyEvent.confirmed` 가 상태와 약속 시간을 싣고 온다(`observePartyEvents`).
+    ///
+    /// 실패는 모두 `PartyConfirmException` 으로 올라온다
+    /// (403 `NOT_PARTY_HOST`·`NOT_PARTY_MEMBER` / 409 `NOT_REALTIME_PARTY`·`ALREADY_CONFIRMED`·
+    /// `PARTY_NOT_RECRUITING`·`NOT_ENOUGH_MEMBERS` / 400 `INVALID_MEETING_TIME` / 404 / 네트워크).
+    /// **한 문구로 뭉개면 안 된다** — 사유마다 다음 행동이 다르고, 그 근거는 그 예외 주석의 표에 있다.
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws
+
+    /// POST /api/v1/matching/rooms/{partyId}/arrive (204) — **출발지에 도착했다**고 알린다.
+    /// 본문은 `{"latitude": …, "longitude": …}`, **지금 내 위치**다(방의 출발지 좌표가 아니다 —
+    /// 서버가 그 둘의 거리를 재서 100m 안인지 판정한다).
+    ///
+    /// 받아 주는 조건은 둘이다: 약속이 확정된 방일 것, 그리고 **약속 시간 10분 전부터**일 것.
+    /// (서버 `Party.arrive` 는 `now < departureAt − 10분`(`ARRIVAL_OPENS_BEFORE`) 이면 409
+    /// `ARRIVAL_NOT_OPEN` 이다. 「약속 시간 정각부터」·`MEETING_NOT_STARTED` 는 백엔드 PR #307 전의
+    /// 규칙이고, 지금 `MEETING_NOT_STARTED` 는 출발에서만 온다 — `PartyArriveException` 주석.)
+    ///
+    /// **멱등이다.** 이미 도착한 사람이 다시 불러도 204 이고, 최초 도착 시각이 유지되며 version 도
+    /// SSE 도 움직이지 않는다 — 응답을 놓쳐 다시 보내도 안전하다.
+    ///
+    /// 성공하면 SSE `PartyEvent.memberArrived` 가 **그 한 명의** publicId 를 싣고 온다
+    /// (내 도착도 나에게 온다). 화면은 그 사람의 `User.hasArrived` 만 켜면 된다.
+    ///
+    /// 실패는 모두 `PartyArriveException` 으로 올라온다
+    /// (400 `TOO_FAR_FROM_DEPARTURE`·`OUT_OF_SERVICE_AREA` / 403 `NOT_PARTY_MEMBER` /
+    /// 409 `PARTY_CLOSED`·`PARTY_NOT_CONFIRMED`·`ARRIVAL_NOT_OPEN` / 404 / 네트워크).
+    /// 「멀다」와 「아직 시간 전이다」를 뭉개면 **이미 출발지에 서 있는 사람에게 더 가까이 가라**고 말한다.
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws
+
+    /// POST /api/v1/matching/rooms/{partyId}/depart (204, 본문 없음) — **출발한다 = 방을 끝낸다.**
+    ///
+    /// ⚠️ **되돌릴 수 없고, 남에게 제재를 남긴다.** 이 호출이 성공한 순간 방은 FINISHED 가 되고,
+    /// 그때까지 도착을 누르지 않은 멤버는 **전부 노쇼로 기록된다**(노쇼 횟수 × 24시간 이용 제한,
+    /// 약속 시간부터 센다). 앱에는 취소하는 길이 없다 — 화면은 누르기 전에 반드시 확인을 받아야 한다.
+    /// 서버가 `restrictedUntil` 로 알려 주는 그 제재를, 만드는 쪽이 바로 이 호출이다.
+    ///
+    /// **방장 전용이 아니다** — 도착한 멤버면 누구나 누를 수 있다(`finishParty` 와 다른 점이다).
+    /// 조건은 약속 시간 **뒤**일 것, 멤버 2명 이상일 것, 그리고 **내가 도착해 있을 것**.
+    ///
+    /// 성공하면 SSE `PartyEvent.closed` 가 오고 **서버가 그 방의 구독을 끊는다** — 화면은 그 신호로
+    /// 닫으면 된다(이 호출의 반환을 기다릴 필요가 없다). 다른 멤버가 먼저 눌렀다면 내 호출은 409
+    /// `PARTY_CLOSED` 인데, 그건 실패가 아니라 **종료**로 보여 주는 쪽이 맞다.
+    ///
+    /// 실패는 모두 `PartyDepartException` 으로 올라온다
+    /// (409 `PARTY_CLOSED`·`PARTY_NOT_CONFIRMED`·`NOT_ENOUGH_MEMBERS`·`MEETING_NOT_STARTED`·
+    /// `NOT_ARRIVED` / 403 `NOT_PARTY_MEMBER` / 404 / 네트워크).
+    func departParty(partyId: Int64) async throws
+
     // 기사 요약 조회(`GET /rooms/{partyId}/driver`)와 긴급 신고 두 개
     // (`POST /api/v1/reports`·`PATCH /api/v1/reports/call-result`)는 **지웠다** — 기사·배차가
     // 사라지면서 부를 화면(25 배차 상태·26 운행 중·긴급)이 함께 없어졌다. 채팅 메시지 신고

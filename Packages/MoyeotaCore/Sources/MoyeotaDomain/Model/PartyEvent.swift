@@ -7,10 +7,14 @@
 /// 그래서 이 타입은 「재조회 트리거」가 아니라 **그 자체로 화면을 갱신할 수 있는 변경분**이다.
 /// - 구독 직후 `snapshot` 이 방 상세 **전체**를 준다. 끊겨 다시 붙을 때마다 또 온다 — 그 사이
 ///   놓친 변화를 스냅샷이 통째로 보정하므로 **catch-up 조회도, 평상시 폴링도 필요 없다**.
-/// - 그 뒤로는 `memberJoined`·`memberLeft` 로 한 명씩 들고 나는 것만 온다. 둘 다 **변경 후 방 상태**를
-///   함께 실어 주므로, 정원이 차서 생기는 전이(모집 중 → 정원 충족)도 이 신호로 알 수 있다.
+/// - 그 뒤로는 변경분만 온다. `memberJoined`·`memberLeft` 는 한 명씩 들고 나는 것이고, 둘 다 **변경 후
+///   방 상태**를 함께 실어 주므로 정원이 차서 생기는 전이(모집 중 → 정원 충족)도 이 신호로 알 수 있다.
+/// - 방을 끝내는 길에서 셋이 더 온다: `recruitingClosed`(모집 시간이 끝나 지금 인원으로 마감)·
+///   `confirmed`(방장이 약속 시간을 확정)·`memberArrived`(누가 출발지에 도착). 이 셋도 같은 version
+///   규칙을 탄다.
 ///
-/// 서버의 발행처는 `PartyService` 의 참여·퇴장·종료(join/leave/finish/expire)다. 예전에 이 자리에
+/// 서버의 발행처는 `PartyService` 의 참여·퇴장·종료(join/leave/finish/expire)와 **방을 끝내는 정식
+/// 경로**(confirm/arrive/depart)·모집 마감 스윕이다. 예전에 이 자리에
 /// 적혀 있던 배차·운행 전이(`MATCHING→DRIVER_ASSIGNED→IN_RIDE`)는 **서버에서 사라졌다** — 그 status
 /// 자체가 없어졌으므로 기다릴 신호도, 폴링으로 메울 단계도 없다.
 ///
@@ -81,10 +85,64 @@ public enum PartyEvent: Hashable, Sendable {
         version: Int64? = nil
     )
 
-    /// 방이 닫혔다(`closed` — 합승 완료·만료·마지막 멤버 이탈). 서버가 이 뒤에 그 방의 모든 구독을 끊는다.
+    /// 모집이 마감됐다(`recruiting-closed`). 서버의 모집 정리 스윕이 **시간이 다 된 방**을 지금 인원
+    /// (2명 이상)으로 닫을 때 보낸다 — 정원이 차서 마감되는 경우는 이게 아니라 `memberJoined` 의
+    /// `status` 에 실려 온다(그쪽이 마지막 자리를 채운 당사자의 신호다).
     ///
-    /// data 는 `{partyId, status, version}` JSON 이지만 앱은 읽지 않는다 — 종결 신호로만 쓴다.
-    /// (옛 서버는 partyId 숫자 문자열을 보냈다. 어느 쪽이든 읽지 않으므로 상관없다.)
+    /// `status` 가 **서버 enum 이름 그대로인 문자열**인 것은 `confirmed` 와 함께 리더가 고정한 계약이다
+    /// — `memberJoined`·`memberLeft` 의 `RideStatus` 와 모양이 다르다. 지금 이 자리에 오는 값은
+    /// `"COMPLETED"` 하나뿐이고(모집이 끝났다는 신호다) 화면은 그걸 읽기보다 **모집이 끝났다는 사실**만
+    /// 쓴다. 상태 전이의 근거가 필요하면 `snapshot` 이나 상세 재조회가 단일 창구다.
+    case recruitingClosed(
+        status: String,
+        /// 반영 **뒤**의 방 순번. 순서 판정 규칙은 이 파일 맨 위 표. null 이면 옛 서버다.
+        version: Int64? = nil
+    )
+
+    /// 방장이 **약속 시간을 확정했다**(`confirmed`). 이 신호 뒤로 방은 성질이 바뀐다 — 모집이 끝나고
+    /// (status 는 `COMPLETED`) **아무도 나갈 수 없으며**(409 `CANNOT_LEAVE_CONFIRMED_PARTY`),
+    /// 「합승 완료」도 막힌다(409 `USE_DEPART_FOR_CONFIRMED_PARTY`). 끝내는 길은 「출발」 하나다.
+    ///
+    /// `departureAt` 은 **ISO-8601 문자열 그대로**다(`Ride.departureAt` 과 같은 관례 — 파싱은 화면이 한다).
+    /// **null 이면 서버가 약속 시간을 말하지 않은 것**이고(옛 배포·필드 누락), 그때는 이 프레임만으로
+    /// 화면을 그릴 수 없으므로 상세를 다시 읽어야 한다 — 「확정됐다」는 사실만 알고 **언제**를 모르면
+    /// 21 대기 화면이 「약속 시간 ?」을 그리게 된다.
+    ///
+    /// `status` 가 문자열인 이유는 `recruitingClosed` 와 같다.
+    case confirmed(
+        status: String,
+        departureAt: String?,
+        /// 반영 **뒤**의 방 순번. 순서 판정 규칙은 이 파일 맨 위 표. null 이면 옛 서버다.
+        version: Int64? = nil
+    )
+
+    /// 누가 **출발지에 도착했다**(`member-arrived`). 그 사람의 `User.hasArrived` 를 true 로 바꾸라는 뜻이고,
+    /// 서버는 그 한 명만 알려 준다(다른 멤버의 도착 상태는 건드리지 않는다).
+    ///
+    /// ### `publicId` 가 멤버 목록에 없으면 — **상세를 다시 읽는다** ★
+    /// `memberLeft` 의 publicId 가 null 일 때와 **같은 처방**이고, 서버 계약도 그렇게 적혀 있다
+    /// (`PartySseController`: "publicId 가 null 이거나 목록에 없으면 방 상세를 다시 받는다").
+    /// 목록에 없는 사람의 도착은 **얹을 자리가 없다** — 조용히 버리면 version 만 올라가고 화면은 그
+    /// 사람이 영영 미도착으로 남아, 「출발」을 눌러도 되는 방을 아직 안 된다고 그린다. 그 어긋남은
+    /// 다음 `snapshot` 까지 풀리지 않는데, 스트림이 살아 있는 한 스냅샷은 오지 않는다.
+    ///
+    /// **도착한 사람을 서버도 특정하지 못한 프레임(payload 의 publicId 가 null)은 여기까지 올라오지
+    /// 않는다** — 데이터 계층이 버린다(`parsePartySseFrame`). `publicId` 가 non-null 인 건 그래서다.
+    /// 버려진 프레임의 version 은 비므로 **다음 프레임이 +2 로 보여** 상세 재조회가 걸린다 — 서버가
+    /// 그 경우에 지시하는 바로 그 동작이다.
+    ///
+    /// 상태는 싣지 않는다 — 도착은 방의 단계를 바꾸지 않는다(status 가 그대로다).
+    case memberArrived(
+        publicId: String,
+        /// 반영 **뒤**의 방 순번. 순서 판정 규칙은 이 파일 맨 위 표. null 이면 옛 서버다.
+        version: Int64? = nil
+    )
+
+    /// 방이 닫혔다(`closed` — 합승 완료·출발·만료·마지막 멤버 이탈). 서버가 이 뒤에 그 방의 모든 구독을 끊는다.
+    ///
+    /// data 는 `{status}` JSON 이지만 앱은 읽지 않는다 — 종결 신호로만 쓴다.
+    /// (옛 서버는 partyId 숫자 문자열을, 그 사이 배포는 `{partyId, status, version}` 을 보냈다.
+    /// 어느 쪽이든 읽지 않으므로 상관없다.)
     ///
     /// **version 으로 거르지 않는다.** 서버가 version 을 올리지 않고 닫는 경우가 있어
     /// 직전과 같은 값이 실려 오기 때문이다(`PartySseController`: "closed 는 version 과 상관없이 종료로

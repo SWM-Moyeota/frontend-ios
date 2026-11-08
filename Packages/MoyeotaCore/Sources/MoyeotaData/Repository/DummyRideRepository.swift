@@ -107,6 +107,17 @@ public final class DummyRideRepository: RideRepository {
 
     public func finishParty(partyId: Int64) async throws {}
 
+    // 약속 확정·도착·출발도 성공한 척만 한다. 더미는 방 상태를 들고 있지 않아 **다음 호출에 아무
+    // 영향이 없다** — 확정한 뒤 getPartyDetail 을 읽어도 isConfirmed 는 여전히 false 다.
+    // 그걸 흉내 내려면 더미가 방의 생애를 갖게 되는데, 그러면 「서버 없이 화면이 열리는가」만 보려는
+    // 이 저장소가 두 번째 서버 구현이 된다(실패 경로는 흉내 낼 수 없으니 반쪽짜리다).
+    // 확정/도착/출발이 실제로 어떤 모양인지는 FakeMatchingApi 를 쓰는 RemoteRideRepositoryTest 가 본다.
+    public func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+
+    public func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
+
+    public func departParty(partyId: Int64) async throws {}
+
     /// 직선거리 기준으로 요금·시간을 지어낸다(서울 택시 기본요금 4,800원 + km 당 1,300원,
     /// 평균 시속 22km + 승하차 3분). 경로는 출발·도착을 잇는 2점짜리 인코딩 폴리라인이라
     /// 지도에 직선이 그려진다 — 상수 빈 문자열보다 화면 확인에 쓸모 있다.

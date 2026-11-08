@@ -43,7 +43,7 @@ private final class InsetWindow: UIWindow {
     func widthAndPosition() async {
         let window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = UIHostingController(
-            rootView: MatchWaitingScreen(ride: geometryRide).seeded(cancelConfirming: true).ignoresSafeArea(.container)
+            rootView: MatchWaitingScreen(ride: geometryRide, now: geometryNow).seeded(cancelConfirming: true).ignoresSafeArea(.container)
         )
         window.isHidden = false
         defer { window.isHidden = true }
@@ -123,3 +123,6 @@ private let geometryRide = Ride(
     id: "1", origin: "센텀시티역", destination: "서면역", departureLabel: "지금 출발",
     capacity: 3, members: [], farePerPerson: 3600, totalFare: 10800, status: .recruiting
 )
+
+/// 약속 단계 판정의 고정 시각. 모집 중인 방이라 단계에 영향이 없지만, 화면이 시계를 읽지 않으므로 넘겨야 한다.
+private let geometryNow = Date(timeIntervalSince1970: 1_793_944_800) // 2026-11-06T06:00:00Z

@@ -112,6 +112,46 @@ struct WaitingSseStateTest {
         #expect(after.members.count == 3)
     }
 
+    // ─── 도착 ───────────────────────────────────────────────────────────────
+
+    @Test("도착 - publicId 로 그 한 명만 도착 표시한다")
+    func arrivedMarksOne() {
+        let before = ride(status: .matched, members: [me, user("u2"), user("u3")])
+
+        let delta = before.withMemberArrived(publicId: "u2")
+
+        #expect(delta.ride.members.map(\.hasArrived) == [false, true, false])
+        #expect(!delta.needsDetail, "목록에 있는 사람이면 상세를 다시 읽을 이유가 없다")
+    }
+
+    /// **모르는 publicId 는 「목록이 낡았다」는 뜻이라 상세를 다시 읽는다** — 퇴장(아래)과 처방이 다르다.
+    ///
+    /// 서버도 그렇게 하라고 적어 두었지만(「목록에 없으면 방 상세를 다시 받는다」) 근거가 하나 더 있다.
+    /// 도착 표시는 배지만 그리는 값이 아니라 **「출발」 확인 문구가 말하는 노쇼 인원 수**의 근거다
+    /// (`notArrivedCount`). 낡은 목록을 두면 그 수가 실제보다 적어지고, 노쇼는 24시간 × 횟수의 실제
+    /// 제재다 — 적게 말하고 누르게 하는 쪽이 조회 1건보다 나쁘다.
+    @Test("도착 - 모르는 publicId 면 상세를 다시 읽는다")
+    func arrivedUnknownNeedsDetail() {
+        let before = ride(status: .matched, members: [me, user("u2")])
+
+        let delta = before.withMemberArrived(publicId: "u9")
+
+        #expect(delta.ride.members.map(\.hasArrived) == [false, false])
+        #expect(delta.needsDetail, "목록이 낡았으므로 서버에 다시 물어야 한다")
+    }
+
+    @Test("도착 - 빈 publicId 로는 아무도 표시하지 않고 다시 읽지도 않는다")
+    func arrivedBlankMarksNobody() {
+        // 요약이 없는 멤버(id 가 빈 값)들을 한꺼번에 도착으로 만들면 노쇼 인원 수가 0 으로 보인다.
+        // 그 프레임은 데이터 계층이 이미 버리므로(version 구멍 → 다음 프레임이 Resync) 여기서는 조용히 넘긴다.
+        let before = ride(status: .matched, members: [me, user(""), user("")])
+
+        let delta = before.withMemberArrived(publicId: "")
+
+        #expect(delta.ride.members.map(\.hasArrived) == [false, false, false])
+        #expect(!delta.needsDetail)
+    }
+
     // ─── 퇴장 ───────────────────────────────────────────────────────────────
 
     @Test("퇴장 - publicId 로 그 한 명만 지우고 상태를 바꾼다")

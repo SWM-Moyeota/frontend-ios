@@ -95,6 +95,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw NetworkFailure() }
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
     func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw NetworkFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw NetworkFailure() }
+    func departParty(partyId: Int64) async throws { throw NetworkFailure() }
 }
 
 /// 역지오코딩만 쓴다.

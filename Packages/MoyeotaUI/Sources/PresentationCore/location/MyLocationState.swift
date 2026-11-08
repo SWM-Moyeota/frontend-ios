@@ -312,19 +312,27 @@ public final class MyLocationController {
     }
 
     /// 권한 재요청. 안내 UI 의 버튼이 `MyLocationState.onRequestPermission` 으로 부른다.
-    public func requestPermission() {
-        switch locationPermissionAction(requested: requested, canPrompt: client.canPromptForLocation) {
+    ///
+    /// 사람이 누른 버튼이라 이 화면이 아직 묻지 않았어도 「이미 물었다」로 본다. 원본의 rationale 은 「아직 안
+    /// 물었다」와 「영구 거부」를 가르지 못해 `requested` 가 필요했지만, iOS 에서 시스템이 더 묻지 않는 상태는
+    /// 이미 거부했다는 뜻이다(다른 화면 14·17 의 자동 요청이나 설정 앱에서). 그대로 요청하면 자동 요청이 없는
+    /// 화면(21)의 첫 탭이 아무 일도 하지 않는다.
+    public func requestPermission() { request(explicit: true) }
+
+    /// 진입 시·권한 변화 시 자동 요청. `LaunchedEffect(autoRequestPermission, granted)` 의 몸통이다.
+    /// 「이미 물었고」 조건은 여기에만 남는다 — 진입하자마자 설정 앱으로 튀어 나가면 안 된다.
+    func autoRequestIfNeeded() {
+        if autoRequestPermission && !isGranted && !requested { request(explicit: false) }
+    }
+
+    private func request(explicit: Bool) {
+        switch locationPermissionAction(requested: requested || explicit, canPrompt: client.canPromptForLocation) {
         case .openSettings:
             client.openAppSettings()
         case .prompt:
             requested = true
             client.requestPermission()
         }
-    }
-
-    /// 진입 시·권한 변화 시 자동 요청. `LaunchedEffect(autoRequestPermission, granted)` 의 몸통이다.
-    func autoRequestIfNeeded() {
-        if autoRequestPermission && !isGranted && !requested { requestPermission() }
     }
 
     /// 화면이 보이기 시작했다. 설정 화면에서 권한을 바꾸고 돌아오는 경로 — 복귀할 때마다 실제 상태를 다시 읽는다.

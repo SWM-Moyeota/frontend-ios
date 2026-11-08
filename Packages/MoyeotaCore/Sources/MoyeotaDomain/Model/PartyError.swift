@@ -146,6 +146,14 @@ public struct PartyFinishException: Throwable {
     /// 409 `PARTY_NOT_COMPLETED` — 정원이 아직 다 차지 않았다(서버는 COMPLETED 방만 닫아 준다).
     public var isNotCompleted: Bool { code == Self.PARTY_NOT_COMPLETED }
 
+    /// 409 `USE_DEPART_FOR_CONFIRMED_PARTY` — **약속이 정해진 방**이다. 이 경로로는 끝낼 수 없고
+    /// 「출발」(`POST /rooms/{id}/depart`)만 받는다. 노쇼 기록이 거기서 생기므로 서버가 길을 하나로 묶었다.
+    ///
+    /// 화면이 확정된 방에서 이 버튼을 **숨기는데도** 남겨 두는 이유는 `isNotHost` 와 같다 — 확정
+    /// 사실은 SSE 로 오고, 그 프레임을 놓치면 낡은 스냅샷으로 버튼을 보여 줄 수 있다. 그 틈에 눌린
+    /// 것을 받아 **다음에 눌러야 할 버튼 이름**을 말해 준다.
+    public var isUseDepartForConfirmedParty: Bool { code == Self.USE_DEPART_FOR_CONFIRMED_PARTY }
+
     /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다.
     public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND }
 
@@ -154,6 +162,7 @@ public struct PartyFinishException: Throwable {
     public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
     public static let NOT_PARTY_HOST = "NOT_PARTY_HOST"
     public static let PARTY_NOT_COMPLETED = "PARTY_NOT_COMPLETED"
+    public static let USE_DEPART_FOR_CONFIRMED_PARTY = "USE_DEPART_FOR_CONFIRMED_PARTY"
     public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
 }
 
@@ -395,4 +404,287 @@ public struct PartyMembershipLostException: Throwable {
     }
 
     public var message: String? { "이 방의 참여자가 아닙니다. (partyId=\(partyId.map { String($0) } ?? "null"))" }
+}
+
+/// 「약속 시간 확정」 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외
+/// (`RideRepository.confirmMeeting` 전용).
+///
+/// ### 왜 액션마다 예외를 따로 두는가 — 셋을 하나로 묶지 않은 이유 ★
+/// 확정·도착·출발은 한 화면(21)에서 이어지는 한 흐름이라 예외 하나로 묶고 싶어진다. 묶으면 안 되는
+/// 이유는 **같은 서버 코드가 액션에 따라 다른 문장을 요구하기** 때문이다:
+///
+/// | 서버 코드 | 확정에서의 뜻 | 도착에서의 뜻 | 출발에서의 뜻 |
+/// |---|---|---|---|
+/// | `MEETING_NOT_STARTED` | (오지 않는다) | (오지 않는다 — 도착 창은 `ARRIVAL_NOT_OPEN` 이다) | 약속 시간이 지나야 출발할 수 있어요 |
+/// | `NOT_ENOUGH_MEMBERS` | 2명 이상이어야 약속을 정할 수 있어요 | (오지 않는다) | 2명 이상이어야 출발할 수 있어요 |
+/// | `NOT_PARTY_MEMBER` | 방에서 나가진 상태예요 | 〃 | 〃 |
+///
+/// 예외가 하나면 **어느 버튼을 눌렀는지**가 타입에서 사라지고, 화면은 그걸 자기 쪽 플래그로 다시
+/// 들고 있어야 한다 — 그 플래그가 어긋나는 순간 사용자는 누르지도 않은 동작의 안내를 받는다.
+/// `PartyFinishException` 이 "403 이 두 가지 뜻인데 HTTP 상태로는 안 갈린다"로 생긴 것과 같은 형태의
+/// 문제이고, 여기서는 **코드 하나가 두 가지 뜻인데 액션으로만 갈린다.**
+///
+/// 나머지 모양은 `PartyFinishException` 과 같다. **상태 코드로 폴백하지 않는다**(403 이 두 가지,
+/// 409 가 네 가지다) — 코드를 모르면 `code` 는 null 이고 화면은 **일반 문구**로 떨어진다. 서버가
+/// 코드를 늘려도 앱이 틀린 말을 하지 않는다. 분기 근거를 프로퍼티로 노출하는 것도 같은 이유다 —
+/// 서버 코드 문자열 비교가 화면으로 새어 나가면 서버가 enum 이름을 바꿀 때 조용히 어긋난다.
+///
+/// 서버의 검사 순서는 `Party.confirm` 그대로다: 멤버 → 방장 → 실시간 방 → 이미 확정 → 모집 중 →
+/// 인원 2명 → 시간. **앞의 검사가 걸리면 뒤 사유는 알 수 없다** — 화면이 "그리고 또…"를 붙이면 안 된다.
+public struct PartyConfirmException: Throwable {
+    /// 서버 `MatchingErrorCode` 이름(`ALREADY_CONFIRMED` 등). 본문이 없거나 파싱 실패면 null.
+    public let code: String?
+    /// 서버가 준 한국어 원문 message. 없으면 null.
+    public let serverMessage: String?
+    /// HTTP 상태 코드. 응답 자체가 없으면(네트워크 실패) null. 문구 분기에는 쓰지 않는다 — 위 주석 참고.
+    public let httpStatus: Int?
+    public let cause: (any Error)?
+
+    public init(
+        code: String?,
+        serverMessage: String?,
+        httpStatus: Int? = nil,
+        cause: (any Error)? = nil
+    ) {
+        self.code = code
+        self.serverMessage = serverMessage
+        self.httpStatus = httpStatus
+        self.cause = cause
+    }
+
+    public var message: String? { serverMessage ?? code ?? "약속 시간을 정하지 못했습니다." }
+
+    /// 403 `NOT_PARTY_HOST` — **방장만** 약속 시간을 정할 수 있다.
+    ///
+    /// `PartyFinishException.isNotHost` 와 같은 사정이다: 방장은 저장값이 아니라 **지금 멤버 중 가장
+    /// 먼저 합류한 사람**이고 승계가 SSE 한 번으로만 전해지므로, 버튼을 가려도 내 스냅샷이 낡으면
+    /// 이 403 이 남는다. 화면은 이름이 아니라 **조건**으로 말해야 한다.
+    public var isNotHost: Bool { code == Self.NOT_PARTY_HOST }
+
+    /// 403 `NOT_PARTY_MEMBER` — 이 방의 멤버가 아니다. `isNotHost` 와 **같은 403 이지만 뜻이 다르다**.
+    public var isNotMember: Bool { code == Self.NOT_PARTY_MEMBER }
+
+    /// 409 `NOT_REALTIME_PARTY` — 예약 방이다. 예약 방은 만들 때 출발 시각을 정했으므로 **다시 정할 수
+    /// 없다**(`RoomType.reservation`).
+    ///
+    /// 화면이 `Ride.roomType` 으로 버튼을 먼저 가리면 거의 오지 않지만, 목록·추천에서 넘어온 방은
+    /// 그 값이 기본값(`RoomType.realtime`)이라 상세를 읽기 전에는 구분이 없다 — 그 틈에 눌리면 여기로 온다.
+    public var isNotRealtimeParty: Bool { code == Self.NOT_REALTIME_PARTY }
+
+    /// 409 `ALREADY_CONFIRMED` — 이미 확정된 방이다. **실패가 아니라 "이미 됨"에 가깝다** —
+    /// 다른 기기에서 눌렀거나 204 응답이 유실된 뒤 다시 누른 경우가 대부분이다.
+    ///
+    /// 그래도 저장소가 성공으로 되돌리지 **않는다**: 나가기의 403 과 달리(`PartyLeaveException`)
+    /// 이 코드는 "**누가 언제로** 정했는지"를 말해 주지 않아, 성공으로 접으면 화면이 약속 시간을 모르는
+    /// 채 확정 화면으로 넘어간다. 화면은 이 사유를 받고 **상세를 다시 읽어** 시간을 채워야 한다.
+    public var isAlreadyConfirmed: Bool { code == Self.ALREADY_CONFIRMED }
+
+    /// 409 `PARTY_NOT_RECRUITING` — 모집 단계를 벗어난 방이다(이미 닫혔다).
+    public var isNotRecruiting: Bool { code == Self.PARTY_NOT_RECRUITING }
+
+    /// 409 `NOT_ENOUGH_MEMBERS` — 혼자 있는 방이다. 서버는 2명 이상인 방만 확정해 준다.
+    public var isNotEnoughMembers: Bool { code == Self.NOT_ENOUGH_MEMBERS }
+
+    /// 400 `INVALID_MEETING_TIME` — 약속 시간이 **지금부터 1시간 안**이 아니다(서버 `MAX_CONFIRM_AHEAD`,
+    /// 과거 쪽으로는 1분의 시계 오차만 봐준다).
+    ///
+    /// **화면이 프리셋(10·20·30·45·60분 후)으로만 시간을 고르게 하는 이유가 이것이다** — 자유 입력은
+    /// 사용자가 만들 수 있는 400 이 되고, 그 400 은 "다시 시도"로 풀리지 않는다. 그래도 사유를 남겨
+    /// 두는 건 **60분 프리셋이 경계에 붙어 있기** 때문이다: 고르고 누르기까지 1초만 지나도 서버 쪽
+    /// `now` 가 밀려 거절될 수 있다.
+    public var isInvalidMeetingTime: Bool { code == Self.INVALID_MEETING_TIME }
+
+    /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다.
+    public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND }
+
+    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다
+    /// (`PartyService.confirm` → `Party.confirm` 의 검사 순서 그대로).
+    public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
+    public static let NOT_PARTY_HOST = "NOT_PARTY_HOST"
+    public static let NOT_REALTIME_PARTY = "NOT_REALTIME_PARTY"
+    public static let ALREADY_CONFIRMED = "ALREADY_CONFIRMED"
+    public static let PARTY_NOT_RECRUITING = "PARTY_NOT_RECRUITING"
+    public static let NOT_ENOUGH_MEMBERS = "NOT_ENOUGH_MEMBERS"
+    public static let INVALID_MEETING_TIME = "INVALID_MEETING_TIME"
+    public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
+}
+
+/// 「출발지 도착」 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외
+/// (`RideRepository.arriveAtDeparture` 전용).
+///
+/// 출발(`PartyDepartException`)과 **코드가 네 개 겹치는데도 따로 두는** 이유는
+/// `PartyConfirmException` 의 표에 적어 두었다 — 겹치는 코드가 액션마다 다른 문장을 요구한다.
+///
+/// ### 이 액션의 실패는 「고치면 되는 것」과 「기다리면 되는 것」으로 갈린다
+///
+/// | 사유 | 서버 코드(HTTP) | 사용자가 할 일 |
+/// |---|---|---|
+/// | 출발지에서 멀다 | `TOO_FAR_FROM_DEPARTURE` (400) | **100m 안까지 걸어간다** — 기다려도 풀리지 않는다 |
+/// | 도착 창이 안 열렸다 | `ARRIVAL_NOT_OPEN` (409) | **기다린다** — 약속 10분 전이 되면 저절로 풀린다 |
+/// | 약속이 안 정해졌다 | `PARTY_NOT_CONFIRMED` (409) | 방장이 시간을 정할 때까지 기다린다 |
+/// | 방이 닫혔다 | `PARTY_CLOSED` (409) | 홈으로 돌아간다 |
+///
+/// 두 번째와 첫 번째를 한 문구로 뭉개면 **약속 시간 전에 도착한 사람에게 "더 가까이 가세요"** 라고
+/// 말하게 된다 — 그 사람은 이미 출발지에 서 있다.
+///
+/// ### 도착은 약속 시간 **10분 전**부터 열린다
+/// 서버 `Party.arrive` 의 검사는
+/// `if(now.isBefore(departureAt.minus(ARRIVAL_OPENS_BEFORE))) throw ARRIVAL_NOT_OPEN` 이고
+/// `ARRIVAL_OPENS_BEFORE = Duration.ofMinutes(10)` 이다(백엔드 PR #307, 2026-11-05 — 그 전에는
+/// 약속 시간 정각부터였다). 그래서 **창이 안 열린 실패는 `isArrivalNotOpen`** 이고,
+/// `MEETING_NOT_STARTED` 는 **도착이 아니라 출발**의 코드다(`PartyDepartException.isMeetingNotStarted`).
+///
+/// 둘을 섞으면 화면이 틀린 시각을 말한다 — 도착은 10분 전, 출발은 약속 시간 뒤다.
+/// 서버 검사 순서는 멤버 → 방 열림 → **이미 도착했으면 여기서 204** → 도착 창 → 거리다.
+///
+/// 멱등이라는 점도 중요하다: 이미 도착한 사람이 다시 눌러도 서버는 204 를 준다(시각 유지, SSE 없음).
+/// 그래서 "도착을 두 번 눌렀다"는 실패는 **존재하지 않는다**.
+public struct PartyArriveException: Throwable {
+    /// 서버 `MatchingErrorCode` 이름(`TOO_FAR_FROM_DEPARTURE` 등). 본문이 없거나 파싱 실패면 null.
+    public let code: String?
+    /// 서버가 준 한국어 원문 message. 없으면 null.
+    public let serverMessage: String?
+    /// HTTP 상태 코드. 응답 자체가 없으면(네트워크 실패) null. 문구 분기에는 쓰지 않는다.
+    public let httpStatus: Int?
+    public let cause: (any Error)?
+
+    public init(
+        code: String?,
+        serverMessage: String?,
+        httpStatus: Int? = nil,
+        cause: (any Error)? = nil
+    ) {
+        self.code = code
+        self.serverMessage = serverMessage
+        self.httpStatus = httpStatus
+        self.cause = cause
+    }
+
+    public var message: String? { serverMessage ?? code ?? "도착을 확인하지 못했습니다." }
+
+    /// 400 `TOO_FAR_FROM_DEPARTURE` — 방 출발지에서 **100m 밖**이다(서버가 PostGIS `ST_DWithin` 으로 잰다).
+    ///
+    /// 앱이 보낸 좌표가 기준이므로 **실내·지하에서의 측위 오차**가 그대로 이 실패가 된다. 화면은
+    /// "더 가까이 가 주세요"와 함께 **다시 시도**를 열어 두어야 한다 — 위치가 잡히면 풀린다.
+    public var isTooFarFromDeparture: Bool { code == Self.TOO_FAR_FROM_DEPARTURE }
+
+    /// 400 `OUT_OF_SERVICE_AREA` — 보낸 좌표가 서비스 지역(위 33~39 / 경 124~132) 밖이다.
+    ///
+    /// **요청 필드명·측위 실패를 먼저 의심할 것.** 서버 `ArriveRequest` 는 `latitude`/`longitude` 이고,
+    /// 둘 중 하나가 빠지면 400 `INVALID_REQUEST` 다. (0,0) 이 실려 가면 여기로 떨어진다 —
+    /// 측위 실패를 0.0 으로 채워 보내는 코드가 있으면 사용자에게는 "서비스 지역이 아니에요"로 보인다.
+    public var isOutOfServiceArea: Bool { code == Self.OUT_OF_SERVICE_AREA }
+
+    /// 403 `NOT_PARTY_MEMBER` — 이 방의 멤버가 아니다.
+    public var isNotMember: Bool { code == Self.NOT_PARTY_MEMBER }
+
+    /// 409 `PARTY_CLOSED` — 이미 끝났거나 취소된 방이다(ACTIVE·COMPLETED 가 아니다).
+    public var isPartyClosed: Bool { code == Self.PARTY_CLOSED }
+
+    /// 409 `PARTY_NOT_CONFIRMED` — 약속 시간이 아직 정해지지 않았다. 방장이 정할 때까지 도착을 받지 않는다.
+    public var isNotConfirmed: Bool { code == Self.PARTY_NOT_CONFIRMED }
+
+    /// 409 `ARRIVAL_NOT_OPEN` — **도착 창이 아직 안 열렸다**(약속 시간 10분 전보다 이르다).
+    /// 기다리면 풀리는 유일한 사유다. 출발의 `MEETING_NOT_STARTED` 와 **경계가 다르다** —
+    /// 도착은 약속 10분 전, 출발은 약속 시간 뒤다.
+    public var isArrivalNotOpen: Bool { code == Self.ARRIVAL_NOT_OPEN }
+
+    /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다.
+    public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND }
+
+    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다
+    /// (`PartyService.arrive` → `Location` 검증 → `Party.arrive` → `ensureAttendanceOpen`).
+    /// 출발과 겹치는 네 개를 `PartyDepartException` 이 또 선언하는 건 **일부러**다 —
+    /// 「이 엔드포인트가 던지는 코드 목록」이 각 예외에서 혼자 읽혀야 한다(`PartyFinishException` ·
+    /// `PartyLeaveException` 이 `NOT_PARTY_MEMBER` 를 각자 들고 있는 것과 같다).
+    public static let TOO_FAR_FROM_DEPARTURE = "TOO_FAR_FROM_DEPARTURE"
+    public static let OUT_OF_SERVICE_AREA = "OUT_OF_SERVICE_AREA"
+    public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
+    public static let PARTY_CLOSED = "PARTY_CLOSED"
+    public static let PARTY_NOT_CONFIRMED = "PARTY_NOT_CONFIRMED"
+    public static let ARRIVAL_NOT_OPEN = "ARRIVAL_NOT_OPEN"
+    public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
+}
+
+/// 「출발」 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외
+/// (`RideRepository.departParty` 전용).
+///
+/// **이 액션은 되돌릴 수 없다.** 성공하면 방이 그 자리에서 끝나고(FINISHED), 그 순간 도착하지 않은
+/// 멤버가 전부 **노쇼로 기록된다**(노쇼 횟수 × 24시간 이용 제한, 약속 시간부터 센다). 앱에는 그걸
+/// 취소하는 길이 없다 — 이의 신청은 서버 쪽 별도 경로다. 그래서 화면은 누르기 전에 확인을 받아야 하고,
+/// 실패했을 때 **왜** 못 했는지도 정확히 말해야 한다("다시 시도"는 아무것도 바꾸지 않는다).
+///
+/// 방장 전용이 **아니다** — 도착한 멤버면 누구나 누를 수 있다(`NOT_PARTY_HOST` 가 이 목록에 없는 이유다).
+/// 겹치는 코드를 도착(`PartyArriveException`)과 따로 두는 근거는 `PartyConfirmException` 의 표에 있다.
+///
+/// | 사유 | 서버 코드(HTTP) | 사용자가 할 일 |
+/// |---|---|---|
+/// | 내가 아직 도착을 안 눌렀다 | `NOT_ARRIVED` (409) | **먼저 「출발지 도착했어요」를 누른다** |
+/// | 약속 시간 전이다 | `MEETING_NOT_STARTED` (409) | 기다린다 |
+/// | 혼자 남았다 | `NOT_ENOUGH_MEMBERS` (409) | 혼자서는 출발할 수 없다 |
+/// | 약속이 안 정해졌다 / 방이 닫혔다 | `PARTY_NOT_CONFIRMED` · `PARTY_CLOSED` (409) | 화면을 다시 읽는다 |
+public struct PartyDepartException: Throwable {
+    /// 서버 `MatchingErrorCode` 이름(`NOT_ARRIVED` 등). 본문이 없거나 파싱 실패면 null.
+    public let code: String?
+    /// 서버가 준 한국어 원문 message. 없으면 null.
+    public let serverMessage: String?
+    /// HTTP 상태 코드. 응답 자체가 없으면(네트워크 실패) null. 문구 분기에는 쓰지 않는다.
+    public let httpStatus: Int?
+    public let cause: (any Error)?
+
+    public init(
+        code: String?,
+        serverMessage: String?,
+        httpStatus: Int? = nil,
+        cause: (any Error)? = nil
+    ) {
+        self.code = code
+        self.serverMessage = serverMessage
+        self.httpStatus = httpStatus
+        self.cause = cause
+    }
+
+    public var message: String? { serverMessage ?? code ?? "출발하지 못했습니다." }
+
+    /// 409 `NOT_ARRIVED` — **내가 출발지 도착을 누르지 않았다.** 도착한 사람만 방을 끝낼 수 있다.
+    ///
+    /// 화면이 「출발」을 내 `User.hasArrived` 로 가리므로 평소에는 오지 않지만, 그 값이 낡으면
+    /// (SSE `member-arrived` 를 놓쳤거나 다른 기기에서 눌렀을 때) 틈이 생긴다 — 그때 "다시 시도"가
+    /// 아니라 **「출발지 도착했어요」를 먼저 누르라**고 말해야 한다.
+    public var isNotArrived: Bool { code == Self.NOT_ARRIVED }
+
+    /// 409 `MEETING_NOT_STARTED` — **약속 시간 전**이다. 출발은 약속 시간 **뒤**에만 된다
+    /// (도착은 약속 10분 전부터라 경계가 다르다 — 도착 쪽 시간 코드는 `ARRIVAL_NOT_OPEN` 이고,
+    /// 이 코드는 출발에서만 온다).
+    public var isMeetingNotStarted: Bool { code == Self.MEETING_NOT_STARTED }
+
+    /// 409 `NOT_ENOUGH_MEMBERS` — 멤버가 2명 미만이다. 혼자 남은 방은 출발할 수 없다.
+    public var isNotEnoughMembers: Bool { code == Self.NOT_ENOUGH_MEMBERS }
+
+    /// 409 `PARTY_NOT_CONFIRMED` — 약속 시간이 정해지지 않은 방이다. 확정 전 방은 「합승 완료」로 끝낸다.
+    public var isNotConfirmed: Bool { code == Self.PARTY_NOT_CONFIRMED }
+
+    /// 409 `PARTY_CLOSED` — 이미 끝났거나 취소된 방이다.
+    ///
+    /// **다른 멤버가 먼저 출발을 눌렀을 때 오는 사유이기도 하다** — 그때 방은 이미 FINISHED 이고
+    /// 내 할 일은 없다. 화면은 이 사유를 실패가 아니라 **종료**로 보여 주는 쪽이 맞다(SSE `closed` 가
+    /// 같은 사실을 들고 오고, 둘 중 먼저 오는 쪽이 화면을 닫는다).
+    public var isPartyClosed: Bool { code == Self.PARTY_CLOSED }
+
+    /// 403 `NOT_PARTY_MEMBER` — 이 방의 멤버가 아니다.
+    public var isNotMember: Bool { code == Self.NOT_PARTY_MEMBER }
+
+    /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다.
+    public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND }
+
+    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다
+    /// (`PartyService.depart` → `Party.depart` → `ensureAttendanceOpen`).
+    /// `NOT_PARTY_HOST` 는 **없다** — 출발은 방장 전용이 아니다(위 주석).
+    public static let NOT_ARRIVED = "NOT_ARRIVED"
+    public static let MEETING_NOT_STARTED = "MEETING_NOT_STARTED"
+    public static let NOT_ENOUGH_MEMBERS = "NOT_ENOUGH_MEMBERS"
+    public static let PARTY_NOT_CONFIRMED = "PARTY_NOT_CONFIRMED"
+    public static let PARTY_CLOSED = "PARTY_CLOSED"
+    public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
+    public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
 }

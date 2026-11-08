@@ -22,7 +22,13 @@ struct MatchWaitingViewModelTest {
         private var _detailCancelled = 0
         var leaveError: (any Error)?
         var finishError: (any Error)?
+        var confirmError: (any Error)?
+        var arriveError: (any Error)?
+        var departError: (any Error)?
         private(set) var leaveCalls = 0
+        private(set) var confirmedDepartureAt: [String] = []
+        private(set) var arrivedAt: [(latitude: Double, longitude: Double)] = []
+        private(set) var departCalls = 0
 
         init(detail: Result<PartyDetail, any Error>) {
             _detail = detail
@@ -80,6 +86,21 @@ struct MatchWaitingViewModelTest {
 
         func finishParty(partyId: Int64) async throws {
             if let finishError { throw finishError }
+        }
+
+        func confirmMeeting(partyId: Int64, departureAt: String) async throws {
+            confirmedDepartureAt.append(departureAt)
+            if let confirmError { throw confirmError }
+        }
+
+        func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {
+            arrivedAt.append((latitude, longitude))
+            if let arriveError { throw arriveError }
+        }
+
+        func departParty(partyId: Int64) async throws {
+            departCalls += 1
+            if let departError { throw departError }
         }
 
         func getNearbyParties() -> [Ride] { [] }
@@ -376,5 +397,160 @@ struct MatchWaitingViewModelTest {
         viewModel.finishParty()
         #expect(await eventually { viewModel.actionState.errorMessage == "합승을 완료하지 못했어요" })
         #expect(!viewModel.actionState.finished)
+    }
+
+    // ─── 약속 확정 · 도착 · 출발 ───────────────────────────────────────────────
+
+    /// 확정 프레임은 `isConfirmed` 와 약속 시각만 싣는다 — status 는 문자열이라 건드리지 않는다
+    /// (`Ride.withMeetingConfirmed`). 그래도 화면이 확정 단계를 그리는 근거가 이 두 값이다.
+    @Test("confirmed - SSE 가 확정을 알리면 isConfirmed 와 약속 시각을 반영한다")
+    func confirmedFrameApplies() async {
+        let repository = FakeRepository(detail: .failure(StubError()))
+        let viewModel = make(repository)
+        #expect(await eventually { repository.subscriptions == 1 })
+
+        let held = Self.ride(members: [Self.me, Self.other])
+        repository.latest()?.yield(.snapshot(ride: held, version: 3))
+        #expect(await eventually { viewModel.uiState == .success(ride: held) })
+
+        repository.latest()?.yield(.confirmed(status: "COMPLETED", departureAt: "2026-11-06T06:30:00Z", version: 4))
+
+        // status 는 들고 있던 RECRUITING 그대로다 — 프레임의 문자열 status 로 RideStatus 를 바꾸지 않는다.
+        var confirmed = held
+        confirmed.isConfirmed = true
+        confirmed.departureAt = "2026-11-06T06:30:00Z"
+        #expect(await eventually { viewModel.uiState == .success(ride: confirmed) })
+    }
+
+    /// 아는 사람의 도착은 그 줄만 고치고, 모르는 사람의 도착은 **목록이 낡았다**는 뜻이라 상세를 읽는다
+    /// (`Ride.withMemberArrived`) — 노쇼 인원 수가 이 목록에서 나오기 때문이다.
+    @Test("memberArrived - 아는 사람은 그 줄만 고치고, 모르는 사람이면 상세를 다시 읽는다")
+    func memberArrivedFrame() async {
+        let repository = FakeRepository(detail: .failure(StubError()))
+        let viewModel = make(repository)
+        #expect(await eventually { repository.subscriptions == 1 })
+
+        let held = Self.ride(members: [Self.me, Self.other])
+        repository.latest()?.yield(.snapshot(ride: held, version: 3))
+        #expect(await eventually { viewModel.uiState == .success(ride: held) })
+        let reads = repository.detailReads
+
+        repository.latest()?.yield(.memberArrived(publicId: "u2", version: 4))
+        var arrived = held
+        arrived.members[1].hasArrived = true
+        #expect(await eventually { viewModel.uiState == .success(ride: arrived) })
+        await settle()
+        #expect(repository.detailReads == reads, "목록에 있는 사람인데 상세를 읽었다")
+
+        repository.latest()?.yield(.memberArrived(publicId: "u9", version: 5))
+        #expect(await eventually { repository.detailReads == reads + 1 }, "목록에 없는 사람의 도착인데 상세를 읽지 않았다")
+        #expect(viewModel.uiState == .success(ride: arrived), "없는 줄을 지어내면 안 된다")
+    }
+
+    /// 204 면 확정은 사실이다 — SSE 를 기다리지 않고 들고 있는 방을 고친다. 보낸 값은 화면이 넘긴 그 문자열이다.
+    @Test("confirmMeeting - 성공하면 보낸 시각 그대로 확정된 방을 그린다")
+    func confirmMeetingSuccess() async {
+        let held = Self.ride(members: [Self.me, Self.other])
+        let repository = FakeRepository(detail: Self.okDetail(ride: held))
+        let viewModel = make(repository)
+        #expect(await eventually { viewModel.uiState == .success(ride: held) })
+
+        viewModel.confirmMeeting(departureAt: "2026-11-06T06:30:00Z")
+
+        var confirmed = held
+        confirmed.isConfirmed = true
+        confirmed.departureAt = "2026-11-06T06:30:00Z"
+        #expect(await eventually { viewModel.uiState == .success(ride: confirmed) && !viewModel.actionState.inProgress })
+        #expect(repository.confirmedDepartureAt == ["2026-11-06T06:30:00Z"], "다이얼로그가 보여 준 값이 아닌 시각을 보냈다")
+    }
+
+    /// 내 도착은 `member-arrived` 를 기다리지 않고 그 자리에서 고친다 — 고치지 않으면 같은 버튼을 다시 누른다.
+    @Test("arriveAtDeparture - 성공하면 내 줄이 도착으로 바뀐다")
+    func arriveSuccess() async {
+        var held = Self.ride(members: [Self.me, Self.other])
+        held.isConfirmed = true
+        let repository = FakeRepository(detail: Self.okDetail(ride: held))
+        let viewModel = make(repository)
+        #expect(await eventually { viewModel.uiState == .success(ride: held) })
+
+        viewModel.arriveAtDeparture(latitude: 35.1688, longitude: 129.1306)
+
+        var arrived = held
+        arrived.members[0].hasArrived = true
+        #expect(await eventually { viewModel.uiState == .success(ride: arrived) && !viewModel.actionState.inProgress })
+        #expect(repository.arrivedAt.map(\.latitude) == [35.1688])
+        #expect(repository.arrivedAt.map(\.longitude) == [129.1306])
+    }
+
+    /// 출발은 방을 모두에게 닫는다 — `departed` 가 Route 를 홈으로 보내는 신호다.
+    @Test("departParty - 성공하면 departed 가 선다")
+    func departSuccess() async {
+        let repository = FakeRepository(detail: Self.okDetail())
+        let viewModel = make(repository)
+
+        viewModel.departParty()
+
+        #expect(await eventually { viewModel.actionState.departed && !viewModel.actionState.inProgress })
+        #expect(repository.departCalls == 1)
+        #expect(!viewModel.actionState.finished, "합승 완료와 다른 신호다")
+    }
+
+    @Test("약속 확정·도착·출발 실패는 사유별 문구로 옮긴다")
+    func meetingActionFailureMessages() async {
+        let repository = FakeRepository(detail: Self.okDetail())
+        let viewModel = make(repository)
+
+        repository.confirmError = PartyConfirmException(code: PartyConfirmException.ALREADY_CONFIRMED, serverMessage: nil)
+        viewModel.confirmMeeting(departureAt: "2026-11-06T06:30:00Z")
+        #expect(await eventually { viewModel.actionState.errorMessage == "이미 약속 시간이 정해진 방이에요" })
+
+        repository.arriveError = PartyArriveException(code: PartyArriveException.TOO_FAR_FROM_DEPARTURE, serverMessage: nil)
+        viewModel.arriveAtDeparture(latitude: 35.0, longitude: 129.0)
+        #expect(await eventually {
+            viewModel.actionState.errorMessage
+                == "출발지에서 100m 안에 있어야 도착을 알릴 수 있어요. 출발지로 더 가까이 가 주세요"
+        })
+
+        repository.departError = StubError()
+        viewModel.departParty()
+        #expect(await eventually { viewModel.actionState.errorMessage == "출발하지 못했어요" })
+        #expect(!viewModel.actionState.departed)
+        #expect(!viewModel.actionState.inProgress)
+    }
+
+    /// 약속 시계는 SSE·폴백과 같은 가시성 스위치에 묶인다 — 가려진 동안 멈추고, 돌아오면 **곧바로** 찍는다.
+    @Test("약속 시계는 화면이 보이는 동안에만 흐르고 복귀하면 곧바로 찍는다")
+    func meetingClockFollowsVisibility() async {
+        final class Ticker: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value: Int64 = 0
+            func next() -> Int64 { lock.withLock { value += 1; return value } }
+        }
+        let ticker = Ticker()
+        let repository = FakeRepository(detail: Self.okDetail())
+        // 10초 틱만 빨리 돌리고, 폴백 대기(6초)는 막아 둔다.
+        let viewModel = MatchWaitingViewModel(
+            repository: repository,
+            partyId: 1,
+            clock: { ticker.next() },
+            sleep: { duration in
+                if duration == .seconds(10) {
+                    try await Task.sleep(for: .milliseconds(5))
+                } else {
+                    try await Task.sleep(for: .seconds(3600))
+                }
+            }
+        )
+        let start = viewModel.nowMillis
+        #expect(await eventually { viewModel.nowMillis > start + 2 }, "보이는 동안 시계가 흐르지 않는다")
+
+        viewModel.onScreenStop()
+        await settle()
+        let frozen = viewModel.nowMillis
+        await settle()
+        #expect(viewModel.nowMillis == frozen, "가려진 동안 시계가 흐른다")
+
+        viewModel.onScreenStart()
+        #expect(await eventually { viewModel.nowMillis > frozen }, "복귀했는데 시계가 다시 찍히지 않는다")
     }
 }

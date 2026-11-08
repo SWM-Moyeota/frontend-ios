@@ -817,11 +817,196 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(held != swapped)
     }
 
+    // MARK: - 약속 확정·출발지 도착 (상세의 네 필드)
+    //
+    // 앱의 상세 DTO 에는 roomType·departureAt·confirmed·members[].arrived 가 **아예 없었다** —
+    // 서버는 보내는데 받는 자리가 없어 디코더가 모르는 키로 전부 흘렸다. 그래서 앱은 방이
+    // 확정됐는지, 누가 도착했는지 **읽을 수 없었고** 21 대기 화면은 영원히 모집 중이었다.
+    // 아래 테스트들이 그 네 값이 도메인까지 닿는지와, 없을 때 무엇으로 떨어지는지를 못박는다.
+
+    @Test("상세의 약속 정보와 도착 표시를 도메인으로 옮긴다")
+    func mapsMeetingFieldsAndArrivals() {
+        let ride = detailResponse(
+            members: [
+                member(publicId: UUID_ME, nickname: "성윤", arrived: true),
+                member(publicId: UUID_OTHER, nickname: "다른사람", arrived: false),
+            ],
+            roomType: "REALTIME",
+            departureAt: "2026-11-03T08:30:00Z",
+            confirmed: true
+        ).toRide(currentUuid: UUID_ME)
+
+        // 약속 시간은 ISO-8601 **문자열 그대로** 옮긴다 — 파싱은 화면이 한다(기기 시간대에 묶이지 않게).
+        #expect(ride.departureAt == "2026-11-03T08:30:00Z")
+        #expect(ride.isConfirmed)
+        #expect(ride.roomType == .realtime)
+        #expect(ride.members.map(\.hasArrived) == [true, false])
+    }
+
+    /// **키 이름이 계약이다.** 네 키(`roomType`·`departureAt`·`confirmed`·멤버의 `arrived`)를 서버
+    /// 응답 모양 그대로 넣어, 하나라도 이름이 어긋나면 디코더가 **조용히 흘려** 기본값으로
+    /// 떨어지는 것을 잡는다 — 그 실패는 화면에서 "확정했는데 아무 일도 안 일어남"으로만 보인다.
+    ///
+    /// 기준은 백엔드 `PartyDetailResult`(+ `MemberInfo`) record 소스다 — Jackson 이 record 컴포넌트
+    /// 이름을 그대로 쓰므로 `isConfirmed`·`isArrived` 가 아니다.
+    @Test("약속 정보가 실린 상세 JSON 을 실제 서버 shape 그대로 역직렬화한다")
+    func decodesMeetingDetailJSON() throws {
+        let body = """
+            {"id":7,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
+             "destinationLng":127.0276,"departure":"서울시청","destination":"강남역","capacity":3,
+             "currentMembers":2,"departureRadius":500,"destinationRadius":500,"status":"COMPLETED",
+             "createdAt":"2026-11-03T08:00:00Z",
+             "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","imageUrl":null,"badgeId":null,
+                         "rideCount":4,"host":true,"arrived":true},
+                        {"publicId":"\(UUID_OTHER)","nickname":"철수","imageUrl":null,"badgeId":null,
+                         "rideCount":3,"host":false,"arrived":false}],
+             "estimateFare":9600,"estimateTime":14,"route":"_p~iF~ps|U","taxiDriverId":null,
+             "version":13,"roomType":"REALTIME","departureAt":"2026-11-03T08:30:00Z","confirmed":true}
+            """
+
+        let decoded = try decodeJSON(PartyDetailResponse.self, body)
+        let ride = decoded.toRide(currentUuid: UUID_ME)
+
+        #expect(decoded.roomType == "REALTIME")
+        #expect(decoded.departureAt == "2026-11-03T08:30:00Z")
+        #expect(decoded.confirmed == true)
+        #expect(decoded.members.map(\.arrived) == [true, false])
+        #expect(ride.departureAt == "2026-11-03T08:30:00Z")
+        #expect(ride.isConfirmed)
+        #expect(ride.roomType == .realtime)
+        #expect(ride.members.map(\.hasArrived) == [true, false])
+    }
+
+    /// **네 필드가 없는 응답도 열려야 한다** — 약속 기능 전 배포를 보고 있거나 서버가 필드를 뺀 경우다.
+    /// 그때는 「미확정 실시간 방, 아무도 도착 안 함」으로 떨어진다: 그 조합이 21 화면에서
+    /// 「방장이 약속 시간을 정하는 중」 또는 「약속 시간 정하기」를 띄우는, **되돌릴 수 있는** 상태다.
+    @Test("약속 필드가 없는 옛 상세 응답은 미확정 실시간 방으로 떨어진다")
+    func detailWithoutMeetingFields() throws {
+        let body = """
+            {"id":9,"departure":"성결대 정문","destination":"안양역","capacity":3,"status":"ACTIVE",
+             "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","rideCount":0}]}
+            """
+
+        let ride = try decodeJSON(PartyDetailResponse.self, body).toRide(currentUuid: UUID_ME)
+
+        #expect(ride.departureAt == nil)
+        #expect(!ride.isConfirmed)
+        #expect(ride.roomType == .realtime)
+        #expect(ride.members.count == 1)
+        #expect(ride.members.first?.hasArrived == false)
+    }
+
+    /// `confirmed` 를 서버가 말하지 않으면 **서버와 같은 식으로 셈한다**(`isReservation() ||
+    /// departureAt != null`). 그냥 false 로 접으면 확정된 방에 「약속 시간 정하기」를 다시 띄워
+    /// 409 `ALREADY_CONFIRMED` 를 사용자 손으로 만들게 된다.
+    ///
+    /// 명시적 `null` 도 같은 길이다 — 서버 record 는 원시 `boolean` 이라 오지 않지만, 그 하나로
+    /// 방 화면이 안 열리면 안 되므로 nullable 로 받는다(`PartyDetailResponse.confirmed`).
+    @Test("confirmed 가 없으면 약속 시간 유무로 셈한다")
+    func confirmedFallsBackToDepartureAt() throws {
+        let missing = detailResponse(departureAt: "2026-11-03T08:30:00Z")
+            .toRide(currentUuid: UUID_ME)
+        #expect(missing.isConfirmed)
+
+        let explicitNull = try decodeJSON(
+            PartyDetailResponse.self,
+            #"{"id":7,"status":"COMPLETED","departureAt":"2026-11-03T08:30:00Z","confirmed":null}"#
+        ).toRide(currentUuid: UUID_ME)
+        #expect(explicitNull.isConfirmed)
+
+        // 약속 시간도 없으면 미확정이다 — 두 값이 함께 비는 게 확정 전 실시간 방의 모양이다.
+        #expect(!detailResponse().toRide(currentUuid: UUID_ME).isConfirmed)
+    }
+
+    /// **서버 예약 방은 `RESERVED` 다 — `RESERVATION` 이 아니다.** 도메인 이름만 reservation 이고,
+    /// 서버 문자열을 이름 그대로 읽으면 예약 방이 **조용히 실시간 방으로** 읽혀 「약속 시간
+    /// 정하기」가 뜬다(눌러도 409 `NOT_REALTIME_PARTY`).
+    ///
+    /// 모르는 값·누락이 실시간 방으로 떨어지는 것도 함께 못박는다 — 반대로 기울이면 실시간 방을
+    /// 끝낼 길이 사라진다(`RoomType` 주석의 표).
+    @Test("서버 RESERVED 를 예약 방으로 읽고 모르는 값은 실시간 방으로 떨어진다")
+    func mapsServerRoomType() {
+        #expect(toRoomType(roomType: "REALTIME") == .realtime)
+        #expect(toRoomType(roomType: "RESERVED") == .reservation)
+        // 서버가 나중에 enum 이름을 도메인 쪽에 맞춰도 맞게 돈다.
+        #expect(toRoomType(roomType: "RESERVATION") == .reservation)
+        #expect(toRoomType(roomType: "SOMETHING_NEW") == .realtime)
+        #expect(toRoomType(roomType: nil) == .realtime)
+
+        let reserved = detailResponse(roomType: "RESERVED", departureAt: "2026-11-03T08:30:00Z")
+            .toRide(currentUuid: UUID_ME)
+        #expect(reserved.roomType == .reservation)
+        // 예약 방은 만들 때 출발 시각을 정했으므로 처음부터 확정이다.
+        #expect(reserved.isConfirmed)
+    }
+
+    /// **키 이름은 `arrived` 다**(서버 record 컴포넌트 이름 그대로). `isArrived` 로 적으면
+    /// 디코더가 모르는 키로 흘려서 **조용히 늘 누락**이 되므로, 틀린 이름이 먹히지 않음을 못박는다 —
+    /// `host`/`isHost` 와 **같은 함정**이다.
+    @Test("isArrived 라는 키는 도착으로 읽히지 않는다 — 계약 키는 arrived 다")
+    func isArrivedKeyIsNotArrival() throws {
+        let body = """
+            {"id":7,"status":"COMPLETED","departureAt":"2026-11-03T08:30:00Z","confirmed":true,
+             "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","rideCount":0,"isArrived":true}]}
+            """
+
+        let ride = try decodeJSON(PartyDetailResponse.self, body).toRide(currentUuid: UUID_ME)
+
+        // isArrived 키를 읽었다면 true 가 됐을 것이다.
+        #expect(ride.members.count == 1)
+        #expect(ride.members.first?.hasArrived == false)
+    }
+
+    /// 도착 표시가 없을 때는 **나에게도 false** 다 — 방장(`host`)과 **반대 방향**의 폴백이고,
+    /// 그게 이 두 필드의 유일한 비대칭이다.
+    ///
+    /// 근거: true 로 기울면 「출발」 버튼이 열리는데 서버가 409 `NOT_ARRIVED` 로 막아 **누를 수 없는
+    /// 버튼**이 되고, false 로 기울면 멱등한 「출발지 도착했어요」가 한 번 더 보일 뿐이다.
+    @Test("도착 표시가 없으면 나에게도 false 다 — host 폴백과 반대다")
+    func missingArrivedIsFalseEvenForMe() throws {
+        let ride = detailResponse(
+            members: [member(publicId: UUID_ME, nickname: "성윤")],
+            departureAt: "2026-11-03T08:30:00Z",
+            confirmed: true
+        ).toRide(currentUuid: UUID_ME)
+
+        #expect(ride.members.count == 1)
+        let me = try #require(ride.members.first)
+        #expect(me.isHost, "host 누락은 나에게 true 로 떨어진다(기존 계약)")
+        #expect(!me.hasArrived, "arrived 누락은 나에게도 false 여야 한다")
+    }
+
+    /// 생성 응답에도 `roomType`·`departureAt` 이 실려 온다(서버 `OpenPartyResponse`). 방을 만든 직후
+    /// 21 대기 화면으로 바로 넘어가므로, 그 화면이 「약속 시간 정하기」를 띄울 근거가 **상세를 읽기 전에**
+    /// 필요하다. `confirmed` 는 생성 응답에 **없어서** 약속 시간 유무로 셈한다.
+    @Test("생성 응답의 roomType 과 약속 시간을 옮긴다")
+    func openResponseCarriesRoomType() throws {
+        let body = """
+            {"id":12,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
+             "destinationLng":127.0276,"departure":"서울시청","destination":"강남역","capacity":3,
+             "currentMembers":1,"departureRadius":500,"destinationRadius":500,"status":"ACTIVE",
+             "createdAt":"2026-11-03T08:00:00Z","estimateFare":9600,"estimateTime":14,
+             "route":"_p~iF~ps|U","taxiDriverId":null,"roomType":"REALTIME","departureAt":null}
+            """
+
+        let ride = try decodeJSON(OpenPartyResponse.self, body).toRide()
+
+        #expect(ride.roomType == .realtime)
+        #expect(ride.departureAt == nil)
+        // 막 만든 실시간 방은 미확정이다 — 방장이 약속 시간을 정해야 한다.
+        #expect(!ride.isConfirmed)
+    }
+
+    /// 약속 셋(`roomType`·`departureAt`·`confirmed`)의 기본값이 nil 인 건 **옛 테스트들이 쓰던 모양
+    /// 그대로**를 뜻한다(약속 기능 전의 응답). 약속을 보는 테스트만 명시적으로 넘긴다.
     private func detailResponse(
         members: [PartyDetailResponse.MemberInfo] = [
             PartyMappersTest.member(publicId: UUID_ME, nickname: "성윤"),
             PartyMappersTest.member(publicId: UUID_OTHER, nickname: "다른사람"),
-        ]
+        ],
+        roomType: String? = nil,
+        departureAt: String? = nil,
+        confirmed: Bool? = nil
     ) -> PartyDetailResponse {
         PartyDetailResponse(
             id: 7,
@@ -840,7 +1025,10 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             members: members,
             estimateFare: 9600,
             estimateTime: 14,
-            route: "_p~iF~ps|U"
+            route: "_p~iF~ps|U",
+            roomType: roomType,
+            departureAt: departureAt,
+            confirmed: confirmed
         )
     }
 
@@ -849,9 +1037,17 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         nickname: String? = "성윤",
         imageUrl: String? = nil,
         rideCount: Int = 0,
-        host: Bool? = nil
+        host: Bool? = nil,
+        arrived: Bool? = nil
     ) -> PartyDetailResponse.MemberInfo {
-        Self.member(publicId: publicId, nickname: nickname, imageUrl: imageUrl, rideCount: rideCount, host: host)
+        Self.member(
+            publicId: publicId,
+            nickname: nickname,
+            imageUrl: imageUrl,
+            rideCount: rideCount,
+            host: host,
+            arrived: arrived
+        )
     }
 
     /// `host` 기본값이 null 인 건 **옛 테스트들이 쓰던 모양 그대로**를 뜻한다(서버가 `host` 를 말하지
@@ -861,7 +1057,8 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         nickname: String?,
         imageUrl: String? = nil,
         rideCount: Int = 0,
-        host: Bool? = nil
+        host: Bool? = nil,
+        arrived: Bool? = nil
     ) -> PartyDetailResponse.MemberInfo {
         PartyDetailResponse.MemberInfo(
             publicId: publicId,
@@ -869,7 +1066,8 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             imageUrl: imageUrl,
             badgeId: nil,
             rideCount: rideCount,
-            host: host
+            host: host,
+            arrived: arrived
         )
     }
 }

@@ -63,6 +63,12 @@ private final class FakeRepository: RideRepository, @unchecked Sendable {
     func createParty(request: NewParty) async throws -> Ride { throw StubError() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw StubError() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw StubError() }
+
+    // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
+    // leave/finish 처럼 호출을 세면 된다.
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw StubError() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw StubError() }
+    func departParty(partyId: Int64) async throws { throw StubError() }
 }
 
 private let blockingSleep: @Sendable (Duration) async throws -> Void = { _ in try await Task.sleep(for: .seconds(3600)) }

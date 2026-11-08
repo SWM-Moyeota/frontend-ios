@@ -386,6 +386,11 @@ private final class FakeRideRepository: RideRepository {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw IllegalStateException("쓰이지 않는다") }
     func leaveParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
     func finishParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw IllegalStateException("쓰이지 않는다") }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {
+        throw IllegalStateException("쓰이지 않는다")
+    }
+    func departParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
     func previewRoute(
         departureLat: Double,
         departureLng: Double,

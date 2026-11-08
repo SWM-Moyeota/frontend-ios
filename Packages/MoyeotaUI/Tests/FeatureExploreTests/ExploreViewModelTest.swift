@@ -96,6 +96,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
     func finishParty(partyId: Int64) async throws { throw TestFailure() }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
+    func departParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(
         departureLat: Double,
         departureLng: Double,

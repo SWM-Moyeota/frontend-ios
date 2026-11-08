@@ -40,6 +40,22 @@ public struct User: Hashable, Sendable {
     ///
     /// 화면이 「내가 방장인가」를 물을 때는 이 필드를 직접 훑지 말고 `Ride.isHostedByMe` 를 쓴다.
     public var isHost: Bool
+    /// 이 멤버가 **출발지에 도착했다고 눌렀는가**. 서버 `PartyDetailResult.MemberInfo.arrived` 가 출처다.
+    ///
+    /// 약속이 정해지기 전에는 서버가 **늘 false** 를 준다(도착을 받지 않는 방이다). 약속이 확정된 뒤에는
+    /// 이 값이 곧 **노쇼 판정의 근거**다 — 누군가 「출발」을 누르는 그 순간 false 인 멤버가 전부 노쇼로
+    /// 기록되고(노쇼 횟수 × 24시간 이용 제한), 그 기록은 앱이 되돌릴 수 없다.
+    ///
+    /// 서버가 말해 주지 않은 경우(옛 배포·필드 누락)의 기본값은 false 이고, `isHost` 와 달리 **`isMe` 로
+    /// 폴백하지 않는다.** 대가가 반대 방향으로 기울어 있기 때문이다:
+    ///
+    /// | 누락 시 선택 | 나에 대해 틀리면 |
+    /// |---|---|
+    /// | false | 「출발지 도착했어요」가 한 번 더 보인다 — 그 호출은 **멱등**이라(이미 도착했으면 서버가 204 로 받고 아무것도 바꾸지 않는다) 눌러도 손해가 없다 |
+    /// | true | 「출발」 버튼이 열리는데 서버는 409 `NOT_ARRIVED` 로 막는다 — **누를 수 없는 버튼**이고, 사용자는 도착을 누르는 길을 잃는다 |
+    ///
+    /// 즉 방장 표시와 달리 여기서는 **false 쪽이 복구 가능한 오답**이다.
+    public var hasArrived: Bool
 
     public init(
         id: String,
@@ -49,7 +65,8 @@ public struct User: Hashable, Sendable {
         rideCount: Int,
         imageUrl: String? = nil,
         isMe: Bool = false,
-        isHost: Bool = false
+        isHost: Bool = false,
+        hasArrived: Bool = false
     ) {
         self.id = id
         self.nickname = nickname
@@ -59,6 +76,7 @@ public struct User: Hashable, Sendable {
         self.imageUrl = imageUrl
         self.isMe = isMe
         self.isHost = isHost
+        self.hasArrived = hasArrived
     }
 }
 

@@ -69,6 +69,11 @@ final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func previewRoute(
         departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double
     ) async throws -> RouteEstimate { throw FakeFailure() }
+
+    // 약속 확정·도착·출발 — 새 화면 이동이 없어 그래프 테스트가 부르지 않는다(출발 성공은 `onPartyClosed` 길을 그대로 쓴다).
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
+    func departParty(partyId: Int64) async throws {}
 }
 
 final class FakePlaceRepository: PlaceRepository, @unchecked Sendable {

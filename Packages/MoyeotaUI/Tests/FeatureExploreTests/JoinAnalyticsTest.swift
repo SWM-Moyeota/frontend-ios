@@ -41,6 +41,12 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
     func finishParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw TestFailure() }
+
+    // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
+    // leave/finish 처럼 람다로 바꿔 호출을 세면 된다.
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
+    func departParty(partyId: Int64) async throws { throw TestFailure() }
 }
 
 @MainActor
