@@ -12,6 +12,7 @@
 		A10000000000000000000003 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000013 /* FirebaseMessaging */; };
 		A10000000000000000000004 /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000014 /* FirebaseCrashlytics */; };
 		A10000000000000000000005 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000015 /* Mixpanel */; };
+		A10000000000000000000006 /* FacebookCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000016 /* FacebookCore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 				A10000000000000000000003 /* FirebaseMessaging in Frameworks */,
 				A10000000000000000000004 /* FirebaseCrashlytics in Frameworks */,
 				A10000000000000000000005 /* Mixpanel in Frameworks */,
+				A10000000000000000000006 /* FacebookCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +114,7 @@
 				A10000000000000000000013 /* FirebaseMessaging */,
 				A10000000000000000000014 /* FirebaseCrashlytics */,
 				A10000000000000000000015 /* Mixpanel */,
+				A10000000000000000000016 /* FacebookCore */,
 			);
 			productName = Moyeota;
 			productReference = A10000000000000000000021 /* Moyeota.app */;
@@ -141,6 +144,7 @@
 				A10000000000000000000093 /* XCLocalSwiftPackageReference "Packages/MoyeotaUI" */,
 				A10000000000000000000094 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
 				A10000000000000000000095 /* XCRemoteSwiftPackageReference "mixpanel-swift" */,
+				A10000000000000000000096 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000063 /* Products */;
@@ -348,6 +352,14 @@
 				version = 7.0.0;
 			};
 		};
+		A10000000000000000000096 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/facebook-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 19.0.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -373,6 +385,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000000000000000000095 /* XCRemoteSwiftPackageReference "mixpanel-swift" */;
 			productName = Mixpanel;
+		};
+		A10000000000000000000016 /* FacebookCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000096 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */;
+			productName = FacebookCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
