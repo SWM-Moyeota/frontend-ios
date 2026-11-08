@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // 앱 시작마다 등록한다. 권한과 무관하다 — 침묵 푸시는 알림 권한 없이도 받는다.
         application.registerForRemoteNotifications()
+        // Meta 광고 설치 측정. 키가 없으면 꺼진다 (MetaAdsAttribution).
+        MetaAdsAttribution.start(application, launchOptions: launchOptions)
         return true
     }
 

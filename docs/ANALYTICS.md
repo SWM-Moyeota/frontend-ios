@@ -111,6 +111,24 @@ iOS 는 `click_create_party`·`request_match`·`fail_match_request` 를 **하나
    이벤트만 꺼진다.
 3. Debug 빌드는 `loggingEnabled` 라 Xcode 콘솔에 보낸 이벤트가 찍힌다. Mixpanel 콘솔까지 가지 않고 심어졌는지 확인하는 길이다.
 
+## Meta 광고 설치 측정 (Facebook SDK)
+
+Mixpanel 과 별개다. 메타 광고관리자는 iOS 14+ 앱 설치 캠페인에서 앱이 SDK 로 전환 데이터(취합된 이벤트 측정, AEM)를
+보내지 않으면 앱을 고를 수 없게 막는다. 그 제한을 풀고 「어느 광고가 설치를 만들었나」를 메타가 계산하게 하려고 넣었다.
+
+| 자리 | 내용 |
+|---|---|
+| `Moyeota/MetaAdsAttribution.swift` | `AppDelegate.didFinishLaunching` 에서 SDK 를 켠다. Meta SDK 를 아는 파일은 이것 하나다 |
+| `Config/Base.xcconfig` | `FACEBOOK_APP_ID` = 메타 앱 「모여타」(2448080759263977). 공개 값 |
+| `Config/Secrets.xcconfig` | `FACEBOOK_CLIENT_TOKEN`. 개발자 센터 → 앱 설정 → 고급 → 보안. TestFlight 는 GitHub Secrets 같은 이름 |
+| `Info.plist` | `FacebookAppID`·`FacebookClientToken`, 메타 `SKAdNetworkItems`(v9wttpbfk9, n38lu8286q) |
+
+- 보내는 것은 SDK 의 **자동 앱 이벤트**(설치·실행 등)뿐이다. `Analytics` 이벤트는 메타로 보내지 않는다.
+- 추적 허용 팝업(ATT)을 띄우지 않고 `FacebookAdvertiserIDCollectionEnabled = false` 로 IDFA 를 읽지 않는다. AEM·SKAdNetwork 의 익명 집계에 기댄다.
+- 두 키 중 하나라도 비면 SDK 를 켜지 않는다(Mixpanel 과 같은 규칙).
+- **App Store 개인정보 라벨에 메타로 가는 앱 사용 데이터(제품 상호작용·기기 ID, 목적: 개발자 광고/마케팅)를 적어야 한다.**
+  SDK 자체 개인정보 매니페스트는 패키지에 들어 있어 Xcode 가 합친다.
+
 ## Mixpanel 에서 볼 것
 
 특강에서 짚은 지표를 Mixpanel 보고서로 옮기면 이렇다. 대시보드 하나에 네 장을 모아 둔다.
