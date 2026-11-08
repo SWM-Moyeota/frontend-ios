@@ -106,6 +106,21 @@ import Testing
     func limitsFromPolicy() {
         #expect(authErrorMessage(error: .smsDailyLimitExceeded).contains("하루 5번"))
         #expect(authErrorMessage(error: .smsTooManyAttempts).contains("5번"))
+        // 개인정보 처리방침의 고지와 어긋나면 안 되는 숫자다 — AuthPolicy.MIN_AGE 한 곳에서만 고친다
+        #expect(authErrorMessage(error: .underMinimumAge).contains("만 \(AuthPolicy.MIN_AGE)세"))
+    }
+
+    /// 못 박는 것: **나이 미달을 「다시 확인해 주세요」로 뭉개지 않는다.**
+    ///
+    /// 둘 다 400 이라 코드를 안 가리면 같은 문구로 떨어진다. 그런데 사용자가 할 일이 정반대다 —
+    /// 검증 실패는 고칠 입력이 있고, 나이 미달은 **고칠 게 없다**
+    /// (`AuthPolicy.isOldEnough` 문서의 「사용자가 할 일」 표). 뭉개면 날짜만 계속 고쳐 보게 된다.
+    ///
+    /// 앱이 `isOldEnough` 로 먼저 막으므로 정상 경로에서는 안 뜨지만, 구버전 앱과 API 직접 호출이
+    /// 남아 있어 **앱이 유일한 방어선이 아니다**.
+    @Test("나이 미달은 일반 검증 실패와 다른 말을 한다")
+    func underMinimumAgeDiffers() {
+        #expect(authErrorMessage(error: .invalidRequest) != authErrorMessage(error: .underMinimumAge))
     }
 
     @Test("번호 형식 오류는 발송과 확인 어느 쪽에서 와도 같은 안내로 모인다")

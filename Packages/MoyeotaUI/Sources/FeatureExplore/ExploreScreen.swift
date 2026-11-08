@@ -1551,8 +1551,9 @@ private extension NMGLatLngBounds {
     /// 조회에 쓸 수 있는 범위인지 확인하고 변환한다.
     ///
     /// 지도가 아직 레이아웃되지 않은 순간에는 두 모서리가 같은 점이거나 범위 밖 좌표가 나온다.
-    /// 그대로 조회하면 항상 빈 목록이 돌아와 「주변에 방이 없다」로 잘못 보이므로, 거르고
-    /// 다음 idle 을 기다린다.
+    /// 서버는 뷰포트를 **엄격 비교**로 검사해 `swLat >= neLat || swLng >= neLng` 면 400 `INVALID_MAP_BOUNDS` 를
+    /// 돌려주므로, 그대로 조회하면 그 400 이 **목록 조회 실패**로 보인다(지도에는 아무 문제가 없는데). 같은
+    /// 비교로 먼저 거르고 다음 idle 을 기다린다.
     func toMapBoundsOrNull() -> MapBounds? {
         if !southWest.isValid || !northEast.isValid { return nil }
         if southWest.lat >= northEast.lat || southWest.lng >= northEast.lng { return nil }

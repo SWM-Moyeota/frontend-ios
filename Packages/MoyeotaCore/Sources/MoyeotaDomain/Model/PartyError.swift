@@ -5,7 +5,8 @@ import Foundation
 ///
 /// 합류에만 따로 예외를 둔 이유는 실패의 **대가가 유독 크기** 때문이다. 서버는 멤버 추가를 먼저 커밋하고
 /// 응답을 만드는데, 그 응답 처리에서 앱이 넘어지면 **그 계정은 어떤 방에도 못 들어간다** — 같은 방에
-/// 다시 합류해도, 다른 방에 합류해도 409 로 막히고(아래 `isAlreadyJoined` 참고) 30분 스윕 전까지 그대로다.
+/// 다시 합류해도, 다른 방에 합류해도 409 로 막히고(아래 `isAlreadyJoined` 참고) 서버 자동 정리(만든 지 1일,
+/// `CompletedPartySweeper`) 전까지 그대로다 — 합류로 둘 이상이 된 방이라 15분 모집 만료에도 닫히지 않는다.
 /// 그래서 "이미 내가 그 방 멤버다"를 **성공으로 되돌릴 수 있는 신호**가 필요하다.
 ///
 /// 분기 근거를 프로퍼티로 노출하는 건 `ChatException` 과 같은 이유다 — 서버 코드 문자열 비교가 화면으로
@@ -291,13 +292,17 @@ public struct RealtimeMatchException: Throwable {
 /// 반대로 **경로 세 코드는 예약에 오지 않는다** — 서버가 예약 방의 경로를 추정하지 않기 때문이다
 /// (`Party.reserve` 가 요금·시간·경로를 null 로 박는다). 즉 `isRouteUnavailable` 은 실시간에서만 참이 된다.
 ///
-/// **409 가 이 예외를 만든 직접적인 이유다.** 서버 `PartyService.open` 의 첫 줄이
-/// `validateNotInOngoingParty(creatorId)` 이고, 거기서 보는 「진행 중」은
-/// `PartyStatus.isOngoing()` = `!(CANCELED || FINISHED)` 다. 그런데 서버의 30분 스윕
-/// (`CompletedPartySweeper`)은 **COMPLETED 만** 쓸어내므로 **아무도 합류하지 않은 ACTIVE 방은 영구히
-/// 남아** 그 계정의 생성·합류를 계속 막는다. 유일한 탈출구가 홈 배너 → 21 → 「그만 찾기」인데, 그 배너는
-/// `ActivePartyRepository.resolve()` 가 방을 찾아야 뜬다 — 그래서 화면은 이 409 를 받으면 **문구로
-/// 안내하는 동시에 진행 중 방 조회를 되살려야** 한다. 그 둘 다 「잠시 후 다시 시도」 아래에서는 할 수 없다.
+/// **409 가 이 예외를 만든 직접적인 이유다.** 서버 `PartyService.open` 은
+/// `ensureNotRestricted` → `PartyConflictRule.check` 로 시작하고, 그 첫 검사 `checkNotInRealtime` 이
+/// **진행 중인 실시간 방**에 내가 들어 있으면 409 `ALREADY_JOINED_OTHER_PARTY` 를 던진다
+/// (`existsOngoingRealtimeByMemberId` — REALTIME 이고 CANCELED·FINISHED 가 아닌 방). 그 방은 금방 닫히지
+/// 않는다 — 아무도 합류하지 않은 ACTIVE 방은 1분마다 도는 `PartyRecruitingSweeper` 가 만든 지 **15분**이
+/// 지나야 CANCELED 로 닫고(`Party.expireRecruiting`), 둘 이상 모인 방은 그때 COMPLETED 가 되어 「출발」하거나
+/// 1시간마다 도는 `CompletedPartySweeper` 가 만든 지 **1일** 뒤에 닫을 때까지(`Party.autoClose`) 남는다.
+/// 그동안 그 방이 이 계정의 생성·합류를 계속 막는다. 그 사이 빠져나갈 길은 홈 배너 → 21(확정 전
+/// 「그만 찾기」·「방 나가기」, 확정 뒤 「출발」)인데, 그 배너는 `ActivePartyRepository.resolve()` 가 방을
+/// 찾아야 뜬다 — 그래서 화면은 이 409 를 받으면 **문구로 안내하는 동시에 진행 중 방 조회를 되살려야**
+/// 한다. 그 둘 다 「잠시 후 다시 시도」 아래에서는 할 수 없다.
 ///
 /// 분기 근거를 프로퍼티로 노출하는 건 `PartyJoinException`·`PartyFinishException` 과 같은 이유다 —
 /// 서버 코드 문자열 비교가 화면으로 새어 나가면 서버가 enum 이름을 바꿀 때 조용히 어긋난다.
@@ -525,6 +530,19 @@ public struct PartyLeaveException: Throwable {
     /// 못 나가는지 말해 줘야 한다.
     public var isNotRecruiting: Bool { code == Self.PARTY_NOT_RECRUITING }
 
+    /// 409 `CANNOT_LEAVE_CONFIRMED_PARTY` — **약속이 정해진 방은 아무도 나갈 수 없다.**
+    ///
+    /// 예약 방은 합류 순간부터 확정이라 **처음부터 끝까지** 이 답이 온다. 실시간 방은 방장이 약속
+    /// 시간을 확정한 뒤부터다. 끝내는 길은 「출발」 하나뿐이고, 가지 않으면 노쇼로 남는다.
+    ///
+    /// 화면이 확정된 방에서 나가기를 **이미 막는데도**(21 의 `canLeaveParty`) 남겨 두는 이유는
+    /// `isNotRecruiting` 과 같다 — 확정 사실은 SSE 로 오므로 그 프레임을 놓치면 낡은 스냅샷으로
+    /// 버튼을 열어 둘 수 있고, 그 틈에 눌린 것을 받는다.
+    ///
+    /// `isNotRecruiting` 과 **뜻이 다르다**: 그쪽은 이미 끝난 방이고 이쪽은 **아직 살아 있는데
+    /// 약속에 묶인 방**이다. 사용자가 할 일도 다르다 — 앞은 홈으로, 뒤는 약속 장소로.
+    public var isCannotLeaveConfirmed: Bool { code == Self.CANNOT_LEAVE_CONFIRMED_PARTY }
+
     /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다. 나갈 방이 없으므로 홈으로 보내면 된다.
     public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND || (code == nil && httpStatus == 404) }
 
@@ -534,6 +552,7 @@ public struct PartyLeaveException: Throwable {
     /// 되돌린다). 화면이 이 코드를 보게 되면 그건 되돌림이 빠졌다는 뜻이다 — 위 주석 참고.
     public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
     public static let PARTY_NOT_RECRUITING = "PARTY_NOT_RECRUITING"
+    public static let CANNOT_LEAVE_CONFIRMED_PARTY = "CANNOT_LEAVE_CONFIRMED_PARTY"
     public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
 }
 

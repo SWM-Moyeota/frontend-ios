@@ -641,6 +641,78 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(decoded.list[0].toRide().id == "7")
     }
 
+    // 원본에는 없는 테스트다 — 이슈 #35 §3. 서버는 출시된 앱 호환으로 `taxiDriverId`(생성·상세)와
+    // `badgeId`(멤버)를 늘 null 로 실어 보내고, 옛 버전 앱이 사라지면 **키째 지운다**. 위 테스트들은 그
+    // 키를 일부러 싣거나(모르는 키 흘리기) DTO 생성자로 만들어서, 키가 사라진 날의 응답을 보지 않는다.
+    // Swift 합성 디코더는 키가 없으면 실패하므로(PORTING §3) 그날 방 화면·목록·SSE 가 한꺼번에 깨지지
+    // 않는지 응답마다 못 박는다.
+    @Test("호환 키(taxiDriverId·badgeId)가 없는 응답도 디코딩된다")
+    func decodesWithoutCompatKeys() throws {
+        // 상세(= SSE `connected` 스냅샷) — taxiDriverId 없음, 멤버마다 badgeId 없음.
+        let detailBody = """
+            {"id":7,"departure":"서울시청","destination":"강남역","capacity":3,"currentMembers":2,
+             "departureRadius":500,"destinationRadius":500,"status":"ACTIVE","createdAt":"2026-08-30T09:00:00Z",
+             "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","imageUrl":null,"rideCount":4,
+                         "host":true,"arrived":false},
+                        {"publicId":"\(UUID_OTHER)","nickname":"모여타","imageUrl":null,"rideCount":1,
+                         "host":false,"arrived":false}],
+             "estimateFare":9600,"estimateTime":14,"route":"_p~iF~ps|U","version":3,
+             "roomType":"REALTIME","departureAt":null,"confirmed":false}
+            """
+        let detail = try decodeJSON(PartyDetailResponse.self, detailBody)
+        let ride = detail.toRide(currentUuid: UUID_ME)
+
+        #expect(detail.members.map(\.badgeId) == [nil, nil])
+        #expect(ride.id == "7")
+        #expect(ride.members.map(\.id) == [UUID_ME, UUID_OTHER])
+        #expect(ride.members.map(\.isHost) == [true, false])
+        #expect(ride.isHostedByMe)
+        #expect(ride.estimatedFare == 9600)
+
+        // 생성 응답 — taxiDriverId 없음.
+        let openBody = """
+            {"id":12,"departure":"서울시청","destination":"강남역","capacity":3,"currentMembers":1,
+             "departureRadius":500,"destinationRadius":500,"status":"ACTIVE","createdAt":"2026-08-24T09:00:00Z",
+             "estimateFare":9600,"estimateTime":14,"route":"_p~iF~ps|U","roomType":"REALTIME","departureAt":null}
+            """
+        let opened = try decodeJSON(OpenPartyResponse.self, openBody).toRide()
+
+        #expect(opened.id == "12")
+        #expect(opened.status == .recruiting)
+        #expect(opened.members.count == 1)
+        #expect(opened.routePolyline == "_p~iF~ps|U")
+
+        // SSE `member-joined` — 멤버에 badgeId 없음.
+        let joinedBody = """
+            {"member":{"publicId":"\(UUID_OTHER)","nickname":"모여타","imageUrl":null,"rideCount":1,
+                       "host":false,"arrived":false},
+             "status":"ACTIVE","version":4}
+            """
+        let joined = try decodeJSON(MemberJoinedPayload.self, joinedBody)
+        let event = PartySseEvent.memberJoined(payload: joined).toPartyEvent(currentUuid: UUID_ME)
+
+        #expect(joined.member.badgeId == nil)
+        guard case .memberJoined(let member, let status, let version) = event else {
+            Issue.record("member-joined 로 옮겨지지 않았다: \(event)")
+            return
+        }
+        #expect(member.id == UUID_OTHER)
+        #expect(member.nickname == "모여타")
+        #expect(member.isMe == false)
+        #expect(status == .recruiting)
+        #expect(version == 4)
+
+        // 목록 아이템 — 서버 record 에 원래 두 키가 없다. 함께 두어 「목록도 본다」를 남긴다.
+        let listBody = """
+            {"list":[{"partyId":7,"departure":"서울시청","destination":"강남역","currentMembers":2,
+                      "capacity":3,"status":"ACTIVE","departureLat":37.5665,"departureLng":126.978}]}
+            """
+        let rides = try decodeJSON(PartyListResponse.self, listBody).list.map { $0.toRide() }
+
+        #expect(rides.map(\.id) == ["7"])
+        #expect(rides[0].members.count == 2)
+    }
+
     @Test("경로 미리보기 요청 본문 필드명이 백엔드 RouteRequest 와 일치한다")
     func routeRequestBody() throws {
         // 백엔드 record RouteRequest(departureLat, departureLng, destinationLat, destinationLng).

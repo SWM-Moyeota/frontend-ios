@@ -47,6 +47,23 @@ public enum ExploreMode: CaseIterable, Sendable {
     case byDate
 }
 
+/// 「＋ 새 동승 방 만들기」를 누르면 16 도착지 확인을 **시간 정하기로 열까.**
+///
+/// 예약 탭을 보다 누른 사람은 **예약 방을 찾다가 없어서** 만들러 가는 것이다. 거기서 「지금 출발」로
+/// 열면 화면이 방금까지 한 일을 잊은 꼴이고, 사용자는 모달에서 「시간 정하기」를 한 번 더 눌러야 한다.
+/// 그 한 번을 없애는 것이 전부다 — **고르는 쪽을 바꿀 뿐 가둬 두지 않는다.** 예약 탭에서 눌렀어도
+/// 모달에서 「지금 출발」로 되돌릴 수 있다.
+///
+/// `isReservation`(`!= .realtime`) 대신 `switch` 로 적는 이유는 `ExploreMode` 가 늘어날 때 **컴파일이 깨지게**
+/// 하려는 것이다(`DepartureMode` 가 불리언이 아닌 것과 같은 판단). 새 탭이 생기면 「이 탭에서 만들면 예약인가」를
+/// 그 자리에서 정하게 된다 — 기본값에 조용히 쓸려 가지 않는다.
+func createOpensScheduled(mode: ExploreMode) -> Bool {
+    switch mode {
+    case .realtime: false
+    case .soon, .byDate: true
+    }
+}
+
 /// 모드 칩의 문구. 영역·시간 기준은 칩에 적지 않고 아래 한 줄이 말한다(`exploreAreaNote`).
 func exploreModeLabel(mode: ExploreMode) -> String {
     switch mode {

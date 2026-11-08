@@ -1460,6 +1460,9 @@ private let LEAVE_FAILED_MESSAGE = "방에서 나가지 못했어요"
 /// 비활성으로 바꾸지만(`canLeaveParty`) 전이를 알아채기까지 한 프레임이 비고, 그 틈에 눌린 것이
 /// 여기로 온다.
 func leaveFailureMessage(e: PartyLeaveException) -> String {
+    // 끝난 방이 아니라 **약속에 묶인 방**이다 — 홈으로 돌아가라고 하면 안 된다. 끝내는 길은 출발뿐이고
+    // 가지 않으면 노쇼로 남으므로, 무엇을 해야 하는지까지 말해 준다.
+    if e.isCannotLeaveConfirmed { return "약속이 정해진 방은 나갈 수 없어요. 약속 시간에 출발지에서 만나 주세요" }
     if e.isNotRecruiting { return "이미 끝난 방이에요. 홈으로 돌아가 주세요" }
     if e.isPartyNotFound { return "이미 사라진 방이에요. 홈으로 돌아가 주세요" }
     return LEAVE_FAILED_MESSAGE

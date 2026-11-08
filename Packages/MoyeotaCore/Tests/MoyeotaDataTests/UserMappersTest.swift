@@ -162,6 +162,17 @@ import Testing
         #expect(try decodeJSON(UserProfileResponse.self, body).toDomain().name == "김성윤")
     }
 
+    // 원본에는 없는 테스트다 — 이슈 #35 §3. 프로필 DTO 는 호환 키(`badgeId`·`taxiEnabled`·`taxiDriverId`)를
+    // 하나도 받지 않는다. 서버가 그 키들을 지우는 날에도 프로필이 그대로 읽히는지 가장 작은 본문으로 본다
+    // (위 테스트는 반대로 키가 **있을 때** 흘리는 쪽이다).
+    @Test("호환 키 없이도 프로필이 디코딩된다")
+    func decodesWithoutCompatKeys() throws {
+        let info = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤"}"#).toDomain()
+
+        #expect(info.uuid == "u-1")
+        #expect(info.name == "김성윤")
+    }
+
     /// 목록 본문은 **엔벨로프 없는 벗은 배열**이다. 그리고 `ProfileImage.key` 는 서버에 보내는 값,
     /// `ProfileImage.url` 은 그리는 값이라 **두 필드가 뒤집히면** PATCH 가 400 `USER112` 로 거절되고
     /// 격자에는 아무것도 안 그려진다 — 원인이 응답 파싱이라 추적이 어려워 여기서 따로 못 박는다.

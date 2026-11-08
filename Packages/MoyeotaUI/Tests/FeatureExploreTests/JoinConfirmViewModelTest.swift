@@ -104,6 +104,14 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     ) async throws -> [ReservationSearchResult] { [] }
 }
 
+/// 진행 중인 방이 없는 저장소. 이 테스트는 「다른 방에 참여 중」 안내를 보지 않는다 — 그 배선은
+/// `JoinAnalyticsTest` 가 본다.
+private struct NoActivePartyRepository: ActivePartyRepository {
+    func remember(partyId: String) async throws {}
+    func clear() async throws {}
+    func resolve() async throws -> Ride? { nil }
+}
+
 /// 시험이 쥐고 있다가 풀어 주는 합류 응답 — 제출 중 상태를 볼 때 쓴다.
 private actor Gate {
     private var continuation: CheckedContinuation<Void, Never>?
@@ -142,14 +150,14 @@ struct JoinConfirmViewModelTest {
 
     private func loaded() async -> JoinConfirmViewModel {
         repository.enqueueDetail { room() }
-        let viewModel = JoinConfirmViewModel(repository: repository, partyId: 7)
+        let viewModel = JoinConfirmViewModel(repository: repository, activeParty: NoActivePartyRepository(), partyId: 7)
         await eventually("상세를 읽었다") { viewModel.uiState == .success(ride: room()) }
         return viewModel
     }
 
     @Test("상세를 못 읽으면 오류 문구를 띄우고 다시 시도하면 다시 읽는다")
     func detailFailureThenRetry() async {
-        let viewModel = JoinConfirmViewModel(repository: repository, partyId: 7)
+        let viewModel = JoinConfirmViewModel(repository: repository, activeParty: NoActivePartyRepository(), partyId: 7)
         await eventually("오류로 떨어진다") { viewModel.uiState == .error(message: "동승 정보를 불러오지 못했어요") }
 
         repository.enqueueDetail { room() }

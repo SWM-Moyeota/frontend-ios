@@ -286,4 +286,18 @@ struct MeetingFailureMessageTest {
             #expect(message.contains("모집이 끝나"), "\(message)")
         }
     }
+
+    /// ★ 못 박는 것: **어떻게 끝내는지와 안 갔을 때의 대가를 확정 전에 말한다.**
+    ///
+    /// 「나갈 수 없다」만 말하면 사용자는 못 나가는 것까지만 알고 **그래서 어떻게 끝내는지**를 모른다.
+    /// 약속이 깨져 아무도 출발지에 가지 않으면 방이 열린 채 남고, 그동안 서버가 다른 방 합류·방
+    /// 만들기·예약까지 전부 막는다(`ALREADY_JOINED_OTHER_PARTY`). 스스로 풀 방법이 없으므로
+    /// **들어가기 전에 말하는 것이 유일한 방어**다.
+    @Test("확정 안내는 끝내는 방법과 노쇼 대가를 말한다")
+    func confirmCopySaysHowToEnd() {
+        for message in [MEETING_CONFIRM_HELP, MEETING_CONFIRM_DIALOG_BODY] {
+            #expect(message.contains("출발"), "끝내는 방법을 말하지 않는다: \(message)")
+            #expect(message.contains("노쇼"), "안 갔을 때의 대가를 말하지 않는다: \(message)")
+        }
+    }
 }

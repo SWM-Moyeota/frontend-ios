@@ -186,7 +186,8 @@ public struct DestinationConfirmModal: View {
     ///     새 방을 만든다. 합승 매칭이 조용히 꺼지는 자리라 작은 재시도 줄을 둔다 — 차단형 배너가
     ///     아닌 이유는 추천이 부가 기능이라는 기존 판단을 유지하기 때문이다.
     ///   - initiallyScheduled: 처음부터 「시간 정하기」(예약)로 열 것인가. **기본값이 지금까지의 동작**이다 —
-    ///     모달을 여는 길은 15 목적지 확정 하나뿐이고 그쪽은 아무것도 넘기지 않는다.
+    ///     15 목적지 확정으로 열면 아무것도 넘기지 않고, 17 탐색의 예약 탭에서 「방 만들기」로 열 때만 참이 온다
+    ///     (`MainNavGraph.createScheduled` → `DestinationConfirmRoute`).
     ///     파라미터로 둔 이유는 17 탐색의 `initialSheetState` 와 같다: 예약 상태의 화면을 바로 띄워 볼 수
     ///     있어야 한다(내부 상태만으로는 그 화면을 만들 수 없다).
     ///     `DepartureMode` 가 아니라 **Bool** 인 이유는 이 뷰가 공개 API 라는 점이다 — 그 enum 은 모듈

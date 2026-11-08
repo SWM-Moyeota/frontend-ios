@@ -283,7 +283,7 @@ import Testing
 
         await viewModel.addFavorite(place("서면역"))?.value
 
-        #expect(viewModel.uiState.favoriteActionMessage == "자주 가는 곳에 담지 못했어요 (중복이거나 10개를 넘었을 수 있어요)")
+        #expect(viewModel.uiState.favoriteActionMessage == "자주 가는 곳에 담지 못했어요")
         #expect(!viewModel.uiState.favoriteActionLoading)
     }
 
@@ -351,8 +351,9 @@ import Testing
         #expect(viewModel.uiState.favoritesErrorMessage == nil)
     }
 
-    /// 원본 `catch (e: Exception)` — 담기 실패 문구가 없으면 눌렀는데 아무 일도 없는 것처럼 보인다.
-    @Test("즐겨찾기 담기가 살아 있는 태스크의 URLError(.cancelled) 로 끝나면 실패 문구를 세우고 잠금을 푼다")
+    /// 원본은 OkHttp `IOException("Canceled")` 을 `favoritePlaceCall` 이 `isNetwork` 인 `FavoritePlaceException` 으로 감싸
+    /// 네트워크 문구를 세운다. 조용히 끝내면 눌렀는데 아무 일도 없는 것처럼 보이고 잠금도 남는다.
+    @Test("즐겨찾기 담기가 살아 있는 태스크의 URLError(.cancelled) 로 끝나면 네트워크 문구를 세우고 잠금을 푼다")
     func addFavoriteLiveUrlCancel() async {
         let repository = ScriptedSearchRepository()
         await repository.setAddError(URLError(.cancelled))
@@ -360,7 +361,7 @@ import Testing
 
         await viewModel.addFavorite(place("서면역"))?.value
 
-        #expect(viewModel.uiState.favoriteActionMessage == "자주 가는 곳에 담지 못했어요 (중복이거나 10개를 넘었을 수 있어요)")
+        #expect(viewModel.uiState.favoriteActionMessage == FavoriteNetworkFailureMessage)
         #expect(!viewModel.uiState.favoriteActionLoading)
     }
 }

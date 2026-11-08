@@ -298,7 +298,12 @@ public struct ExploreRoute: View {
     private let searchDestination: Place?
     private let onJoinParty: (Ride) -> Void
     private let onOngoingRideClick: () -> Void
-    private let onCreateRoomClick: () -> Void
+    /// 「＋ 새 동승 방 만들기」 — **지금 보고 있는 탭의 뜻을 함께 넘긴다.**
+    ///
+    /// 인자(`scheduled`)는 「16 모달을 시간 정하기로 열까」다. 예약 탭(`soon`·`byDate`)을 보다 누른 사람은
+    /// **예약 방을 찾다가 없어서** 만들러 가는 것이라, 거기서 「지금 출발」로 열면 사용자가 방금까지 한 일을
+    /// 화면이 잊은 꼴이 된다. 실시간 탭에서는 지금까지와 같다(false).
+    private let onCreateRoomClick: (Bool) -> Void
     /// 도착지를 고르러 15 목적지로. **nil 이면 칩을 그리지 않는다**(배선 안 된 버튼을 보여 주지 않는다)
     private let onPickSearchDestination: (() -> Void)?
     private let onClearSearchDestination: () -> Void
@@ -347,7 +352,7 @@ public struct ExploreRoute: View {
         searchDestination: Place? = nil,
         onJoinParty: @escaping (Ride) -> Void = { _ in },
         onOngoingRideClick: @escaping () -> Void = {},
-        onCreateRoomClick: @escaping () -> Void = {},
+        onCreateRoomClick: @escaping (Bool) -> Void = { _ in },
         onPickSearchDestination: (() -> Void)? = nil,
         onClearSearchDestination: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
@@ -384,7 +389,7 @@ public struct ExploreRoute: View {
         searchDestination: Place? = nil,
         onJoinParty: @escaping (Ride) -> Void = { _ in },
         onOngoingRideClick: @escaping () -> Void = {},
-        onCreateRoomClick: @escaping () -> Void = {},
+        onCreateRoomClick: @escaping (Bool) -> Void = { _ in },
         onPickSearchDestination: (() -> Void)? = nil,
         onClearSearchDestination: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
@@ -524,7 +529,8 @@ public struct ExploreRoute: View {
                     ),
                     onJoinParty: onJoinParty,
                     onOngoingRideClick: onOngoingRideClick,
-                    onCreateRoomClick: onCreateRoomClick,
+                    // 탭의 뜻을 여기서 한 번만 번역한다 — 화면은 모드를 모른 채 버튼만 그린다
+                    onCreateRoomClick: { onCreateRoomClick(createOpensScheduled(mode: mode)) },
                     onRequestLocationPermission: { location.onRequestPermission() },
                     onVisibleBoundsChange: { bounds in
                         // 지도는 하나이고 두 목록이 같은 신호를 쓴다 — 실시간 조회는 뷰모델이 받고,

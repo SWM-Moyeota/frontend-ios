@@ -279,6 +279,7 @@ private struct MainNavHost: View {
                     rideRepository: rideRepository,
                     placeRepository: placeRepository,
                     chatRepository: chatRepository,
+                    activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
                     noShowRepository: noShowRepository,
                     pendingChatRoomId: pendingChatRoomId,
@@ -324,6 +325,7 @@ private struct MainNavContent: View {
     let rideRepository: any RideRepository
     let placeRepository: any PlaceRepository
     let chatRepository: any ChatRepository
+    let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
     let noShowRepository: any NoShowRepository
     let pendingChatRoomId: Int64?
@@ -404,6 +406,18 @@ private struct MainNavContent: View {
     @State private var selectedPartner: User?
     // 16 에서 만든 방 — 21 매칭 대기가 이 방을 조회한다. 위 selectedPartyId 와 같은 이유로 남긴다
     @State private var createdPartyId: Int64?
+
+    // 16 도착지 확인을 **시간 정하기로 열까.** 17 탐색의 예약 탭에서 「＋ 새 동승 방 만들기」를 누른
+    // 경우에만 참이다.
+    //
+    // 깃발을 쓰는 이유: 15 → 16 은 두 걸음이고 그 사이에 출발지·도착지가 정해진다. 경로 인자로
+    // 실어 나르면 두 라우트의 주소가 모두 바뀌는데, 이 값은 **어디서 눌렀는지**일 뿐 화면의
+    // 정체성이 아니다. `selectedPartyId`·`createdPartyId` 와 같은 자리에 같은 이유로 둔다
+    // (15 가 위에 쌓여도 남아야 하므로 `@State` — 이 뷰 머리의 `@State` 설명).
+    //
+    // **16 에 들어가지 않는 길에서는 반드시 내린다** — 홈 검색으로 들어온 사람이 직전에 예약 탭을
+    // 봤다는 이유로 시간 정하기 화면을 받으면 안 된다.
+    @State private var createScheduled = false
     // 탐색용 selectedPartyId 와 진행용 createdPartyId 는 **일부러 둘이다** — 탐색 중 다른 방을 눌러도
     // 내가 들어 있는 방이 바뀌면 안 된다.
     //
@@ -441,6 +455,7 @@ private struct MainNavContent: View {
         rideRepository: any RideRepository,
         placeRepository: any PlaceRepository,
         chatRepository: any ChatRepository,
+        activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
         noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
@@ -456,6 +471,7 @@ private struct MainNavContent: View {
         self.rideRepository = rideRepository
         self.placeRepository = placeRepository
         self.chatRepository = chatRepository
+        self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
         self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
@@ -806,11 +822,13 @@ private struct MainNavContent: View {
                 activeRide: activePartyViewModel.ride,
                 onSearchClick: {
                     searchInitialQuery = ""
+                    createScheduled = false
                     navController.navigate(.destination)
                 },
                 onActiveRideClick: openActiveStage,
                 onPlaceQuery: { query in
                     searchInitialQuery = query
+                    createScheduled = false
                     navController.navigate(.destination)
                 },
                 onTabSelect: navigateTab
@@ -848,6 +866,8 @@ private struct MainNavContent: View {
                 placeRepository: placeRepository,
                 origin: confirmedOrigin,
                 destination: confirmedDestination,
+                // 17 예약 탭에서 눌러 온 길이면 시간 정하기로 연다 — 위 createScheduled 참고
+                initiallyScheduled: createScheduled,
                 onDismiss: back,
                 onPartyCreated: { ride in
                     createdPartyId = Int64(ride.id)
@@ -888,10 +908,15 @@ private struct MainNavContent: View {
                 },
                 // 배너는 **지금 단계 화면**으로 바로 간다
                 onOngoingRideClick: openActiveStage,
-                onCreateRoomClick: { navController.navigate(.destination) },
+                onCreateRoomClick: { scheduled in
+                    createScheduled = scheduled
+                    navController.navigate(.destination)
+                },
                 onPickSearchDestination: {
                     pickingSearchDestination = true
                     searchInitialQuery = ""
+                    // 필터만 고르러 가는 길이라 16 을 열지 않는다 — 깃발도 남기지 않는다
+                    createScheduled = false
                     navController.navigate(.destination)
                 },
                 onClearSearchDestination: { reservationSearchDestination = nil },
@@ -903,6 +928,9 @@ private struct MainNavContent: View {
         case .joinConfirm:
             JoinConfirmRoute(
                 repository: rideRepository,
+                // 합류가 「다른 방에 참여 중」으로 막혔을 때 그 방이 확정된 방인지 알아내는 데 쓴다 —
+                // 확정된 방은 나갈 수가 없어서 안내할 행동이 달라진다(JoinConfirmRoute.alreadyInPartyMessage)
+                activePartyRepository: activePartyRepository,
                 partyId: selectedPartyId,
                 onDismiss: back,
                 // 합류가 끝나면 **방 id 만** 받아 21 매칭 대기로 넘긴다 — 합류 응답은 더 이상 방 상세가

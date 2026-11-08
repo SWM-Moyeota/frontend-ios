@@ -145,6 +145,17 @@ public enum AuthError: String, CaseIterable, Sendable {
     /// 유일한 실패이기 때문이다.
     case passwordMismatch = "PASSWORD_MISMATCH"
 
+    /// 400 `USER113` UNDER_MINIMUM_AGE — **만 14세 미만은 가입할 수 없다.**
+    ///
+    /// 앱도 같은 규칙으로 막으므로(`AuthPolicy.isOldEnough`) 정상 경로에서는 뜨지 않는다. 그래도
+    /// 가려내는 이유는 서버가 이 검사를 넣은 이유와 같다 — **앱이 유일한 방어선이 아니다.**
+    /// 구버전 앱과 API 직접 호출이 남아 있고, 그때 `invalidRequest` 로 뭉개지면 화면이
+    /// 「입력한 정보를 다시 확인해 주세요」로 답한다. 생년월일은 고칠 수 있는 오타가 아니라
+    /// **고칠 게 없는 사유**라, 그 둘을 같은 문구로 말하면 사용자가 날짜만 계속 고쳐 보게 된다.
+    ///
+    /// 서버 기준은 앱과 같다 — 만 나이, KST, 14번째 생일 당일은 통과.
+    case underMinimumAge = "UNDER_MINIMUM_AGE"
+
     /// 400 INVALID_REQUEST — 서버 검증 실패. 서버 message 가 "필드: 사유" 형태라
     /// `AuthException.serverMessage` 를 그대로 보여줘도 사용자에게 의미가 통한다.
     case invalidRequest = "INVALID_REQUEST"

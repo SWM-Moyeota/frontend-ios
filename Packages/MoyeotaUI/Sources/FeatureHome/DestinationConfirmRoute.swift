@@ -115,8 +115,8 @@ public final class CreatePartyViewModel {
     /// 문구로 가른다 — 예전에는 **모든 사유가 「잠시 후 다시 시도해 주세요」 하나**였다.
     ///
     /// 그게 특히 나쁜 자리였던 까닭은 이 엔드포인트의 실패가 **기다려서 풀리는 것과 사용자가 고쳐야
-    /// 하는 것으로 갈리기** 때문이다: 409 「이미 참여 중인 방」은 그 방을 정리해야 풀리고(그 방이 아무도
-    /// 합류하지 않은 ACTIVE 방이면 서버 30분 스윕에도 남아 **영구 교착**이다), 400 「출발지와 도착지가
+    /// 하는 것으로 갈리기** 때문이다: 409 「이미 참여 중인 방」은 그 방을 정리해야 풀리고(서버가 저절로
+    /// 닫기까지 15분~1일이 걸린다 — `PartyOpenException` 주석), 400 「출발지와 도착지가
     /// 같다」는 핀을 옮겨야 풀린다. 둘 다 「잠시 후 다시」로 안내하면 영원히 같은 실패를 맞는다.
     ///
     /// 돌려주는 태스크는 테스트가 끝을 기다리는 용도다. 화면은 쓰지 않는다.
@@ -526,6 +526,7 @@ public struct DestinationConfirmRoute: View {
     // 15 에서 확정한 출발지(고른 곳 또는 실위치). 15 를 거치지 않고 들어오면 nil — 방을 만들지 않고 안내만 한다
     private let origin: Place?
     private let destination: Place?
+    private let initiallyScheduled: Bool
     private let onDismiss: () -> Void
     private let onPartyCreated: (Ride) -> Void
     private let onCandidateSelected: (Ride) -> Void
@@ -546,6 +547,10 @@ public struct DestinationConfirmRoute: View {
     @State private var arrivalMemo = Remembered<RoutePreviewViewModel.UiState, String>()
 
     /// - Parameters:
+    ///   - initiallyScheduled: 모달을 **시간 정하기로 열까.** 17 탐색의 예약 탭에서 들어온 경우에만 참이다
+    ///     (`MainNavGraph.createScheduled`).
+    ///     기본값이 false 라 **지금까지의 모든 진입이 그대로다** — 홈 검색·즐겨찾기로 들어오면 전과 같이
+    ///     「지금 출발」로 열린다. 고르는 쪽을 바꿀 뿐이라 사용자는 모달에서 언제든 되돌릴 수 있다.
     ///   - onCandidateSelected: 「걸어서 가까운 방」 추천을 골랐다 — 그 방의 합류 확인(19)으로 보낸다.
     ///     `onPartyCreated` 와 갈라 둔 이유: 저쪽은 **방을 만든 뒤** 21 대기로 가고, 이쪽은 아무것도
     ///     만들지 않고 남의 방 합류 흐름을 탄다. 같은 콜백으로 묶으면 호출부가 둘을 구분할 수 없다.
@@ -559,6 +564,7 @@ public struct DestinationConfirmRoute: View {
         placeRepository: any PlaceRepository,
         origin: Place?,
         destination: Place?,
+        initiallyScheduled: Bool = false,
         onDismiss: @escaping () -> Void = {},
         onPartyCreated: @escaping (Ride) -> Void = { _ in },
         onCandidateSelected: @escaping (Ride) -> Void = { _ in },
@@ -566,6 +572,7 @@ public struct DestinationConfirmRoute: View {
     ) {
         self.origin = origin
         self.destination = destination
+        self.initiallyScheduled = initiallyScheduled
         self.onDismiss = onDismiss
         self.onPartyCreated = onPartyCreated
         self.onCandidateSelected = onCandidateSelected
@@ -686,7 +693,8 @@ public struct DestinationConfirmRoute: View {
             // 409(이미 참여 중)는 여기가 아니라 errorMessage 슬롯으로 간다 — 그 상태에서는
             // 「방 만들기」도 같은 409 로 막히므로 재시도가 아니라 안내가 맞다.
             nearbyLoadFailed: candidatesState == .failed,
-            onRetryNearby: { candidatesViewModel.retry() }
+            onRetryNearby: { candidatesViewModel.retry() },
+            initiallyScheduled: initiallyScheduled
         )
         .task(id: state.createdParty) {
             if let created = state.createdParty { onPartyCreated(created) }

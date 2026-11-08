@@ -4,7 +4,7 @@
 
 - `Diagnostics.report` 는 취소를 되던지려고 `throws` 이고, `URLSession` 이 던지는 `URLError(.cancelled)` 도 취소로 본다. 「보고 안 하는 전송 실패」(원본 `IOException`)는 `URLError`·POSIX·CFNetwork 도메인 오류와 `MoyeotaDomain.IOException` 이다.
 - 요청 JSON 의 키 순서는 선언 순서가 아니라 알파벳순이다(`JSONEncoder` 는 선언 순서를 지키지 않아 `.sortedKeys` 로 고정한다). JSON 객체는 순서가 없어 서버 계약은 같다.
-- 업데이트 게이트는 `GET /api/v1/config` 의 `minVersionCode`·`recommendedVersionCode` 를 읽지 않고 `iosMinVersionCode`·`iosRecommendedVersionCode` 를 읽어 `AppConfig` 의 같은 자리로 옮긴다. 앞의 두 키는 Android `versionCode` 수열이라 iOS 빌드 번호와 비교할 수 없다. 키가 없으면 null 이고 아무도 막지 않는다.
+- 업데이트 게이트는 Android 와 같은 `GET /api/v1/config` 의 `minVersionCode`·`recommendedVersionCode` 를 읽어 `CFBundleVersion` 과 비교한다(`<` 일 때만 걸리고 같으면 통과, 키가 없으면 요구 없음). 예전의 iOS 전용 키(`iosMinVersionCode`·`iosRecommendedVersionCode`)는 더는 읽지 않는다. iOS 빌드 번호는 Android `versionCode` 와 같은 `YYMMDD*100+N` 이다(`.github/actions/calculate-version` → `release.yml` → `testflight.yml` 이 `CURRENT_PROJECT_VERSION` 을 덮어쓴다. 로컬 빌드는 `Config/Base.xcconfig` 의 1 로, Android 로컬 `MOYEOTA_VERSION_CODE` 기본값과 같다). 서버에는 이 한 쌍뿐이라 두 플랫폼을 함께 출시한다는 전제의 결정이다 — 한쪽만 출시하는 날이 오면 서버에서 필드를 플랫폼별로 나눠야 한다. `N` 은 저장소마다 자기 릴리스 수로 세므로 같은 날이라도 두 플랫폼의 번호가 다를 수 있다.
 
 - 재설치 후 첫 실행에는 Keychain 의 세션 항목을 지운다. iOS Keychain 은 앱을 지워도 남아 Android 의 「앱 삭제 = 데이터 삭제」와 달라지므로, 앱과 함께 지워지는 `UserDefaults` 표시(`moyeota_session_keychain_install_marker`)가 없으면 남은 항목을 지운 뒤 표시를 남긴다. 지우기가 실패하면(첫 잠금 해제 전 등) 세션을 읽지 않고 미로그인으로 시작하며 다음 실행에 다시 시도한다.
 - 토큰은 평문 DataStore 가 아니라 Keychain(`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`)에 저장하고, 진행 중인 방은 `UserDefaults` 에 저장한다. 첫 잠금 해제 전에는 세션을 읽을 수 없어 미로그인으로 시작한다.

@@ -402,6 +402,25 @@ import Testing
         #expect(exception.serverMessage == "제공하지 않는 프로필 이미지입니다.")
     }
 
+    /// `USER113` 은 만 `AuthPolicy.MIN_AGE` 세 미만 가입이다.
+    /// **앱도 같은 규칙으로 먼저 막으므로 정상 경로에서는 오지 않는다** — 그래도 가려 두는 까닭은
+    /// 구버전 앱과 API 직접 호출이 남아 있기 때문이다.
+    ///
+    /// 400 폴백(`AuthError.invalidRequest`)에 맡기면 「입력한 정보를 다시 확인해 주세요」가 떠서,
+    /// 생년월일은 **고칠 게 없는 사유**인데 사용자가 날짜만 계속 고쳐 보게 된다
+    /// (`AuthPolicy.isOldEnough` 주석의 「사용자가 할 일」 표와 같은 구분).
+    ///
+    /// 기준: 백엔드 `user/common/exception/UserErrorCode.java` 의 `UNDER_MINIMUM_AGE`.
+    /// 실측(2026-11-05, 로컬 `:8080`): 14번째 생일 하루 전 400 / 당일 201.
+    @Test("400 USER113 은 일반 검증 실패가 아니라 나이 미달이다")
+    func user113() {
+        let exception = httpException(400, #"{"code":"USER113","message":"만 14세 미만은 가입할 수 없습니다."}"#)
+            .toAuthException()
+
+        #expect(exception.error == .underMinimumAge)
+        #expect(exception.error != .invalidRequest)
+    }
+
     /// USER106(빈 FCM 토큰)은 사용자가 고칠 입력이 아니다 — 일반 검증 실패로 둔다.
     @Test("400 USER106 은 일반 검증 실패로 취급한다")
     func user106() {

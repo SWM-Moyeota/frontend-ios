@@ -368,4 +368,30 @@ struct ReservationFinderTest {
             #expect(!feed.myPartyHidden)
         }
     }
+
+    // ───────────────── 「＋ 새 동승 방 만들기」가 어떤 모달을 여는가 ─────────────────
+
+    /// 못 박는 것 둘을 한 표로 본다.
+    ///
+    /// 1. **예약 탭에서 만들면 시간 정하기로 열린다.** 예약 방을 찾다가 없어서 만들러 가는 사람인데
+    ///    「지금 출발」로 열리면, 화면이 방금까지 한 일을 잊은 꼴이고 사용자는 모달에서 「시간
+    ///    정하기」를 한 번 더 눌러야 한다. 그 한 번을 없앤다.
+    /// 2. **실시간 탭은 지금까지와 같다.** 이 변경이 기존 흐름을 건드리지 않는다는 쪽이 더 중요하다.
+    ///
+    /// 표로 적은 이유: 모드가 늘면 **첫 단언에서 걸린다**(`allCases` 와 표의 키가 어긋난다). 컴파일은
+    /// `switch` 가 빠진 가지를 잡아 이미 막아 주지만, 그건 「분기를 적었는가」까지다 — 어느 쪽으로 적었는지는
+    /// 이 표가 지킨다.
+    @Test("탭마다 여는 모달이 정해져 있다")
+    func createOpensScheduledPerTab() {
+        let expected: [ExploreMode: Bool] = [
+            .realtime: false,
+            .soon: true,
+            .byDate: true,
+        ]
+
+        #expect(Set(ExploreMode.allCases) == Set(expected.keys), "새 탭이 생겼는데 이 표에 없다")
+        for (mode, scheduled) in expected {
+            #expect(createOpensScheduled(mode: mode) == scheduled, "\(mode)")
+        }
+    }
 }
