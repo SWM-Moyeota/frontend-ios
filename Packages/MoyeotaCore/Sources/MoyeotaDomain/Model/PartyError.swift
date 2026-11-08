@@ -67,6 +67,20 @@ public struct PartyJoinException: Throwable {
     /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다. 목록에서 빼야 한다.
     public var isPartyNotFound: Bool { code == "PARTY_NOT_FOUND" || (code == nil && httpStatus == 404) }
 
+    /// 403 `NO_SHOW_RESTRICTED` — **노쇼로 이용이 제한된 상태다.** 기다리면 풀리지만,
+    /// 「잠시 후 다시 시도」로 뭉개면 **몇 시간 뒤까지 같은 403** 이라 사용자는 영원히 재시도한다.
+    ///
+    /// 근거는 `PartyOpenException.isNoShowRestricted` 에 한 번만 적어 두었다(기한을 어디서 얻는지,
+    /// 왜 추천 조회에는 이 사유가 없는지까지). 이쪽에서 특히 다른 점은 **합류 흐름의 다른 409 들과
+    /// 섞이기 쉽다**는 것이다: `isAlreadyJoined`·`isPartyFull` 은 「이 방이 안 된다」이고 이 403 은
+    /// 「**내가** 지금 아무 방에도 못 들어간다」다. 전자는 다른 방을 권하면 되지만 후자는 다른 방도
+    /// 전부 막혀 있어, 목록으로 되돌려 보내면 누르는 족족 같은 403 이다.
+    public var isNoShowRestricted: Bool { code == Self.NO_SHOW_RESTRICTED }
+
+    /// 403 — 노쇼 제재 중. 서버 `PartyService.ensureNotRestricted` 가 합류의 **첫 검사**라
+    /// 「정원이 찼나·닫혔나」보다 먼저 걸린다(즉 이 403 과 409 는 함께 오지 않는다).
+    public static let NO_SHOW_RESTRICTED = "NO_SHOW_RESTRICTED"
+
     /// 서버가 **재합류에도 이 코드를 준다.** `PartyService.join` 이 `party.join()` 보다 먼저
     /// `existsOngoingByMemberId` 를 보고, 그 질의가 합류 대상 방을 제외하지 않기 때문이다 —
     /// 그래서 "이미 참여한 방"을 뜻하는 `ALREADY_JOINED_PARTY` 는 사실상 오지 않는다.
@@ -170,6 +184,17 @@ public struct PartyFinishException: Throwable {
 ///
 /// **빈 목록은 여기로 오지 않는다** — 후보가 없는 건 정상이고 성공이다. 이 예외는 조회 자체가
 /// 안 된 경우뿐이다.
+///
+/// **`NO_SHOW_RESTRICTED` 사유는 여기 없다 — 빠진 게 아니다.** 서버가 그 403 을 던지는 자리는
+/// `PartyService.ensureNotRestricted` 한 곳이고 호출처는 `open`·`reserve`·`join` 셋뿐이라, 이
+/// 추천 조회(`PartyService.realtimeMatch`)는 **검사를 거치지 않는다**. 즉 제재당한 사용자도 후보를
+/// 둘러볼 수 있고, 합류를 누르는 순간에만 막힌다(`PartyJoinException.isNoShowRestricted`).
+/// 여기에 사유를 더하면 서버가 허용하는 탐색을 앱이 임의로 막는 분기가 생긴다
+/// (근거 전문은 `PartyOpenException.isNoShowRestricted`).
+///
+/// 반대로 **409 `PARTY_TIME_CONFLICT` 는 여기도 온다** — `realtimeMatch` 가 지금을 기준으로
+/// `PartyConflictRule.check` 를 부르므로, 지금 전후 2시간 안에 내 다른 예약이 있으면 거절된다.
+/// 이 예외에는 그 프로퍼티가 없어 원본처럼 화면의 `candidatesFailure` 가 `.failed`(재시도)로 옮긴다.
 public struct RealtimeMatchException: Throwable {
     /// 서버 `MatchingErrorCode` 이름. 본문이 없거나 파싱 실패면 null.
     public let code: String?
@@ -215,8 +240,29 @@ public struct RealtimeMatchException: Throwable {
     public var isOutOfServiceArea: Bool { code == "OUT_OF_SERVICE_AREA" }
 }
 
-/// 방 **생성** 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외
-/// (`RideRepository.createParty` 전용).
+/// 방 **생성** 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외 —
+/// `RideRepository.createParty`(실시간)와 `RideRepository.createReservation`(예약) **둘 다**
+/// 이 예외로 올라온다.
+///
+/// ### 두 액션을 한 예외에 둔 이유 — PR #82 가 셋을 가른 것과 반대 선택 ★
+/// `PartyConfirmException` 주석은 「겹치는 코드가 액션마다 다른 문장을 요구하면 예외를 갈라라」고
+/// 적고 있고, 여기에도 그런 코드가 하나 있다: `INVALID_CAPACITY` 가 실시간에서는 **1~3**,
+/// 예약에서는 **2~3** 을 뜻한다(서버 `OpenPartyRequest.@Min(1)` vs `OpenReservationRequest.@Min(2)`).
+///
+/// 그래도 가르지 않는 근거는 그 주석이 든 **실패 모양이 여기서는 성립하지 않는다**는 것이다.
+/// 거기서 문제였던 건 「어느 버튼을 눌렀는지가 타입에서 사라지고, 화면이 그걸 자기 쪽 **플래그**로
+/// 다시 들고 있어야 한다」는 점이었다 — 확정·도착·출발은 **한 화면에서 서로 다른 때에** 눌리므로
+/// 그 플래그가 낡을 수 있다. 반면 실시간/예약은 **어느 엔드포인트로 보낼지를 고른 그 값**
+/// (출발 시각이 있는가)이 곧 분기 근거다. 같은 함수 안의 지역 값이라 어긋날 길이 없다.
+///
+/// 반대로 가르면 서버가 **같은 record 로 응답하는 두 액션**(`OpenPartyResponse`)에 예외가 둘이 되고,
+/// 겹치는 여섯 코드(`ALREADY_JOINED_OTHER_PARTY`·`SAME_DEPARTURE_DESTINATION`·`OUT_OF_SERVICE_AREA`·
+/// `INVALID_CAPACITY`·`NO_SHOW_RESTRICTED`·`PARTY_TIME_CONFLICT`)의 프로퍼티가 두 벌이 된다 — 한쪽만
+/// 서버 변경을 따라갈 자리를 여섯 개 만드는 셈이다.
+///
+/// **그래서 `isInvalidCapacity` 만은 호출부가 「무엇을 만들려 했는지」를 알아야 문장이 완성된다.**
+/// 그 자리는 presentation 이 모드별 문구 함수를 갈라 두는 쪽으로 해결한다(실시간 「1~3명」,
+/// 예약 「2~3명」) — 그 한 곳만 갈리고 나머지는 공유한다.
 ///
 /// 생성만 오래 예외가 없었다. 합류는 `PartyJoinException` 으로 6갈래, 완료는 `PartyFinishException` 으로
 /// 5갈래인데 생성은 **모든 실패가 「잠시 후 다시 시도해 주세요」 하나**였다. 그게 특히 나쁜 까닭은 이
@@ -229,6 +275,21 @@ public struct RealtimeMatchException: Throwable {
 /// | 서비스 지역 밖 좌표 | `OUT_OF_SERVICE_AREA` (400) | **아니다.** 다른 곳을 골라야 한다 |
 /// | 정원이 1~3 이 아니다 | `INVALID_CAPACITY` (400) | **아니다.** 앱이 잘못 보냈다 |
 /// | 경로 엔진 장애·경로 없음 | `ROUTE_SEARCH_FAILED` (502) · `INVALID_ROUTE_ESTIMATE`·`ROUTE_NOT_FOUND` (400) | 장애면 그렇다 |
+/// | 노쇼로 이용이 제한됐다 | `NO_SHOW_RESTRICTED` (403) | **기다리면 풀린다** — 다만 몇 시간 단위다 |
+/// | 기준 시각 2시간 안에 내 다른 예약이 있다 | `PARTY_TIME_CONFLICT` (409) | **아니다.** 예약은 다른 시간을 골라야 하고, 실시간은 그 예약 시간대를 벗어나야 한다 |
+///
+/// `PARTY_TIME_CONFLICT` 의 기준 시각은 실시간 생성이 **지금**, 예약이 **출발 시각**이다 — 그 전후
+/// 2시간 안에 내 다른 예약이 있으면 둘 다 거절된다(`PartyService.open`·`PartyOpener.open`·
+/// `PartyOpener.reserve` → `PartyConflictRule.check`).
+///
+/// **예약 생성에만 오는 하나**(실시간에는 오지 않는다):
+///
+/// | 사유 | 서버 코드(HTTP) | 기다리면 풀리나 |
+/// |---|---|---|
+/// | 출발 시각이 지금~7일 밖이다 | `INVALID_DEPARTURE_TIME` (400) | **아니다.** 시간을 다시 골라야 한다 |
+///
+/// 반대로 **경로 세 코드는 예약에 오지 않는다** — 서버가 예약 방의 경로를 추정하지 않기 때문이다
+/// (`Party.reserve` 가 요금·시간·경로를 null 로 박는다). 즉 `isRouteUnavailable` 은 실시간에서만 참이 된다.
 ///
 /// **409 가 이 예외를 만든 직접적인 이유다.** 서버 `PartyService.open` 의 첫 줄이
 /// `validateNotInOngoingParty(creatorId)` 이고, 거기서 보는 「진행 중」은
@@ -286,10 +347,54 @@ public struct PartyOpenException: Throwable {
     /// `RealtimeMatchException.isOutOfServiceArea` 와 같은 코드이고, **요청 필드명을 먼저 의심할 것**도 같다.
     public var isOutOfServiceArea: Bool { code == Self.OUT_OF_SERVICE_AREA }
 
-    /// 400 `INVALID_CAPACITY` — 정원이 1~3 이 아니다(서버 `Capacity` record).
-    /// 16 모달의 칩이 1~3 뿐이고 앱이 한 번 더 `coerceIn` 하므로 **앱 버그일 때만** 온다 —
+    /// 400 `INVALID_CAPACITY` — 정원이 허용 범위 밖이다.
+    /// 16 모달의 칩이 범위 안뿐이고 앱이 한 번 더 접으므로 **앱 버그일 때만** 온다 —
     /// 그래도 「잠시 후 다시」로 뭉개지 않는다: 기다려서 풀리지 않는다.
+    ///
+    /// ### 범위가 **액션마다 다르다** — 이 프로퍼티만으로는 문장을 만들 수 없다 ★
+    /// 실시간은 **1~3**(서버 `Capacity` record), 예약은 **2~3**(`OpenReservationRequest.@Min(2)`).
+    /// 그래서 「정원은 1~3명이에요」를 공통 문구로 쓰면 **예약에서 400 을 맞은 사람에게 고를 수 없는
+    /// 1 을 고르라고** 말하게 된다. 호출부는 자기가 어느 액션을 불렀는지로 문구를 갈라야 한다
+    /// (그 책임 분배의 근거는 이 타입 주석의 「두 액션을 한 예외에 둔 이유」에 있다).
+    ///
+    /// ### 예약의 하한 위반은 **이 코드로 오지 않는다**
+    /// 서버 예약 요청은 Bean Validation 이 먼저 돌아(`@Min(2)`) 정원 1 은 도메인 `Capacity`
+    /// (1~3 허용)까지 가지도 못하고 **400 `INVALID_REQUEST`** 로 떨어진다 — 실측으로 확인된
+    /// 동작이고, 서버 Swagger 가 `INVALID_CAPACITY` 만 적어 둔 탓에 「코드로 분기하면 된다」고
+    /// 믿기 쉬운 자리다.
+    ///
+    /// **그렇다고 `INVALID_REQUEST` 를 이 프로퍼티에 넣지는 않는다.** 그 코드는 좌표·이름·시각 누락과
+    /// 본문 파싱 실패까지 뜻하는 **범용 코드**라, 넣으면 실시간 쪽에서 본문이 깨진 실패에까지
+    /// 「인원을 다시 고르세요」라고 말하게 된다. 즉 예약의 정원 1 은 **사유를 알 수 없는 400** 으로
+    /// 떨어지는 것이 맞고, 화면이 칩을 2·3 으로 묶어 애초에 못 만들게 하는 쪽으로 책임을 진다.
     public var isInvalidCapacity: Bool { code == Self.INVALID_CAPACITY }
+
+    /// 409 `PARTY_TIME_CONFLICT` — 기준 시각 전후 **2시간** 안에 내 다른 예약이 있다
+    /// (서버 `PartyConflictRule.CONFLICT_WINDOW`). 예약은 출발 시각이 기준이고, **실시간 생성에도
+    /// 온다** — `PartyService.open`·`PartyOpener.open` 도 지금을 기준으로 `PartyConflictRule.check` 를
+    /// 부른다. 다만 실시간 문구 표(`openFailureMessage`)에는 이 갈래가 없어 원본처럼 일반 문구로
+    /// 떨어진다 — 사유를 말하는 것은 예약 쪽 표(`reservationOpenFailureMessage`)뿐이다.
+    ///
+    /// `isAlreadyInAnotherParty` 와 **다른 사유다.** 저쪽은 「지금 진행 중인 방이 있다」라 그 방을
+    /// 정리해야 하고, 이쪽은 「그 시간대가 이미 찼다」라 **시간을 옮기면 된다** — 예약은 여러 건을
+    /// 가질 수 있기 때문이다. 둘을 뭉개면 아무 방에도 들어가 있지 않은 사용자에게 「진행 중인 방을
+    /// 먼저 정리하세요」라고 말하게 되고, 그 사람이 정리할 방은 **없다**(홈 배너도 뜨지 않는다).
+    ///
+    /// 그래서 이 사유는 `isAlreadyInAnotherParty` 와 달리 **진행 중 방 조회를 되살릴 필요가 없다.**
+    public var isPartyTimeConflict: Bool { code == Self.PARTY_TIME_CONFLICT }
+
+    /// 400 `INVALID_DEPARTURE_TIME` — **예약 전용.** 출발 시각이 **지금 뒤 ~ 7일 안**이 아니다
+    /// (서버 `Party.MAX_RESERVATION_AHEAD`). 양쪽이 모두 엄격해서 **지금과 같은 시각도 거절된다.**
+    ///
+    /// 화면이 날짜·시각 피커를 그 범위로 가두면 평소에는 오지 않는다. 그래도 사유를 남기는 이유는
+    /// `PartyConfirmException.isInvalidMeetingTime` 과 같다 — **경계에 붙은 선택**이 머뭇거리는
+    /// 사이 서버 `now` 가 밀리면서 거절될 수 있다(7일 뒤 같은 시각을 골랐을 때, 또는 가장 가까운
+    /// 시각을 골라 두고 확인을 늦게 눌렀을 때).
+    ///
+    /// 모양이 틀린 경우(오프셋 없는 로컬 시각)는 **이 코드가 아니다** — 역직렬화에서 터져
+    /// `INVALID_REQUEST` 이고, 어느 사유도 참이 아니라 화면에 일반 문구로만 보인다. 그게 이 액션에서
+    /// 원인을 찾기 가장 어려운 실패다(`NewReservation.departureAt`).
+    public var isInvalidDepartureTime: Bool { code == Self.INVALID_DEPARTURE_TIME }
 
     /// 경로를 받지 못했다 — 서버가 방을 만들기 **전에** 경로를 추정하므로(`routeService.estimate`)
     /// 그 단계의 실패가 곧 생성 실패다.
@@ -306,15 +411,71 @@ public struct PartyOpenException: Throwable {
             httpStatus == 502
     }
 
-    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다
-    /// (`PartyService.open` → `routeService.estimate` → `Party.open` → `Capacity`/`Location`).
+    /// 403 `NO_SHOW_RESTRICTED` — **노쇼로 이용이 제한된 상태다.** 이 사유의 설명은 여기 한 번만
+    /// 적어 둔다(`PartyJoinException.isNoShowRestricted` 가 이 주석을 가리킨다).
+    ///
+    /// ### 이 403 은 「기다리면 풀리는」 유일한 생성 실패이고, 그래서 가장 위험하다 ★
+    /// 위 표의 다른 사유는 전부 「사용자가 고쳐야 하거나 장애」다. 이것만 **시간이 지나면 저절로
+    /// 풀린다** — 그래서 「잠시 후 다시 시도해 주세요」가 **문법적으로는 맞는데 실질적으로는
+    /// 거짓**인 유일한 자리다: 제한은 노쇼 1건당 **24시간**이고 여러 건이면 쌓인다(서버
+    /// `NoShowSanction.RESTRICTION_PER_COUNT`). 「잠시」를 믿은 사용자는 몇 시간 동안 같은 403 을
+    /// 맞으며 버튼을 누른다.
+    ///
+    /// ### 기한은 이 예외가 모른다 — 프로필을 함께 읽어야 한다 ★
+    /// 서버 본문은 `{"code":"NO_SHOW_RESTRICTED","message":"노쇼로 이용이 제한된 상태입니다."}`
+    /// 뿐이다. **끝나는 시각이 없다.** 그 답은 `GET /api/v1/local/users/info` 의
+    /// `UserProfileInfo.restrictedUntil` 하나뿐이므로, 화면은 이 사유를 받으면
+    /// `AuthRepository.getMyProfile` 을 **이어서 호출해** 문장을 완성해야 한다
+    /// (「노쇼로 오늘 18:30까지 방을 만들 수 없어요」). 그 조회가 실패하면 기한 없이 사유만
+    /// 말하면 된다 — 기한을 **지어내지 말 것**(24시간 × 횟수를 앱이 다시 세면 서버가 규칙을 바꿀 때
+    /// 틀린 시각을 단정한다).
+    ///
+    /// ### 「왜 제한됐나」로 데려갈 곳이 있다
+    /// `NoShowRecord` 목록(`GET /matching/no-shows`)이 그 근거이고, 억울하면 거기서 이의를 낸다
+    /// (`NoShowRepository`). 이 403 의 안내는 그 화면으로 가는 길을 함께 주는 쪽이 맞다 —
+    /// 사유만 말하고 끝내면 사용자가 할 수 있는 일이 기다리는 것뿐이 된다.
+    ///
+    /// ### 추천 조회에는 이 사유가 없다 — 「없는데 왜 없지」를 의심하지 말 것
+    /// 서버에서 이 403 을 던지는 자리는 `PartyService.ensureNotRestricted` **한 곳**이고 호출처는
+    /// `open`·`reserve`·`join` **셋뿐**이다. 「걸어서 가까운 방」 추천(`POST /matching/rooms/realtime`)은
+    /// 그 검사를 **거치지 않으므로** `RealtimeMatchException` 에는 이 사유가 없다 — 빠진 게 아니라
+    /// 서버가 막지 않는 것이다. 제재당한 사용자도 후보를 둘러볼 수 있고, 합류를 누르는 순간
+    /// `PartyJoinException.isNoShowRestricted` 로 막힌다. 거기에 사유를 추가하면 **서버가 허용하는
+    /// 탐색을 앱이 임의로 막는** 분기가 생긴다.
+    public var isNoShowRestricted: Bool { code == Self.NO_SHOW_RESTRICTED }
+
+    /// 서버 `MatchingErrorCode` 중 **이 두 엔드포인트가 실제로 던지는** 코드만 둔다
+    /// (`PartyService.open` → `ensureNotRestricted` → `PartyConflictRule.check` → `routeService.estimate` →
+    /// `PartyOpener.open`(재검사) → `Party.open` → `Capacity`/`Location`, 그리고 `PartyService.reserve` →
+    /// `ensureNotRestricted` → `PartyConflictRule.check` → `Party.reserve`).
     /// 「이미 참여 중」 두 코드는 `PartyJoinException` 이 이미 들고 있으므로 여기서 또 적지 않는다.
+    ///
+    /// **`INVALID_REQUEST` 는 일부러 없다.** 예약 정원 1 이 그 코드로 떨어지지만 그건 범용 코드라
+    /// 「무엇이 틀렸는지」를 말해 주지 않는다 — 상수를 두면 그걸 사유로 쓰게 되고, 그 순간 좌표 누락·
+    /// 본문 파싱 실패까지 「인원을 다시 고르세요」가 된다(`isInvalidCapacity` 의 마지막 단락).
     public static let SAME_DEPARTURE_DESTINATION = "SAME_DEPARTURE_DESTINATION"
     public static let OUT_OF_SERVICE_AREA = "OUT_OF_SERVICE_AREA"
     public static let INVALID_CAPACITY = "INVALID_CAPACITY"
     public static let INVALID_ROUTE_ESTIMATE = "INVALID_ROUTE_ESTIMATE"
     public static let ROUTE_NOT_FOUND = "ROUTE_NOT_FOUND"
     public static let ROUTE_SEARCH_FAILED = "ROUTE_SEARCH_FAILED"
+
+    /// 409 — 실시간·예약 생성 둘 다. 기준 시각 ±2시간 안에 내 다른 예약이 있다(`isPartyTimeConflict`).
+    public static let PARTY_TIME_CONFLICT = "PARTY_TIME_CONFLICT"
+
+    /// 400 — 예약 전용. 출발 시각이 지금 뒤 ~ 7일 안이 아니다(`isInvalidDepartureTime`).
+    public static let INVALID_DEPARTURE_TIME = "INVALID_DEPARTURE_TIME"
+
+    /// 403 — 노쇼 제재 중. 서버 `open`·`reserve` 양쪽의 **첫 검사**라(`ensureNotRestricted` 가
+    /// 경로 추정·시간 검증보다 앞이다) 경로 조회조차 돌지 않는다 — 즉 이 403 과 502 는
+    /// 함께 오지 않는다.
+    ///
+    /// `PartyJoinException.NO_SHOW_RESTRICTED` 가 **같은 문자열을 따로 선언한다.**
+    /// 「이 엔드포인트가 던지는 코드 목록」이 각 예외에서 혼자 읽혀야 한다는 이 파일의 규칙을
+    /// 따른 것이다(`PartyArriveException` 의 상수 주석) — `NOT_PARTY_MEMBER`·
+    /// `PARTY_NOT_FOUND` 가 이미 네 예외에 흩어져 있는 것과 같은 선택이고, 둘을 한 상수로 묶으면
+    /// 두 액션 중 하나가 서버에서 검사를 잃어도 목록이 그대로 남는다.
+    public static let NO_SHOW_RESTRICTED = "NO_SHOW_RESTRICTED"
 }
 
 /// 방 **나가기** 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외

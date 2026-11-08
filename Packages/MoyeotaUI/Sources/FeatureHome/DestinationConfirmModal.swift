@@ -35,7 +35,7 @@ public struct RoutePreviewUi: Equatable, Sendable {
     }
 }
 
-/// 16 에서 고른 매칭 조건. 지금은 **정원 하나뿐**이다.
+/// 16 에서 고른 매칭 조건 — **정원과 출발 시각**.
 ///
 /// 「출발지 반경」·「도착지 반경」 칩은 지웠다(2026-10-14). 서버가 방 생성 요청에서 반경을 빼고
 /// 고정값(500m)을 쓰기로 했다(Backend `a668aee`) — 보내도 버려진다. 그전에도 어떤 조회·판정도
@@ -46,9 +46,20 @@ public struct RoutePreviewUi: Equatable, Sendable {
 /// 고를 수는 있는데 아무 일도 일어나지 않는 조건은 두지 않는다.
 public struct MatchConditions: Equatable, Sendable {
     public var capacity: Int
+    /// 예약 방의 출발 시각(ISO-8601 **순간** 문자열). **nil 이면 실시간 방**이다.
+    ///
+    /// 이 한 값이 **다른 엔드포인트**를 고른다 — nil 이면 `POST /matching/rooms`, 값이 있으면
+    /// `POST /matching/reservations`(`CreatePartyViewModel.createParty`). 불리언 플래그를 따로 두지
+    /// 않는 이유: 「예약이다」와 「그 시각」이 각각 참·거짓이 될 수 있으면 **시각 없는 예약**이라는
+    /// 보낼 수 없는 조합이 타입에 생긴다. 시각이 곧 예약 여부다.
+    ///
+    /// 문자열로 들고 다니는 것은 이 저장소의 관례다(`Ride.departureAt`·`RideRecord`·`ChatMessage`) —
+    /// 만드는 자리(`reservationDepartureIso`)와 읽는 자리에서만 파싱한다.
+    public var departureAt: String?
 
-    public init(capacity: Int) {
+    public init(capacity: Int, departureAt: String? = nil) {
         self.capacity = capacity
+        self.departureAt = departureAt
     }
 }
 
@@ -90,15 +101,25 @@ func destinationBadgeLabel(destinationName: String, destinationAddress: String) 
 ///
 /// 이동(디스크립션):
 /// - 닫기·배경 탭 → 15 (onDismiss) — 공통 규칙: 모달은 배경 탭·닫기로만 종료
-/// - 「같이 탈 사람 찾기」 → 방 생성(POST /matching/rooms) 성공 시 21 매칭 대기 (onFindCompanions)
-///   선택한 매칭 조건(인원)을 그대로 넘긴다.
+/// - CTA → 방 생성 성공 시 21 매칭 대기 (onFindCompanions). 고른 조건(인원·출발 시각)을 그대로 넘긴다.
+///   **출발 시각이 CTA 가 부르는 엔드포인트를 가른다** — 「지금 출발」은 `POST /matching/rooms`,
+///   「시간 정하기」는 `POST /matching/reservations`(`MatchConditions.departureAt`).
 ///
 /// 선택 규칙(디스크립션):
-/// - 인원(나 포함) 1~3명 → 예상 1인 요금 재계산 (`RoutePreviewUi.estimatedFare` ÷ 인원, `farePerPersonWon`)
-///   기본값 3명. **고를 수 있는 조건은 이것뿐이다** — 반경 칩과 「매칭 방식」 행은 지웠다
-///   (`MatchConditions` 설명: 서버가 반경을 고정값으로 정하고, 승차지점 개념 자체가 없다)
+/// - **출발 시각: 「지금 출발」(기본) / 「시간 정하기」.** 뒤쪽을 고르면 날짜(오늘~7일 뒤)와
+///   30분 단위 시각 칩이 열린다 — 고를 수 있는 모든 조합이 **구성상** 서버 창(지금~7일) 안이다
+///   (`reservationTimeSlots`). 자유 입력 피커를 두지 않는 근거는 그 함수의 주석에 있다
+/// - 인원(나 포함) → 예상 1인 요금 재계산 (`RoutePreviewUi.estimatedFare` ÷ 인원, `farePerPersonWon`).
+///   기본값 3명. **범위가 모드에 따라 다르다** — 실시간 1~3, **예약은 2~3**(`capacityChoices`).
+///   1 을 고른 채 「시간 정하기」로 바꾸면 보낼 수 없는 상태가 되므로 전송·표시 값만 2 로 접고
+///   (`capacityFor`) 그 사실을 한 줄로 말한다(`RESERVATION_CAPACITY_NOTICE`)
 /// - **1명을 고르면** 칩 행 아래에 「혼자 출발한다」 안내가 붙는다(`soloCapacityNotice`) —
 ///   정원 1 은 만든 즉시 꽉 찬 방이라 아무도 합류할 수 없다. 선택지와 전송 값은 그대로다
+/// - **예약에서는 경로 요약 칩과 예상 요금을 감춘다**(`RESERVATION_NO_ESTIMATE_NOTICE`) — 서버가
+///   예약 방에 요금·경로·소요 시간을 넣지 않아서, 추정치를 그대로 보여 주면 **방에는 없는 숫자**를
+///   보고 동의하게 된다. 지도의 경로선은 남긴다(핀 사이의 길 모양은 예측이 아니다)
+/// - 예약에서는 「걸어서 가까운 방」 추천도 감춘다 — 그건 **지금 출발하는** 방 목록이고
+///   (`POST /rooms/realtime`), 시간을 정하러 온 사람이 탭하면 지금 타는 방에 합류하게 된다
 ///
 /// 레이아웃(디스크립션):
 /// - 지도가 헤더 아래를 전부 채우고, 그 위에 **드래그로 접었다 펴는 시트**가 얹힌다
@@ -125,8 +146,23 @@ public struct DestinationConfirmModal: View {
 
     // 기본값: 3인 (디스크립션 유효값 규칙)
     @State private var peopleCount = 3
+    // 기본값: 지금 출발 — **지금까지의 동작이 기본값이다**(`DepartureMode`)
+    @State private var departureMode: DepartureMode
     // 핀 조정 화면(모달 내 확장 상태). nil 이면 닫혀 있다.
     @State private var adjustTarget: PinTarget?
+
+    // 예약 날짜·시각 계산의 기준 시각. **한 번만 읽는다** — 매 다시 그리기마다 시계를 읽으면
+    // 칩 목록이 1초마다 다시 만들어지고(지난 슬롯이 사라지며) 고른 칩이 손가락 아래에서 움직인다.
+    // 이 모달은 몇 분 안에 닫히는 화면이라 그 사이 기준이 낡아도 가장 이른 슬롯이 10분 여유를
+    // 갖고 있어(`RESERVATION_MIN_LEAD_MINUTES`) 서버 창을 벗어나지 않는다.
+    @State private var now = Date()
+    // 고른 날짜는 **오늘로부터의 일수**로 들고 있는다 — 원본은 `LocalDate` 를 `rememberSaveable` 에
+    // 그대로 담을 수 없어 일수(Int)를 쓴다. 같은 값을 그대로 옮겼다.
+    @State private var dateOffset = 0
+    // -1 = 아직 고르지 않았다. **기본 선택을 두지 않는다** — 날짜마다 첫 슬롯이 다른 뜻이라
+    // (오늘은 「가장 빠른 시각」, 다른 날은 자정) 자동 선택하면 아무도 원하지 않은 00:00 예약이
+    // 한 번의 탭으로 만들어진다. 고르지 않은 동안 CTA 는 잠기고 이유를 적는다.
+    @State private var selectedMinuteOfDay = -1
 
     // 원본 `remember(key)` 자리 — 시트를 끄는 동안 지도 슬롯이 프레임마다 다시 평가되므로,
     // 폴리라인 해석과 카메라 계산을 그때마다 돌리지 않는다.
@@ -149,6 +185,13 @@ public struct DestinationConfirmModal: View {
     ///     조회 실패(OSRM 장애·배포 중 503)면 **300m 안에 방이 있어도** 섹션이 사라져 사용자가 모르고
     ///     새 방을 만든다. 합승 매칭이 조용히 꺼지는 자리라 작은 재시도 줄을 둔다 — 차단형 배너가
     ///     아닌 이유는 추천이 부가 기능이라는 기존 판단을 유지하기 때문이다.
+    ///   - initiallyScheduled: 처음부터 「시간 정하기」(예약)로 열 것인가. **기본값이 지금까지의 동작**이다 —
+    ///     모달을 여는 길은 15 목적지 확정 하나뿐이고 그쪽은 아무것도 넘기지 않는다.
+    ///     파라미터로 둔 이유는 17 탐색의 `initialSheetState` 와 같다: 예약 상태의 화면을 바로 띄워 볼 수
+    ///     있어야 한다(내부 상태만으로는 그 화면을 만들 수 없다).
+    ///     `DepartureMode` 가 아니라 **Bool** 인 이유는 이 뷰가 공개 API 라는 점이다 — 그 enum 은 모듈
+    ///     안의 판정 타입(internal)이고, 공개 파라미터가 internal 타입을 받으면 컴파일이 막힌다. 공개
+    ///     자리에는 도메인 타입과 원시값만 둔다(이 저장소의 관례).
     public init(
         destinationName: String,
         destinationAddress: String,
@@ -166,7 +209,8 @@ public struct DestinationConfirmModal: View {
         nearbyCandidates: [MatchCandidate] = [],
         onCandidateClick: @escaping (MatchCandidate) -> Void = { _ in },
         nearbyLoadFailed: Bool = false,
-        onRetryNearby: @escaping () -> Void = {}
+        onRetryNearby: @escaping () -> Void = {},
+        initiallyScheduled: Bool = false
     ) {
         self.destinationName = destinationName
         self.destinationAddress = destinationAddress
@@ -185,6 +229,40 @@ public struct DestinationConfirmModal: View {
         self.onCandidateClick = onCandidateClick
         self.nearbyLoadFailed = nearbyLoadFailed
         self.onRetryNearby = onRetryNearby
+        _departureMode = State(initialValue: initiallyScheduled ? .scheduled : .now)
+    }
+
+    private var scheduled: Bool { departureMode == .scheduled }
+
+    // 보낼 수 있는 정원. 모드가 바뀌어도 `peopleCount` 는 그대로 둔다 — 되돌리면 고른 값이 살아 있다
+    private var capacity: Int { capacityFor(mode: departureMode, selected: peopleCount) }
+
+    private var reservation: ReservationPick {
+        ReservationPick(now: now, dateOffset: dateOffset, selectedMinuteOfDay: selectedMinuteOfDay)
+    }
+
+    /// 예약 날짜·시각 선택에서 나오는 값. 원본은 컴포저블 본문의 지역 값이다 — 여기서는 시트 조각
+    /// (경로 카드·조건 카드·푸터)마다 쓰므로 조각마다 한 번 셈해 둔다.
+    private struct ReservationPick {
+        let dateOptions: [LocalDate]
+        let today: LocalDate
+        let selectedDate: LocalDate
+        let timeSlots: [LocalTime]
+        /// 날짜를 바꾸면 그 날에 없는 시각이 될 수 있다(오늘 10:00 → 7일 뒤에는 없는 슬롯).
+        /// 그때는 **선택이 사라진다** — 없는 시각을 고른 것처럼 보여 주지 않는다.
+        let selectedTime: LocalTime?
+
+        init(now: Date, dateOffset: Int, selectedMinuteOfDay: Int) {
+            dateOptions = reservationDates(now: now)
+            today = dateOptions[0]
+            selectedDate = dateOptions[min(max(dateOffset, 0), dateOptions.count - 1)]
+            timeSlots = reservationTimeSlots(date: selectedDate, now: now)
+            selectedTime = timeSlots.first { $0.hour * 60 + $0.minute == selectedMinuteOfDay }
+        }
+
+        var departureAt: String? {
+            selectedTime.map { reservationDepartureIso(date: selectedDate, time: $0) }
+        }
     }
 
     private struct FitKey: Equatable {
@@ -237,8 +315,12 @@ public struct DestinationConfirmModal: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // 원본 `adjustTarget` 은 `remember` 다. 위에 다른 화면이 쌓였다 돌아오면 핀 조정이 닫혀 있고 `peopleCount`(저장값)만 남는다.
+        // 원본 `adjustTarget` 은 `remember` 다. 위에 다른 화면이 쌓였다 돌아오면 핀 조정이 닫혀 있고
+        // `peopleCount`·`departureMode`·`dateOffset`·`selectedMinuteOfDay`(저장값)만 남는다.
         .onDisappear { adjustTarget = nil }
+        // 기준 시각도 원본은 `remember` 라 돌아오면 다시 읽힌다 — 덮인 동안의 낡은 기준이 남으면 이미 지난
+        // 슬롯을 고를 수 있게 된다(400 `INVALID_DEPARTURE_TIME`). 처음 뜰 때도 불리지만 init 직후의 값이다.
+        .onAppear { now = Date() }
     }
 
     // 상단 헤더
@@ -269,7 +351,9 @@ public struct DestinationConfirmModal: View {
     }
 
     private func mapBackground(sheet: MapSheetState) -> some View {
-        // 폴리라인 디코딩은 21 대기·22 상세의 지도와 같은 decodePolyline 을 쓴다
+        // 폴리라인 디코딩은 21 대기·22 상세의 지도와 같은 decodePolyline 을 쓴다.
+        // **예약에서도 그린다** — 두 핀 사이의 길 모양은 시각·금액 예측이 아니라 기하다
+        // (`RESERVATION_NO_ESTIMATE_NOTICE` 의 마지막 단락).
         let routePath = routeMemo.value(key: routePreview.encodedPath) {
             routePreview.encodedPath.map { decodePolyline(encoded: $0) } ?? []
         }
@@ -296,7 +380,8 @@ public struct DestinationConfirmModal: View {
         // 앵커 추정치를 쓰면 에러 배너가 떠 시트가 커졌을 때 버튼이 가린다.
         let sheetHeight = sheet.sheetHeight
         let canAdjust = destinationPosition != nil || originPosition != nil
-        let label = routeSummaryLabel(routePreview: routePreview)
+        // 예약 방에는 소요 시간도 요금도 없다 — 「지금」 기준 추정을 미래 출발에 붙이지 않는다
+        let label = scheduled ? nil : routeSummaryLabel(routePreview: routePreview)
         let chipShape = RoundedRectangle(cornerRadius: 15, style: .circular)
 
         return ZStack(alignment: .topLeading) {
@@ -370,8 +455,9 @@ public struct DestinationConfirmModal: View {
 
     // 상세 영역은 시트가 접히면 높이 0 이 된다 — 좌우 여백은 여기서 준다
     private var sheetDetail: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            routeCard
+        let reservation = self.reservation
+        return VStack(alignment: .leading, spacing: 0) {
+            routeCard(reservation: reservation)
 
             Spacer().frame(height: 20)
 
@@ -379,30 +465,38 @@ public struct DestinationConfirmModal: View {
                 .moyeotaText(inlineType(13, .medium), color: GrayMute)
             Spacer().frame(height: 10)
 
-            conditionsCard
+            conditionsCard(reservation: reservation)
 
             // 「걸어서 가까운 방」 — 후보가 있을 때만 그린다. 없는 게 기본 상태라
             // (서버가 출발지·도착지 **각각** 300m 안에서만 고른다) 「없음」을 강조하면
             // 방을 만들러 온 사람에게 실패처럼 읽힌다.
-            if !nearbyCandidates.isEmpty {
-                Spacer().frame(height: 16)
-                NearbyCandidateSection(
-                    candidates: nearbyCandidates,
-                    onCandidateClick: onCandidateClick
-                )
-            } else if nearbyLoadFailed {
-                // 후보 0건과 달리 **못 물어봤다**는 뜻이라 사실을 말하고 길을 준다.
-                Spacer().frame(height: 16)
-                HStack(alignment: .center, spacing: 0) {
-                    Text("가까운 방을 불러오지 못했어요")
-                        .moyeotaText(inlineType(12, .medium), color: GrayAsh)
-                    Spacer().frame(width: 8)
-                    Button(action: onRetryNearby) {
-                        Text("다시 시도")
-                            .moyeotaText(inlineType(12, .bold), color: MoyeotaColor.Primary600)
-                            .contentShape(Rectangle())
+            //
+            // **예약에서는 통째로 감춘다**(실패 줄까지). 이 추천은 `POST /rooms/realtime`
+            // 의 결과 = **지금 출발하는** 방이고, 탭하면 그 방의 합류 확인(19)으로 간다.
+            // 3일 뒤 출발을 정하러 온 사람에게 그 카드는 「지금 타는 방」이라는 사실이
+            // 보이지 않아, 시간을 정했다고 생각하며 지금 출발하는 방에 들어가게 된다.
+            // 조회 자체는 막지 않는다 — 모드를 되돌리면 그 결과가 그대로 보인다.
+            if !scheduled {
+                if !nearbyCandidates.isEmpty {
+                    Spacer().frame(height: 16)
+                    NearbyCandidateSection(
+                        candidates: nearbyCandidates,
+                        onCandidateClick: onCandidateClick
+                    )
+                } else if nearbyLoadFailed {
+                    // 후보 0건과 달리 **못 물어봤다**는 뜻이라 사실을 말하고 길을 준다.
+                    Spacer().frame(height: 16)
+                    HStack(alignment: .center, spacing: 0) {
+                        Text("가까운 방을 불러오지 못했어요")
+                            .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                        Spacer().frame(width: 8)
+                        Button(action: onRetryNearby) {
+                            Text("다시 시도")
+                                .moyeotaText(inlineType(12, .bold), color: MoyeotaColor.Primary600)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressFeedbackStyle())
                     }
-                    .buttonStyle(PressFeedbackStyle())
                 }
             }
 
@@ -413,12 +507,21 @@ public struct DestinationConfirmModal: View {
     }
 
     // 경로 카드
-    private var routeCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private func routeCard(reservation: ReservationPick) -> some View {
+        // 경로 카드의 시각 두 칸.
+        // - 예약: 출발 칸에 **고른 시각**을 적고(아직 안 골랐으면 비운다) 도착 칸은 **비운다** —
+        //   서버가 예약 방에 소요 시간을 주지 않아 도착 시각을 셈할 근거가 없다. 「지금」 기준 추정으로
+        //   채우면 3일 뒤 도착 시각을 오늘 교통으로 단정하는 말이 된다.
+        // - 지금 출발: 호출부가 넘긴 값 그대로(기존 동작).
+        let departureText = scheduled
+            ? reservation.selectedTime.map { reservationTimeLabel(time: $0) } ?? ""
+            : departureTimeLabel
+        let arrivalText = scheduled ? "" : arrivalTimeLabel
+        return VStack(alignment: .leading, spacing: 0) {
             routeRow(
                 dotColor: MoyeotaColor.Primary500,
                 name: originStopName,
-                timeLabel: departureTimeLabel,
+                timeLabel: departureText,
                 // 무엇을 조정하는지 애매하지 않도록 출발지·도착지 각각에 진입점을 둔다
                 adjustTarget: originPosition != nil ? .origin : nil
             )
@@ -430,7 +533,7 @@ public struct DestinationConfirmModal: View {
             routeRow(
                 dotColor: MoyeotaColor.MarkerDestination,
                 name: destinationName,
-                timeLabel: arrivalTimeLabel,
+                timeLabel: arrivalText,
                 adjustTarget: destinationPosition != nil ? .destination : nil
             )
         }
@@ -452,9 +555,13 @@ public struct DestinationConfirmModal: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             // 이름이 남는 폭을 전부 쓰므로 시각과 붙지 않게 최소 간격을 둔다
             Spacer().frame(width: 8)
-            Text(timeLabel)
-                .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-                .fixedSize(horizontal: true, vertical: false)
+            // 빈 문자열이면 Text 를 세우지 않는다 — 빈 글자도 폭을 먹어
+            // 이름 말줄임 위치가 시각이 있을 때와 달라진다
+            if !timeLabel.isEmpty {
+                Text(timeLabel)
+                    .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
             if let adjustTarget {
                 AdjustLink(onClick: { self.adjustTarget = adjustTarget })
             }
@@ -462,22 +569,76 @@ public struct DestinationConfirmModal: View {
     }
 
     // 매칭 조건 카드
-    private var conditionsCard: some View {
+    private func conditionsCard(reservation: ReservationPick) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
+        let capacity = self.capacity
         return VStack(alignment: .leading, spacing: 0) {
+            // 「출발 시각」이 **맨 위**에 있는 이유: 이 선택이 아래 모든 것을 바꾼다
+            // (정원 범위·요금 표시·CTA 가 부르는 엔드포인트). 아래에 두면 사용자가
+            // 정원을 고른 뒤에 선택지가 줄어드는 것을 보게 된다.
+            ConditionRow(label: "출발 시각") {
+                ForEach(DepartureMode.allCases, id: \.self) { mode in
+                    ConditionChip(
+                        text: departureModeLabel(mode: mode),
+                        selected: departureMode == mode,
+                        onClick: { departureMode = mode }
+                    )
+                }
+            }
+
+            if scheduled {
+                // 날짜·시각은 칩이 8개·최대 48개라 `ConditionRow` 의 「라벨 + 오른쪽
+                // 정렬 칩」에 들어가지 않는다 — 라벨을 윗줄로 올리고 가로 스크롤한다.
+                ScrollableChipRow(label: "날짜") {
+                    ForEach(Array(reservation.dateOptions.enumerated()), id: \.offset) { index, date in
+                        ConditionChip(
+                            text: reservationDateLabel(date: date, today: reservation.today),
+                            selected: dateOffset == index,
+                            onClick: { dateOffset = index }
+                        )
+                    }
+                }
+                if reservation.timeSlots.isEmpty {
+                    // 늦은 밤(23:20 이후)의 「오늘」에만 닿는다 — 오늘의 마지막 슬롯이
+                    // 23:30 이고 10분 여유가 필요하다(`RESERVATION_NO_SLOT_NOTICE`).
+                    ConditionNotice(text: RESERVATION_NO_SLOT_NOTICE)
+                } else {
+                    ScrollableChipRow(label: "시각") {
+                        ForEach(reservation.timeSlots, id: \.self) { slot in
+                            ConditionChip(
+                                text: reservationTimeLabel(time: slot),
+                                selected: reservation.selectedTime == slot,
+                                onClick: { selectedMinuteOfDay = slot.hour * 60 + slot.minute }
+                            )
+                        }
+                    }
+                }
+            }
+
             // 라벨에 「나 포함」을 박았다 — 서버 정원(`Capacity`)은 **방장을 포함한 총
             // 인원**이라(`Party.open` 이 생성자를 멤버로 넣고 `members.size == capacity`
             // 면 꽉 찬 것으로 본다) 「3인」만 쓰면 「나 외 3명」으로 읽힌다. 「나 포함 N명」을
             // 칩마다 쓰지 않고 라벨로 올린 건 레이아웃 때문이다 — 칩 3개가 좁은 폰(360dp)에서
             // 카드 밖으로 밀려 잘린 전례가 있다(`ConditionRow` 주석).
+            //
+            // 선택지가 **모드에 따라 다르다**(`capacityChoices`) — 예약에서 1 칩은
+            // 보내도 400 이라 지운다. 선택 표시는 전송값(`capacity`)을 보므로 1 을
+            // 고른 채 예약으로 넘어오면 2 가 선택된 것으로 보인다(그리고 아래 한 줄이
+            // 그 이유를 말한다).
             ConditionRow(label: "인원(나 포함)") {
-                ForEach([1, 2, 3], id: \.self) { count in
+                ForEach(capacityChoices(mode: departureMode), id: \.self) { count in
                     ConditionChip(
                         text: "\(count)명",
-                        selected: peopleCount == count,
+                        selected: capacity == count,
                         onClick: { peopleCount = count }
                     )
                 }
+            }
+            // 예약에서 1 칩이 사라진 이유를 **고르는 자리에서** 말한다. 실시간의
+            // 「혼자 출발한다」 안내와 같은 자리·같은 모양이고, 두 문구는 함께 뜨지
+            // 않는다(예약에서는 capacity 가 1 이 될 수 없다).
+            if scheduled {
+                ConditionNotice(text: RESERVATION_CAPACITY_NOTICE)
             }
             // 「1명」을 고른 사람에게만 **고르는 자리에서** 결과를 말해 준다
             // (`soloCapacityNotice`). 1 은 지우지 않았다 — 혼자 타기를 상품으로
@@ -498,11 +659,8 @@ public struct DestinationConfirmModal: View {
             // 빨강·경고 아이콘을 쓰지 않는다 — 정상 선택이고, 오류로 읽히면
             // 사용자는 고를 수 있는 값을 「막힌 값」으로 본다.
             // 줄바꿈을 막지 않는다 — 잘린 안내보다 두 줄이 낫고, 스크롤 영역 안이라 잘릴 일도 없다.
-            if let notice = soloCapacityNotice(capacity: peopleCount) {
-                Text(notice)
-                    .moyeotaText(inlineType(13, .medium), color: GrayMute)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 11)
+            if let notice = soloCapacityNotice(capacity: capacity) {
+                ConditionNotice(text: notice)
             }
             // 「출발지 반경」·「도착지 반경」 행은 지웠다(2026-10-14) — 서버가 방 생성
             // 요청에서 반경을 빼고 고정값(500m)을 쓴다(Backend `a668aee`). 고른 값이
@@ -521,15 +679,55 @@ public struct DestinationConfirmModal: View {
         .moyeotaShadow(elevation: 4, shape: shape, spotColor: CardShadow)
     }
 
-    // 요금 안내 + CTA — 접힘·펼침 모두에서 보이도록 시트 하단에 고정한다.
-    // 추정 실패 시에도 CTA 는 막지 않는다 — 방 생성 요청을 받으면 서버가 요금을 다시 계산한다.
+    // 요금 안내(예약이면 **고른 시각**) + CTA — 접힘·펼침 모두에서 보이도록 시트 하단에
+    // 고정한다. 추정 실패 시에도 CTA 는 막지 않는다 — 방 생성 요청을 받으면 서버가
+    // 요금을 다시 계산한다.
+    //
+    // 예약은 이 자리가 **두 줄**이 된다: 고른 시각을 되읽어 주는 줄
+    // (`reservationDepartureSummary` — 날짜 칩과 시각 칩이 떨어져 있어 둘이 합쳐져
+    // 무엇이 되는지 확인할 마지막 기회다)과 요금·소요 시간이 **없다는 사실**
+    // (`RESERVATION_NO_ESTIMATE_NOTICE`). 접힘 높이가 한 줄만큼 커지지만 시트 높이는
+    // 콘텐츠가 정하므로(`MapSheetScaffold`) 잘리는 것은 없다.
     private var sheetFooter: some View {
-        VStack(spacing: 0) {
-            Text(fareFooterText(routePreview: routePreview, peopleCount: peopleCount))
+        let reservation = self.reservation
+        let capacity = self.capacity
+        // 「지금 출발」이면 고른 시각이 남아 있어도 싣지 않는다. 이 값이 엔드포인트를 고르므로
+        // (`MatchConditions.departureAt`) 실어 보내면 시각을 골랐다가 「지금 출발」로 되돌린 사람의
+        // 「같이 탈 사람 찾기」가 **나갈 수 없는 예약 방**을 만든다. 원본은 모드와 상관없이 실어 보내
+        // 그렇게 된다 — 이 줄만 원본과 다르다(위 설명의 「「지금 출발」은 `POST /matching/rooms`」를 따른다).
+        let departureAt = scheduled ? reservation.departureAt : nil
+        return VStack(spacing: 0) {
+            if scheduled {
+                Text(
+                    reservation.selectedTime.map {
+                        "\(reservationDepartureSummary(date: reservation.selectedDate, time: $0, today: reservation.today)) 출발"
+                    } ?? RESERVATION_NEEDS_TIME_NOTICE
+                )
+                .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.InkPrimary)
+                .lineLimit(1)
+                .padding(.horizontal, 16)
+                Spacer().frame(height: 2)
+            }
+            // 예약 방에는 요금이 없다 — 「—」로 비워 두면 로딩 실패로 읽히므로
+            // 왜 없는지 적는다(없는 숫자를 지어내지 않는 것이 1급 규칙이다).
+            // **예약이면 아예 셈하지 않는다**(서버가 그 방에 요금을 넣지 않는다).
+            Text(scheduled ? RESERVATION_NO_ESTIMATE_NOTICE : fareFooterText(routePreview: routePreview, peopleCount: capacity))
                 .moyeotaText(inlineType(12, .medium), color: GrayAsh)
                 // 접힘 높이가 문구 길이에 따라 흔들리지 않게 한 줄로 고정한다
                 .lineLimit(1)
                 .padding(.horizontal, 16)
+            // ★ **나갈 수 없다**는 사실은 CTA 앞에 둔다(`reservationCommitmentNotice`) —
+            // 실시간 방은 「그만 찾기」로 빠져나올 수 있어서 사용자는 방에 들어가는 일을
+            // 되돌릴 수 있는 선택으로 배워 왔고, 예약은 **같은 모양의 버튼으로 전혀 다른
+            // 약속**을 하게 만든다. 요금 문구와 달리 두 줄을 허용한다(잘리면 뜻이 반쪽이 된다).
+            if scheduled {
+                Spacer().frame(height: 6)
+                Text(reservationCommitmentNotice(joining: false))
+                    .moyeotaText(inlineType(12, .medium), color: GraySlate)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+            }
             if let errorMessage {
                 Spacer().frame(height: 10)
                 NoticeBanner(kind: .error, text: errorMessage)
@@ -537,8 +735,13 @@ public struct DestinationConfirmModal: View {
             }
             Spacer().frame(height: 12)
             PrimaryCtaButton(
-                text: "같이 탈 사람 찾기",
-                onClick: { onFindCompanions(MatchConditions(capacity: peopleCount)) },
+                // 예약은 **무엇이 만들어지는지** 적는다 — 「같이 탈 사람 찾기」는 지금
+                // 모집을 시작하는 말이라, 시간을 정해 둔 방에는 맞지 않는다.
+                text: scheduled ? "이 시간으로 예약 방 만들기" : "같이 탈 사람 찾기",
+                onClick: { onFindCompanions(MatchConditions(capacity: capacity, departureAt: departureAt)) },
+                // 시각을 고르지 않은 예약은 보낼 수 없다 — 비활성 버튼 위에 **왜 못 누르는지**를
+                // 적어 둔다(`RESERVATION_NEEDS_TIME_NOTICE`). 비활성 버튼만 두면 이유를 모른다.
+                enabled: !scheduled || departureAt != nil,
                 loading: creating
             )
             .padding(.horizontal, 16)
@@ -701,6 +904,59 @@ func soloCapacityNotice(capacity: Int) -> String? {
 func walkMinutesLabel(walkSeconds: Int) -> String {
     let minutes = max((walkSeconds + 59) / 60, 1)
     return "걸어서 \(minutes)분"
+}
+
+/// 매칭 조건 카드의 보조 문구 한 줄 — 「혼자 출발한다」·「예약은 2명부터」·「고를 시간이 없다」가 쓴다.
+///
+/// 세 자리가 **같은 모양**이어야 하는 이유는 세 문구가 같은 성질이기 때문이다: 정상 선택의 결과를
+/// 알려 주는 말이고, 오류가 아니다. 빨강·경고 아이콘을 쓰지 않는 근거는 `soloCapacityNotice` 를 그리는
+/// 자리의 주석에 적어 둔 그대로다 — 오류로 읽히면 사용자는 고를 수 있는 값을 「막힌 값」으로 본다.
+/// 줄바꿈을 막지 않는다(줄 수 제한 없음): 큰 글꼴 설정에서 잘린 안내보다 두 줄이 낫고, 이 카드는
+/// 세로 스크롤 영역 안이라 잘릴 일이 없다.
+private struct ConditionNotice: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .moyeotaText(inlineType(13, .medium), color: GrayMute)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.bottom, 11)
+    }
+}
+
+/// 라벨을 **윗줄**로 올리고 칩을 가로 스크롤하는 조건 행 — 예약의 날짜(8개)·시각(최대 48개)이 쓴다.
+///
+/// `ConditionRow` 를 쓸 수 없는 이유는 그 레이아웃이 「라벨 + 남는 폭에 오른쪽 정렬」이라는 데 있다:
+/// 칩이 폭을 넘기면 **잘린다**(좁은 폰에서 칩 3개가 카드 밖으로 밀린 전례가 그 주석에 있다).
+/// 여기서는 칩 수가 날짜·시각에 따라 변하고 애초에 한 줄에 들어오지 않으므로, 넘치는 것을 **스크롤**로
+/// 받는다. 세로로 줄바꿈하지 않는 이유는 시각 칩 48개가 카드를 화면 몇 개 분량으로 늘리기
+/// 때문이다 — 가로 스크롤이면 높이가 한 줄로 고정된다.
+///
+/// 오늘의 시각 칩 목록은 **가장 이른 시각부터** 시작하므로(`reservationTimeSlots`) 스크롤을 처음
+/// 위치에 두면 사용자가 가장 자주 고르는 값이 바로 보인다 — 자동 스크롤을 넣지 않는 근거다.
+private struct ScrollableChipRow<Chips: View>: View {
+    let label: String
+    @ViewBuilder let chips: () -> Chips
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(label)
+                .moyeotaText(inlineType(14, .bold), color: MoyeotaColor.InkPrimary)
+            Spacer().frame(height: 8)
+            // 원본 `horizontalScroll` 은 스크롤 막대를 그리지 않고, 스크롤 방향으로만 자른다 — 세로로는
+            // 그림자 몫(`MaxSupportedElevation` 15dp)만큼 넓혀 자르므로 미선택 칩의 그림자가 위아래로 보인다.
+            // SwiftUI `ScrollView` 는 사방을 잘라 그 그림자가 칩 아래에서 끊기므로 같은 모양으로 자른다.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .center, spacing: 6) {
+                    chips()
+                }
+            }
+            .scrollClipDisabled()
+            .mask { Rectangle().padding(.vertical, -15) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 11)
+    }
 }
 
 private struct ConditionRow<Chips: View>: View {

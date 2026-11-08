@@ -13,11 +13,13 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///
 /// 진입: 하단탭 마이페이지
 ///
-/// 구성: 프로필 카드 → 「설정」 카드 → 「안내」 카드 → 「계정」 카드 → 버전
+/// 구성: 프로필 카드 → (제재 배너) → 「탑승」 카드 → 「설정」 카드 → 「안내」 카드 → 「계정」 카드 → 버전
 ///
 /// ```
 /// 프로필 카드 (사진 · 이름 / 닉네임·사진 바꾸기)  ›
+/// ▓ 노쇼 2건으로 11월 7일 오후 3:20까지 방을 만들거나 … ▓  ← 2026-11-06 추가, 제재 중에만
 /// [탑승]  지난 탑승 기록                       ›   ← 2026-11-01 추가
+///         노쇼 기록                           ›   ← 2026-11-06 추가
 /// [설정]  알림 설정                          ↗
 /// [안내]  개인정보 처리방침 / 이용약관 / 문의하기   ↗   ← 한 카드, 구분선
 /// [계정]  로그아웃 / 탈퇴하기(빨강)            ›   ← 한 카드, 구분선
@@ -29,6 +31,7 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 /// - 하단탭 홈 / 합승 / 채팅 → 14 / 17 / 24 (onTabSelect)
 /// - 프로필 카드 → 36 프로필 수정 (onEditProfile)
 /// - 「지난 탑승 기록」 → 34 지난 탑승 기록 (onRideHistory)
+/// - 「노쇼 기록」 → 38 노쇼 기록·이의 신청 (onNoShowRecords)
 /// - 「알림 설정」 → OS 앱 알림 설정 (앱 밖)
 /// - 「개인정보 처리방침」 · 「이용약관」 → 브라우저 (앱 밖)
 /// - 「문의하기」 → 메일 앱, 제목·환경 정보 자동 입력 (앱 밖)
@@ -57,6 +60,14 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///   사라진다(`myPageGroups` 가 판정하고 `MyPageMenuRulesTest` 가 고정한다).
 /// - 앱 안에 알림 토글을 두지 않는 이유는 `openAppNotificationSettings` 의 설명과 같다
 ///   (서버에 알림 설정 저장 API 가 없어 앱만의 토글은 지키지 못할 약속이 된다).
+/// - **제재 배너가 「왜 막혔나」를 말하는 유일한 자리다**(2026-11-06). 노쇼 횟수 × 24시간 동안 방
+///   만들기·합류·예약 생성이 **전부 403 `NO_SHOW_RESTRICTED`** 로 막히는데(「걸어서 가까운 방」 후보
+///   조회는 막히지 않는다 — `UserProfileInfo.restrictedUntil` 주석), 그 403 을 받는 화면들은 「지금 이
+///   동작이 막혔다」까지만 말할 수 있다(그 말도 16 예약 생성만 하고, 실시간 생성·합류는 원본처럼
+///   일반 문구로 떨어진다) — 기한과 횟수는 프로필 조회에만 있다.
+///   그래서 막힌 사람이 「내 계정에 무슨 문제가 있나」를 찾아 오는 이 화면에 둔다. 판정과 문구는
+///   `noShowSanction` 이고, **제한이 없고 노쇼도 0건이면 배너 자체가 없다**(「제재 없음」 배지를
+///   만들지 않는다 — 아무 일 없는 사용자에게 제재 어휘를 가르칠 이유가 없다).
 /// - 이름과 프로필 사진이 서버 값이다(GET /local/users/info — 이름은 닉네임, 없으면 실명).
 ///   둘 다 한 번의 조회에서 함께 오고, **조회 전에는 둘 다 자리만 비워 둔다**(스켈레톤·빈 원).
 ///   사진을 고른 적 없는 사용자에게도 서버는 기본 이미지 주소를 주므로, 로딩 중에 그리면
@@ -67,11 +78,14 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 /// (서버가 `taxiEnabled` 를 보내지 않는다), 빈 절만 남기면 디버그 빌드에 아무것도 없는 제목이 뜬다.
 /// 새 개발자 옵션이 필요해지면 그때 절을 다시 세운다.
 public struct MyPageScreen: View {
-    // 로그인 사용자의 표시 이름(닉네임)과 프로필 사진 주소. 조회 전에는 loading(이름·사진 자리를 비움),
-    // 서버에 이름이 없으면 resolved(nil). 사진을 따로 받지 않는 이유는 아바타 호출부 주석에 적어 뒀다.
+    // 로그인 사용자의 표시 이름(닉네임)·프로필 사진 주소·**노쇼 횟수와 제한 기한**. 넷 다 같은 한 번의
+    // 조회(GET /local/users/info)에서 오므로 한 상태로 받는다 — 파라미터를 쪼개면 "이름은 왔는데
+    // 제재는 아직"이라는 있을 수 없는 조합이 타입으로 표현돼 버린다(아바타 호출부 주석의 그 이유).
+    // 조회 전에는 loading(이름·사진 자리를 비우고 제재 배너도 그리지 않는다).
     private let userName: UserNameState
     private let onEditProfile: () -> Void          // → 36 프로필 수정
     private let onRideHistory: () -> Void          // → 34 지난 탑승 기록
+    private let onNoShowRecords: () -> Void        // → 38 노쇼 기록·이의 신청
     private let onLogout: () -> Void               // → 04a 로그인 (세션 정리 후)
     private let onDeleteAccount: () -> Void        // → 37 회원 탈퇴
     private let onTabSelect: (MoyeotaTab) -> Void  // → 14 / 17 / 24
@@ -85,6 +99,7 @@ public struct MyPageScreen: View {
         userName: UserNameState = .loading,
         onEditProfile: @escaping () -> Void = {},
         onRideHistory: @escaping () -> Void = {},
+        onNoShowRecords: @escaping () -> Void = {},
         onLogout: @escaping () -> Void = {},
         onDeleteAccount: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
@@ -93,6 +108,7 @@ public struct MyPageScreen: View {
         self.userName = userName
         self.onEditProfile = onEditProfile
         self.onRideHistory = onRideHistory
+        self.onNoShowRecords = onNoShowRecords
         self.onLogout = onLogout
         self.onDeleteAccount = onDeleteAccount
         self.onTabSelect = onTabSelect
@@ -107,6 +123,7 @@ public struct MyPageScreen: View {
         case .openWeb(let url): openWebPage(url: url)
         case .sendMail(let address): openSupportEmail(address: address)
         case .rideHistory: onRideHistory()
+        case .noShowRecords: onNoShowRecords()
         case .logout: logoutConfirming = true
         case .deleteAccount: onDeleteAccount()
         }
@@ -132,6 +149,19 @@ public struct MyPageScreen: View {
 
                         Spacer().frame(height: 17)
                         profileCard
+
+                        // 제재 배너는 **프로필 카드 바로 아래**다. 「계정에 무슨 문제가 있나」를 찾아 들어온
+                        // 사람이 스크롤하지 않고 보는 자리이고, 바로 다음 카드의 둘째 행이 「노쇼 기록」이라
+                        // 배너가 가리키는 길이 같은 화면 안에 보인다.
+                        //
+                        // 디자인시스템의 NoticeBanner 를 그대로 쓴다 — 이 앱의 「화면 단위 안내」는 이 컴포넌트
+                        // 하나이고(공통 규칙), 제재를 위해 새 카드 모양을 만들면 이 화면에만 있는 시각 언어가
+                        // 하나 늘어난다. 색은 두 가지뿐이다: 지금 막혀 있으면 error, 횟수만 남았으면 waiting.
+                        if let sanction {
+                            Spacer().frame(height: 12)
+                            NoticeBanner(kind: sanctionNoticeKind(sanction.kind), text: sanction.text)
+                                .padding(.horizontal, 16)
+                        }
 
                         Spacer().frame(height: 24)
                         // 머리말 + 흰 카드 + 구분선으로 나뉜 행들. 같은 그룹의 행은 한 카드 안에 묶는다
@@ -229,7 +259,7 @@ public struct MyPageScreen: View {
                         SoftDivider
                             .frame(width: 88, height: 18)
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .circular))
-                    case .resolved(let name, _):
+                    case .resolved(let name, _, _, _):
                         Text(name ?? "이름 미설정")
                             .moyeotaText(
                                 MaterialTextStyle.bodyLarge(fontSize: 18, fontWeight: .bold),
@@ -264,7 +294,30 @@ public struct MyPageScreen: View {
     }
 
     private var resolvedImageUrl: String? {
-        if case .resolved(_, let imageUrl) = userName { imageUrl } else { nil }
+        if case .resolved(_, let imageUrl, _, _) = userName { imageUrl } else { nil }
+    }
+
+    // 제재 배너. 프로필 조회가 끝나기 전(loading)에는 그리지 않는다 — 이름·사진과 같은 이유다
+    // (조회 전에 「제한 없음」을 그리는 일도, 「제한 중」을 그리는 일도 없어야 한다).
+    //
+    // 기한이 지나는 순간을 **초 단위로 따라가지 않는다.** 화면을 열어 둔 채로 24시간 제한이 끝나면
+    // 배너가 잠깐 남는데, 그걸 없애려면 타이머를 돌려야 하고 그 타이머는 마이페이지에 상주하는
+    // 유일한 반복 작업이 된다. 서버가 풀린 사실은 다음 조회에서 nil 로 온다.
+    //
+    // 원본 `remember(userName)` 은 키가 바뀔 때만 다시 잰다. 여기서는 본문을 다시 그릴 때마다 재는데,
+    // 다시 그리는 계기(확인창 열고 닫기 등)에 기한이 이미 지났으면 원본보다 그만큼 일찍 「제한 중」이
+    // 내려올 뿐이고 없는 제한을 말하는 일은 없다.
+    private var sanction: NoShowSanction? {
+        guard case .resolved(_, _, let noShowCount, let restrictedUntil) = userName else { return nil }
+        return noShowSanction(noShowCount: noShowCount, restrictedUntil: restrictedUntil)
+    }
+
+    // 색은 두 가지뿐이다(판정 파일은 색을 모른다 — `NoShowRecordsDisplay` 머리말).
+    private func sanctionNoticeKind(_ kind: NoShowSanctionKind) -> NoticeKind {
+        switch kind {
+        case .restricted: .error
+        case .counted: .waiting
+        }
     }
 }
 

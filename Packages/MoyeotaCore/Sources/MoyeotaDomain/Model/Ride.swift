@@ -34,7 +34,7 @@ public enum RideStatus: String, CaseIterable, Sendable {
 /// |---|---|---|
 /// | `realtime` | — | 방장에게 「약속 시간 정하기」가 뜨고, 누르면 서버가 409 `NOT_REALTIME_PARTY` 로 막는다(복구됨) |
 /// | `reservation` | 「약속 시간 정하기」가 **사라져** 실시간 방을 끝낼 길이 없어진다(복구 불가) | — |
-public enum RoomType: Hashable, Sendable {
+public enum RoomType: Hashable, CaseIterable, Sendable {
     /// 지금 모여서 타는 방. 약속 시간은 방장이 나중에 확정한다
     /// (`RideRepository.confirmMeeting`) — 확정 전에는 `Ride.departureAt` 이 nil 이다.
     case realtime

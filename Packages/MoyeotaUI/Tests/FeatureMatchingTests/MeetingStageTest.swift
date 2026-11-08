@@ -112,6 +112,37 @@ struct MeetingStageTest {
         #expect(!canConfirmMeeting(ride: reservation))
     }
 
+    /// **예약 방은 나갈 수도, 손으로 닫을 수도 없다** — 위 테스트의 「확정 못 한다」와 짝이다.
+    ///
+    /// 예약 방은 만드는 순간부터 확정이다(서버 `Party.isConfirmed()` = `isReservation() || …`).
+    /// 그래서 서버의 답이 **셋 다 정해져 있다**:
+    ///
+    /// | 누르면 | 서버 |
+    /// |---|---|
+    /// | 방 나가기 | 409 `CANNOT_LEAVE_CONFIRMED_PARTY` — 예약 방은 **영원히** |
+    /// | 합승 완료 | 409 `USE_DEPART_FOR_CONFIRMED_PARTY` |
+    /// | 약속 정하기 | 409 `NOT_REALTIME_PARTY` |
+    ///
+    /// 끝내는 길은 **출발** 하나다. 위 테스트가 `isConfirmed = false` 인 예약(서버가 만들 수 없는
+    /// 상태)으로 프리셋만 보는 것과 달리, 여기서는 **실제로 서버에서 오는 모양**을 고정한다 —
+    /// 매퍼가 생성 응답·목록·검색 세 경로 모두에서 `isConfirmed = true` 를 세운다.
+    @Test("예약 방은 나가기도 합승 완료도 열지 않는다")
+    func reservationNeitherLeavesNorFinishes() {
+        for status in [RideStatus.recruiting, .matched] {
+            let reservation = ride(
+                status: status,
+                members: hostedByMe(),
+                isConfirmed: true,
+                departureAt: at(60),
+                roomType: .reservation
+            )
+
+            #expect(!canLeaveParty(ride: reservation), "\(status) 예약 방에서 나가기가 열려 있다")
+            #expect(!canFinishParty(ride: reservation), "\(status) 예약 방에서 합승 완료가 열려 있다")
+            #expect(!canConfirmMeeting(ride: reservation), "\(status) 예약 방에서 약속 정하기가 열려 있다")
+        }
+    }
+
     /// 서버는 **멤버 2명 이상**에서만 확정을 받는다(409 `NOT_ENOUGH_MEMBERS`). 정원 1인 방은
     /// 「정원 참」이면서 혼자라 그 조건을 못 맞춘다 — `capacity` 가 아니라 **목록 길이**를 세는 이유다.
     @Test("혼자 있는 방에서는 약속 시간을 정할 수 없다")

@@ -397,6 +397,19 @@ private final class FakeRideRepository: RideRepository {
         destinationLat: Double,
         destinationLng: Double
     ) async throws -> RouteEstimate { throw IllegalStateException("쓰이지 않는다") }
+
+    // 예약 넷. 이 테스트(「지금 타고 있는 방」 복원)는 예약을 보지 않는다 — 진행 중 방의 단일 출처는
+    // 로컬 기억 + 상세 조회이고, 예약 방도 결국 **같은 상세**로 복원된다(예약 전용 상세가 없다).
+    // 그래서 생성은 끊고, 조회 셋은 빈 목록이 가장 정직한 기본값이다(추천과 같은 판단).
+    func createReservation(request: NewReservation) async throws -> Ride { throw IllegalStateException("쓰이지 않는다") }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 }
 
 private final class FakeChatRepository: ChatRepository {

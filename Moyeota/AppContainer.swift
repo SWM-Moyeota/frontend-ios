@@ -67,6 +67,13 @@ final class AppContainer {
     /// `publicId == currentUserUuid` 로 「나」를 판정한다(`RemoteRideRecordRepository`).
     let rideRecordRepository: any RideRecordRepository
 
+    /// 38 노쇼 기록·이의 신청. 매칭 API 를 그대로 쓴다 — 서버가 두 경로를 `/api/v1/matching` 아래에
+    /// 두었다(`NoShowController`). 따로 API 를 만들면 같은 프리픽스가 두 곳에 생긴다.
+    ///
+    /// `rideRecordRepository` 와 가르는 이유: 그쪽은 **탄** 방(커서 페이징·읽기 전용), 이쪽은 **안 탄
+    /// 것으로 기록된** 방이고 이의 신청이라는 **쓰기**까지 있다.
+    let noShowRepository: any NoShowRepository
+
     /// 세션을 넘기는 건 메시지의 「내 것」 판정 때문이다(`RemoteChatRepository`).
     /// 채팅은 실시간(STOMP) + 폴링을 함께 쓴다 — 소켓이 앞서고, 끊긴 구간은 폴링이 메운다.
     let chatRepository: any ChatRepository
@@ -102,6 +109,7 @@ final class AppContainer {
         self.rideRepository = rideRepository
         self.placeRepository = RemotePlaceRepository(api: apis.place)
         self.rideRecordRepository = RemoteRideRecordRepository(api: apis.user, session: sessionManager)
+        self.noShowRepository = RemoteNoShowRepository(api: apis.matching)
         let chatRepository = RemoteChatRepository(
             api: apis.chat,
             session: sessionManager,

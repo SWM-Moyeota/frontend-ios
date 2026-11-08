@@ -64,6 +64,12 @@ private final class FakeRepository: RideRepository, @unchecked Sendable {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw StubError() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw StubError() }
 
+    // 예약 방 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다.
+    func createReservation(request: NewReservation) async throws -> Ride { throw StubError() }
+    func getReservations(from: String, to: String) async throws -> [Ride] { throw StubError() }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw StubError() }
+    func searchReservations(departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?) async throws -> [ReservationSearchResult] { throw StubError() }
+
     // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
     // leave/finish 처럼 호출을 세면 된다.
     func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw StubError() }

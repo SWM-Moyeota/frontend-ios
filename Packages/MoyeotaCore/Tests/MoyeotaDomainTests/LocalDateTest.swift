@@ -127,4 +127,52 @@ import Testing
         #expect(try date(2000, 1, 1).atStartOfDay(LocalDate.utcZone).timeIntervalSince1970 == 946_684_800)
         #expect(try date(2000, 1, 1).atStartOfDay(LocalDate.seoulZone).timeIntervalSince1970 == 946_684_800 - 9 * 3600)
     }
+
+    // 아래는 원본에 대응 테스트가 없는 iOS 쪽 자리(`java.time` 의 `getDayOfWeek`·`atTime`·`LocalTime`)다.
+    // 예약 날짜 칩의 요일과 서버로 보내는 출발 시각이 이 셈에 기댄다.
+
+    /// 1970-01-01 이 목요일이라는 기준점에서 셈한다 — 에포크 앞쪽(음수 일수)도 같은 식이어야 한다.
+    @Test("요일은 Java getDayOfWeek 와 같다")
+    func dayOfWeek() throws {
+        #expect(try date(2026, 11, 9).dayOfWeek == .monday)
+        #expect(try date(2026, 11, 15).dayOfWeek == .sunday)
+        #expect(try date(1970, 1, 1).dayOfWeek == .thursday)
+        #expect(try date(1969, 12, 31).dayOfWeek == .wednesday)
+        #expect(DayOfWeek.monday.rawValue == 1)
+        #expect(DayOfWeek.sunday.rawValue == 7)
+    }
+
+    /// 한국 달력의 날짜 + 벽시계 시각 → 서버가 받는 순간. KST 18:30 은 UTC 09:30 이다.
+    @Test("atTime 은 그 시간대의 벽시계 시각을 순간으로 올린다")
+    func atTime() throws {
+        let evening = try LocalTime.of(18, 30)
+
+        #expect(try date(2026, 11, 9).atTime(evening, LocalDate.seoulZone).timeIntervalSince1970 == 1_794_216_600)
+        #expect(try date(2026, 11, 9).atTime(evening, LocalDate.utcZone).timeIntervalSince1970 == 1_794_216_600 + 9 * 3600)
+        // 자정은 atStartOfDay 와 같다.
+        #expect(try date(2000, 1, 1).atTime(LocalTime.of(0, 0), LocalDate.seoulZone) == date(2000, 1, 1).atStartOfDay(LocalDate.seoulZone))
+    }
+
+    /// 순간을 시간대의 벽시계 시각으로 내린다 — 같은 순간이 서울과 UTC 에서 다른 시각이다.
+    @Test("LocalTime ofInstant 는 시간대의 벽시계 시각이다")
+    func localTimeOfInstant() throws {
+        // 2026-11-08T23:45:30Z
+        let instant = Date(timeIntervalSince1970: 1_794_181_530)
+
+        #expect(LocalTime.ofInstant(instant, LocalDate.seoulZone) == (try LocalTime.of(8, 45, 30)))
+        #expect(LocalTime.ofInstant(instant, LocalDate.utcZone) == (try LocalTime.of(23, 45, 30)))
+        // 초 아래는 버린다.
+        #expect(LocalTime.ofInstant(instant.addingTimeInterval(0.9), LocalDate.utcZone) == (try LocalTime.of(23, 45, 30)))
+    }
+
+    /// Java 처럼 범위 밖은 값이 되지 못한다 — 24:00 도 아니다.
+    @Test("LocalTime of 는 범위 밖 시각을 던진다")
+    func localTimeOfThrows() throws {
+        #expect(throws: DateTimeException.self) { try LocalTime.of(24, 0) }
+        #expect(throws: DateTimeException.self) { try LocalTime.of(12, 60) }
+        #expect(throws: DateTimeException.self) { try LocalTime.of(-1, 0) }
+        #expect(LocalTime(hour: 24, minute: 0) == nil)
+        #expect(try LocalTime.of(23, 59, 59).toSecondOfDay() == 86_399)
+        #expect(try LocalTime.of(9, 30) < LocalTime.of(18, 0))
+    }
 }

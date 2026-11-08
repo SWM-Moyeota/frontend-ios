@@ -69,6 +69,14 @@ public enum Routes {
     /// 진행 중인 방은 홈·탐색 배너가 맡으므로 35 와의 순환 링크도 되살리지 않았다.
     public static let RIDE_HISTORY = "mypage/ride-history"           // 34 재도입 (지난 탑승 기록)
 
+    /// 38 노쇼 기록·이의 신청 (신규, 2026-11-06) — `GET /api/v1/matching/no-shows` +
+    /// `POST /api/v1/matching/rooms/{partyId}/no-show-objection`.
+    ///
+    /// 34 와 가르는 이유: 34 는 **탄** 방을, 38 은 **안 탄 것으로 기록된** 방을 보여 준다. 노쇼로
+    /// 찍힌 방은 탑승 기록에서 빠지므로(서버) 한 화면에 섞으면 「없는 방」과 「없어진 방」이 한 목록에
+    /// 들어간다. 38 은 그 방에 **이의를 내는 창구**이기도 해서 행마다 할 수 있는 일이 다르다.
+    public static let NO_SHOW_RECORDS = "mypage/no-shows"            // 38 신규 (노쇼 기록·이의 신청)
+
     /// 37 회원 탈퇴 (신규, 2026-10) — `DELETE /api/v1/users/me`. 앱 계정 삭제 요건.
     ///
     /// 다이얼로그가 아니라 **별 화면**인 이유는 `AccountDeleteScreen` 주석에 있다
@@ -92,7 +100,7 @@ public enum Route: Hashable, Sendable {
     case matchWaiting, rideDetail, partnerProfile
     case chat
     case chatRoom(roomId: Int64)
-    case mypage, profileEdit, rideHistory, accountDelete
+    case mypage, profileEdit, rideHistory, noShowRecords, accountDelete
 
     /// 원본 `NavDestination.route` — 인자를 채우기 **전**의 패턴이다. 목적지가 같은지는 이 값으로 가른다
     /// (`popBackStack` · `launchSingleTop` · 저장된 스택의 열쇠가 모두 목적지 단위다).
@@ -119,6 +127,7 @@ public enum Route: Hashable, Sendable {
         case .mypage: Routes.MYPAGE
         case .profileEdit: Routes.PROFILE_EDIT
         case .rideHistory: Routes.RIDE_HISTORY
+        case .noShowRecords: Routes.NO_SHOW_RECORDS
         case .accountDelete: Routes.ACCOUNT_DELETE
         }
     }

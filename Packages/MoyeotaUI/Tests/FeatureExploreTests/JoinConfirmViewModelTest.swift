@@ -86,6 +86,22 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
         destinationLat: Double,
         destinationLng: Double
     ) async throws -> RouteEstimate { throw TestFailure() }
+
+    // 예약 방 — 이 테스트가 보는 동작에는 쓰이지 않는다.
+    func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(
+        swLat: Double,
+        swLng: Double,
+        neLat: Double,
+        neLng: Double
+    ) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 }
 
 /// 시험이 쥐고 있다가 풀어 주는 합류 응답 — 제출 중 상태를 볼 때 쓴다.

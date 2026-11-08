@@ -510,6 +510,28 @@ import UIKit
         await graph.close()
     }
 
+    @Test("35 「노쇼 기록」은 38 을 쌓고 그 화면이 그래프의 노쇼 저장소로 목록을 읽는다")
+    func noShowRecordsWired() async throws {
+        let graph = HostedGraph()
+        await graph.waitForViewControllers(1)
+        let nav = try graph.nav
+        nav.navigateTab(.mypage)
+        await graph.settle(8)
+
+        nav.navigate(.noShowRecords)
+        await graph.waitForViewControllers(2)
+        #expect(graph.routes == [.home, .mypage, .noShowRecords])
+        // 배선을 빠뜨리면 38 이 조용히 비어 있다(`MainNavGraph` 의 `noShowRepository` 주석) — 조회가 실제로 나갔는지 본다
+        await graph.waitUntil("38 목록 조회") { graph.noShows.listRequests > 0 }
+        await graph.settle(16)
+        let top = graph.insetSpacerFrames(in: graph.topView).filter { $0.minY < 1 }
+        #expect(top.contains { abs($0.height - InsetWindow.insets.top) < 0.5 }, "38 상태바 여백 \(top)")
+
+        nav.popBackStack()
+        await graph.waitUntil("35 로 복귀") { graph.routes == [.home, .mypage] }
+        await graph.close()
+    }
+
     // ─── 탭 상태 ───
 
     @Test("35 스크롤 위치는 탭을 다녀와도 남고 로그아웃하면 사라진다")
@@ -543,8 +565,12 @@ import UIKit
         nav.navigateTab(.explore)
         nav.retained(for: nav.backStack[1]) { TabSavedState() }.set("explore.sheetState", state)
         await graph.settle(30)
-        // 목록은 half·full 에서만 있다 — 지도 안의 스크롤 뷰와 섞이지 않게 내용이 있는 세로 스크롤만 센다
-        let lists = graph.scrollViews.filter { $0.contentSize.height > 0 && $0.bounds.height > 0 }
+        // 목록은 half·full 에서만 있다 — 지도 안의 스크롤 뷰와 섞이지 않게 내용이 있는 세로 스크롤만 센다.
+        // 지도 위 모드 칩 줄(「실시간 / 곧 출발 / 날짜로 찾기」)은 시트 단계와 상관없이 늘 있는 **가로** 스크롤이라 뺀다
+        // — 세로 스크롤은 내용 폭이 뷰 폭에 맞춰지고, 가로 스크롤은 내용이 제 폭을 갖는다.
+        let lists = graph.scrollViews.filter {
+            $0.contentSize.height > 0 && $0.bounds.height > 0 && abs($0.contentSize.width - $0.bounds.width) < 0.5
+        }
         #expect(!lists.isEmpty == listShown, "목록 스크롤 \(lists.count) 개, 기대 \(listShown)")
         await graph.close()
     }

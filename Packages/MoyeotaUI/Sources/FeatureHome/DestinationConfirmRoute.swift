@@ -92,10 +92,14 @@ public final class CreatePartyViewModel {
         }
     }
 
-    // 백엔드 검증 상한(서버 `Capacity` record = 1~3). 넘기면 400 `INVALID_CAPACITY` 가 오고
-    // 화면은 사유별 문구로 안내한다(`openFailureMessage`) — 예전에는 모든 실패가 한 문구라
-    // 「에러 바디 없는 500」과 구별되지 않았다. 그래도 범위 고정은 남긴다: 서버가 막아 주는 것과
-    // 앱이 보내지 않는 것은 다른 보호막이다.
+    /// 백엔드 검증 상한(서버 `Capacity` record = 1~3). 넘기면 400 `INVALID_CAPACITY` 가 오고
+    /// 화면은 사유별 문구로 안내한다(`openFailureMessage`) — 예전에는 모든 실패가 한 문구라
+    /// 「에러 바디 없는 500」과 구별되지 않았다.
+    ///
+    /// 접는 일은 `capacityFor` 가 한다 — **하한이 모드에 따라 다르기 때문**이다(실시간 1,
+    /// 예약 2). 상한은 둘 다 3 이라 이 상수가 그 함수의 선택지 표와 같은 값을 가리킨다
+    /// (`capacityChoices`); 둘이 어긋나면 예약에서 4 가 전송될 수 있으니 한쪽을 고칠 때
+    /// 다른 쪽을 함께 본다.
     public static let MAX_PARTY_CAPACITY = 3
 
     public private(set) var uiState = UiState()
@@ -119,40 +123,74 @@ public final class CreatePartyViewModel {
     @discardableResult
     public func createParty(origin: Place, destination: Place, conditions: MatchConditions) -> Task<Void, Never>? {
         if uiState.creating { return nil } // 중복 제출 차단
+        // **이 한 값이 엔드포인트를 가른다**(`MatchConditions.departureAt`) — nil 이면 실시간 방
+        // (`POST /matching/rooms`), 값이 있으면 예약 방(`POST /matching/reservations`).
+        // 정원 범위·실패 문구도 함께 갈린다(예약은 2~3, 실시간은 1~3).
+        let departureAt = conditions.departureAt
+        let mode: DepartureMode = departureAt == nil ? .now : .scheduled
+        // 모달이 이미 접어서 보내지만 계약을 여기서 한 번 더 못박는다 — 벗어나면 400
+        // `INVALID_CAPACITY` 이고, 값이 **빠지면** 서버가 primitive 로 풀다 500 을 낸다
+        // (사유 없는 실패 = 일반 문구). `capacityFor` 가 모드별 범위를 아는 단일 창구다.
+        let capacity = capacityFor(mode: mode, selected: conditions.capacity)
+        // 분석 이벤트는 **실시간 방에서만** 보낸다. 원본은 예약 방도 같은 세 이벤트(`click_create_party`·
+        // `request_match`·`fail_match_request`, `method` 는 `create`)로 세지만, iOS 는 새 기능의 이벤트를
+        // 안드로이드와 이름을 맞춘 뒤에 더한다(frontend-ios#35 §3, docs/ANALYTICS.md) — 합의 전에 보내면
+        // 두 플랫폼의 퍼널이 같은 이름으로 다른 것을 센다.
+        let tracksAnalytics = departureAt == nil
         // 잠금은 태스크 안이 아니라 여기서 건다. `Task` 는 다음 차례로 밀려, 그 틈에 연타가 지나간다.
         uiState.creating = true
         uiState.errorMessage = nil
-        Analytics.track(.partyCreateClicked(capacity: conditions.capacity))
+        // Click — 요청이 나가는 순간(서버 응답 전). 원본과 같이 **접은 정원**을 싣는다 — 실제로 보내는 값이다.
+        if tracksAnalytics { Analytics.track(.partyCreateClicked(capacity: capacity)) }
         let repository = self.repository
         return scope.launch { [weak self] in
             do {
-                let party = try await repository.createParty(
-                    request: NewParty(
-                        departureLat: origin.latitude,
-                        departureLng: origin.longitude,
-                        destinationLat: destination.latitude,
-                        destinationLng: destination.longitude,
-                        departure: origin.name,
-                        destination: destination.name,
-                        // 서버 상한 3. 16 모달 칩이 1~3 뿐이지만 계약을 여기서 한 번 더 못박는다 —
-                        // 벗어나면 400 `INVALID_CAPACITY` 이고(`openFailureMessage`), 값이 **빠지면**
-                        // 서버가 primitive 로 풀다 500 을 낸다(사유 없는 실패 = 일반 문구).
-                        capacity: min(max(conditions.capacity, 1), Self.MAX_PARTY_CAPACITY)
-                        // 반경은 싣지 않는다 — 서버가 요청에서 빼고 고정값(500m)을 쓴다
-                        // (Backend `a668aee`). 16 의 반경 칩도 함께 내렸다(`MatchConditions`).
+                let party: Ride
+                if let departureAt {
+                    // 예약 방(`NewReservation`). 요청 필드가 `NewParty` 와 **출발 시각 하나만**
+                    // 다르지만 모델이 둘인 이유는 정원 하한이다 — 실시간 1, 예약 2(그 주석의 표).
+                    // 돌아오는 것은 같은 `Ride` 이고 경로·요금·소요 시간이 **비어 있다**
+                    // (`Ride` 의 기존 옵셔널 필드가 그 사실을 이미 표현한다).
+                    party = try await repository.createReservation(
+                        request: NewReservation(
+                            departureLat: origin.latitude,
+                            departureLng: origin.longitude,
+                            destinationLat: destination.latitude,
+                            destinationLng: destination.longitude,
+                            departure: origin.name,
+                            destination: destination.name,
+                            capacity: capacity,
+                            departureAt: departureAt
+                        )
                     )
-                )
+                } else {
+                    party = try await repository.createParty(
+                        request: NewParty(
+                            departureLat: origin.latitude,
+                            departureLng: origin.longitude,
+                            destinationLat: destination.latitude,
+                            destinationLng: destination.longitude,
+                            departure: origin.name,
+                            destination: destination.name,
+                            capacity: capacity
+                            // 반경은 싣지 않는다 — 서버가 요청에서 빼고 고정값(500m)을 쓴다
+                            // (Backend `a668aee`). 16 의 반경 칩도 함께 내렸다(`MatchConditions`).
+                        )
+                    )
+                }
                 guard let self else { return }
                 self.uiState.creating = false
                 self.uiState.createdParty = party
                 // 핵심 퍼널 2단계(방 만들기 쪽). 지역은 시/구까지만, 좌표·번지는 싣지 않는다.
-                Analytics.track(.matchRequested(
-                    method: .create,
-                    capacity: party.capacity,
-                    originArea: administrativeArea(fromAddress: origin.roadName),
-                    destinationArea: administrativeArea(fromAddress: destination.roadName),
-                    estimatedFare: party.estimatedFare
-                ))
+                if tracksAnalytics {
+                    Analytics.track(.matchRequested(
+                        method: .create,
+                        capacity: party.capacity,
+                        originArea: administrativeArea(fromAddress: origin.roadName),
+                        destinationArea: administrativeArea(fromAddress: destination.roadName),
+                        estimatedFare: party.estimatedFare
+                    ))
+                }
             } catch {
                 guard let self else { return }
                 self.uiState.creating = false
@@ -160,15 +198,27 @@ public final class CreatePartyViewModel {
                 // 살아 있는 태스크의 `URLError(.cancelled)` 는 원본 `IOException` 이라 아래 일반 문구로 간다.
                 if Task.isCancelled { return }
                 if let e = error as? PartyOpenException {
-                    self.uiState.errorMessage = openFailureMessage(e: e)
+                    // **같은 예외, 다른 표.** 실시간 표에 갈래가 없는 세 코드(403 `NO_SHOW_RESTRICTED` ·
+                    // 409 `PARTY_TIME_CONFLICT` — 둘 다 실시간 생성에도 온다 — 와 예약 전용 400
+                    // `INVALID_DEPARTURE_TIME`)가 있어서, 한 함수로 뭉개면 예약에서도 그 셋이 전부
+                    // 「잠시 후 다시 시도해 주세요」가 된다 — 세 가지 모두 「잠시」로는 풀리지 않는다
+                    // (`reservationOpenFailureMessage`).
+                    self.uiState.errorMessage = departureAt != nil
+                        ? reservationOpenFailureMessage(e: e)
+                        : openFailureMessage(e: e)
                     // 409 는 문구만으로 풀리지 않는다 — 홈 배너가 뜨도록 진행 중 방 조회를 되살린다.
                     self.uiState.needsActivePartyRefresh =
                         self.uiState.needsActivePartyRefresh || e.isAlreadyInAnotherParty
-                    Analytics.track(.matchRequestFailed(method: .create, reason: openFailureReason(e: e)))
+                    if tracksAnalytics {
+                        Analytics.track(.matchRequestFailed(method: .create, reason: openFailureReason(e: e)))
+                    }
                 } else {
-                    // 데이터 계층이 좁히지 못한 실패(직렬화 등). 사유를 모르므로 일반 문구다.
-                    self.uiState.errorMessage = OPEN_FAILED_MESSAGE
-                    Analytics.track(.matchRequestFailed(method: .create, reason: "unknown"))
+                    // 데이터 계층이 좁히지 못한 실패(직렬화 등). 사유를 모르므로 일반 문구다 —
+                    // 「무엇을 만들려다 실패했는지」만 모드에 맞춘다.
+                    self.uiState.errorMessage = departureAt != nil ? RESERVATION_OPEN_FAILED_MESSAGE : OPEN_FAILED_MESSAGE
+                    if tracksAnalytics {
+                        Analytics.track(.matchRequestFailed(method: .create, reason: "unknown"))
+                    }
                 }
             }
         }

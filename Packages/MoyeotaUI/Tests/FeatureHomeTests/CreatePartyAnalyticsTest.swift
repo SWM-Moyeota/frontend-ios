@@ -30,6 +30,13 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
         )
     }
 
+    var reservationResult: @Sendable (NewReservation) async throws -> Ride = { request in
+        Ride(
+            id: "8", origin: request.departure, destination: request.destination, departureLabel: "",
+            capacity: request.capacity, members: [], farePerPerson: 0, totalFare: 0, status: .recruiting
+        )
+    }
+
     func createParty(request: NewParty) async throws -> Ride { try await createResult(request) }
     func getNearbyParties() -> [Ride] { [] }
     func getParties() async throws -> [Ride] { throw NetworkFailure() }
@@ -41,6 +48,18 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
     func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw NetworkFailure() }
+
+    // 예약 방 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 생성만 람다로 두어 「이벤트를 보내지
+    // 않는다」를 성공·실패 양쪽에서 확인한다(iOS 전용 테스트).
+    func createReservation(request: NewReservation) async throws -> Ride { try await reservationResult(request) }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
 
     // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
     // leave/finish 처럼 람다로 바꿔 호출을 세면 된다.
@@ -110,6 +129,35 @@ final class CreatePartyAnalyticsTest {
             .partyCreateClicked(capacity: 2),
             .matchRequestFailed(method: .create, reason: "already_in_party"),
         ])
+    }
+
+    /// iOS 전용. 원본은 예약 방도 같은 세 이벤트로 세지만, iOS 는 새 기능의 이벤트를 안드로이드와 이름을
+    /// 맞춘 뒤에 더한다(frontend-ios#35 §3, docs/ANALYTICS.md). 성공·실패 어느 쪽에서도 새지 않는지 본다.
+    @Test("예약 방 생성은 이벤트를 보내지 않는다")
+    func reservationTracksNothing() async {
+        let repository = FakeRideRepository()
+        let viewModel = CreatePartyViewModel(repository: repository)
+        let conditions = MatchConditions(capacity: 3, departureAt: "2026-11-09T09:30:00Z")
+
+        await recording {
+            await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
+        }
+        #expect(viewModel.uiState.createdParty != nil, "예약 방이 만들어져야 시험이 된다")
+
+        repository.reservationResult = { _ in
+            throw PartyOpenException(code: PartyOpenException.PARTY_TIME_CONFLICT, serverMessage: nil, httpStatus: 409)
+        }
+        await recording {
+            await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
+        }
+        #expect(viewModel.uiState.errorMessage != nil, "실패가 화면에 닿아야 시험이 된다")
+
+        repository.reservationResult = { _ in throw NetworkFailure() }
+        await recording {
+            await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
+        }
+
+        #expect(recorder.seen.isEmpty)
     }
 
     @Test("사유 상수는 문구 분기와 1:1 이다")

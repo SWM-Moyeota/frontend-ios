@@ -118,6 +118,53 @@ public final class DummyRideRepository: RideRepository {
 
     public func departParty(partyId: Int64) async throws {}
 
+    /// 예약 생성도 **성공한 척만 한다.** 돌려주는 방이 실시간 생성(`createParty`)과 다른 점은 둘이고
+    /// 둘 다 서버가 실제로 그렇게 주는 값이다: `RoomType.reservation` 이고 처음부터 확정이다.
+    /// 요금·경로를 지어내지 않는 것도 서버와 같다 — 예약 방은 서버가 경로를 추정하지 않는다.
+    public func createReservation(request: NewReservation) async throws -> Ride {
+        Ride(
+            id: "dummy-reservation",
+            origin: request.departure,
+            destination: request.destination,
+            departureLabel: "",
+            capacity: request.capacity,
+            members: [me],
+            farePerPerson: 0,
+            totalFare: 0,
+            status: .recruiting,
+            originLat: request.departureLat,
+            originLng: request.departureLng,
+            destinationLat: request.destinationLat,
+            destinationLng: request.destinationLng,
+            departureAt: request.departureAt,
+            isConfirmed: true,
+            roomType: .reservation
+        )
+    }
+
+    // 예약 조회 셋은 **빈 목록이 정답이다.** 더미에는 예약 방이 없고, 지어내면 프리뷰에서
+    // 「11월 13일 08:00 출발」 같은 **실재하지 않는 약속**을 그려 준다 — 실시간 후보
+    // (findRealtimeCandidates)를 빈 목록으로 둔 것과 같은 근거다. 서버 없이 화면이 열리는지만 본다.
+    public func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+
+    public func getReservationsSoon(
+        swLat: Double,
+        swLng: Double,
+        neLat: Double,
+        neLng: Double
+    ) async throws -> [Ride] {
+        []
+    }
+
+    public func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] {
+        []
+    }
+
     /// 직선거리 기준으로 요금·시간을 지어낸다(서울 택시 기본요금 4,800원 + km 당 1,300원,
     /// 평균 시속 22km + 승하차 3분). 경로는 출발·도착을 잇는 2점짜리 인코딩 폴리라인이라
     /// 지도에 직선이 그려진다 — 상수 빈 문자열보다 화면 확인에 쓸모 있다.

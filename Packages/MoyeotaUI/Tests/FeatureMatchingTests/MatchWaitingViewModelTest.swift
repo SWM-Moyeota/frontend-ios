@@ -123,6 +123,19 @@ struct MatchWaitingViewModelTest {
             destinationLat: Double,
             destinationLng: Double
         ) async throws -> RouteEstimate { throw StubError() }
+
+        // 예약 방 — 21 대기 뷰모델은 부르지 않는다(만들기·찾기는 16·17 의 일이다).
+        func createReservation(request: NewReservation) async throws -> Ride { throw StubError() }
+        func getReservations(from: String, to: String) async throws -> [Ride] { throw StubError() }
+        func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] {
+            throw StubError()
+        }
+        func searchReservations(
+            departureLat: Double,
+            departureLng: Double,
+            date: String,
+            destination: ReservationDestination?
+        ) async throws -> [ReservationSearchResult] { throw StubError() }
     }
 
     private static let me = User(id: "me", nickname: "나", verifiedLabel: "", rating: 0, rideCount: 0, isMe: true)

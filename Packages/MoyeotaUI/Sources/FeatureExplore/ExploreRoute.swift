@@ -279,16 +279,33 @@ private extension MapBounds {
     }
 }
 
+/// 17 탐색 모드(`ExploreMode`)를 맡겨 두는 `TabSavedState` 키 — 원본 `rememberSaveable` 의 `mode` 자리.
+let ExploreModeKey = "explore.mode"
+
+/// 「날짜로 찾기」의 고른 날짜(오늘로부터의 일수)를 맡겨 두는 키 — 원본 `rememberSaveable` 의 `dateOffset` 자리.
+let ExploreDateOffsetKey = "explore.dateOffset"
+
 // 17–19 합승 탐색 — 서버 목록 연동 진입점
 public struct ExploreRoute: View {
     /// 지금 진행 중인 내 방(`ActivePartyViewModel.resolve` 결과). nil 이면 상단 배너를 그리지 않는다
     private let activeRide: Ride?
+    /// 「날짜로 찾기」에 **실어 보낼 도착지**. nil 이면 도착지 없이 검색한다(서버 계약: 둘 다
+    /// 또는 둘 다 아니다 — 보내면 도착지도 가까운 방이 먼저 온다).
+    ///
+    /// 이 값은 15 목적지에서 고른 장소이고 **호출부(MainNavGraph)가 들고 있어야 한다** — 탐색은
+    /// 하단탭이라 장소를 고르러 가면 이 화면이 내려간다. 배선이 없으면 nil 로 남고 기능은
+    /// 「도착지 없이 검색」으로 정상 동작한다(`onPickSearchDestination` 이 nil 이면 칩도 안 뜬다).
+    private let searchDestination: Place?
     private let onJoinParty: (Ride) -> Void
     private let onOngoingRideClick: () -> Void
     private let onCreateRoomClick: () -> Void
+    /// 도착지를 고르러 15 목적지로. **nil 이면 칩을 그리지 않는다**(배선 안 된 버튼을 보여 주지 않는다)
+    private let onPickSearchDestination: (() -> Void)?
+    private let onClearSearchDestination: () -> Void
     private let onTabSelect: (MoyeotaTab) -> Void
 
     @HostedViewModel private var viewModel: ExploreViewModel
+    @HostedViewModel private var finderViewModel: ReservationFinderViewModel
 
     // 지도가 화면의 본체라 탭 진입 시 권한을 요청한다.
     // 목록 로딩·에러 분기 **밖**에서 잡아야 조회가 실패해도 권한 흐름이 죽지 않는다.
@@ -296,19 +313,54 @@ public struct ExploreRoute: View {
 
     @Environment(\.tabSavedState) private var tabSavedState
 
+    // ─── 예약 모드 상태 ───────────────────────────────────────────────────────
+    //
+    // 모드·날짜는 **화면 상태**다(뷰모델이 아니다). 둘 다 「지금 무엇을 보고 있는가」이고
+    // 탭을 다녀와도 살아남아야 하지만 서버에서 오는 값이 아니다 — 17 의 시트 단계·지도 카메라와
+    // 같은 자리다. 뷰모델에 두면 조회 입력과 화면 상태가 한 덩어리가 되어, 모드를 되돌릴 때
+    // 목록을 비우는 순서를 손으로 맞춰야 한다.
+    //
+    // 원본 `rememberSaveable` 자리라 시트 단계(`ExploreSheetStateKey`)처럼 `TabSavedState` 에 맡긴다 —
+    // 이 뷰는 탭을 다녀오면 새로 만들어져 `@State` 가 처음 값으로 돌아오므로, 처음 읽을 때는 맡겨 둔
+    // 값에서 시작하고(nil 이면 아직 이 뷰에서 고른 적이 없다) 바꿀 때마다 함께 적어 둔다.
+    @State private var selectedMode: ExploreMode?
+    // 날짜는 **오늘로부터의 일수**로 들고 있는다(16 모달의 `dateOffset` 과 같은 처방) — 날짜 객체로
+    // 들고 있으면 자정을 넘길 때 목록에 없는 날이 선택된 채 남는다.
+    @State private var selectedDateOffset: Int?
+    // 날짜 칩·출발 시각 표기의 기준 시각. **화면이 보일 때마다 다시 읽는다** — 탐색은 하단탭이라
+    // 뷰모델이 탭 칸에 남고, 고정 기준을 쓰면 자정을 넘긴 뒤에도 어제가 「오늘」로 남는다
+    // (그 날짜는 서버 창을 벗어나 400 `INVALID_SEARCH_DATE` 다). 그릴 때마다 읽지 않는 이유는
+    // 그러면 칩 목록이 1초마다 새로 만들어져 고른 칩이 손가락 아래에서 움직이기 때문이다.
+    @State private var now = Date()
+    // 「곧 출발」이 쓰는 지도 범위. 실시간 목록과 **같은 신호**를 받아 둔다 — 지도는 하나이고
+    // 모드를 바꿀 때마다 카메라가 다시 idle 을 내지 않으므로(사용자가 건드리지 않으면) 마지막
+    // 범위를 기억해 두지 않으면 모드를 바꾼 직후 조회할 범위가 없다.
+    @State private var visibleBounds: MapBounds?
+    // 화면이 지금 시작 상태인가(`lifecycleEffect`). 원본 `LifecycleStartEffect` 는 키(`mode`)가 바뀌면
+    // 시작 상태에서 효과를 다시 돌리는데, `lifecycleEffect` 에는 키가 없어 모드 변경을 따로 받는다 —
+    // 그때 화면이 가려져 있으면 아무것도 하지 않아야 해서 이 값을 들고 있는다.
+    @State private var screenStarted = false
+
     public init(
         repository: any RideRepository,
         activeRide: Ride? = nil,
+        searchDestination: Place? = nil,
         onJoinParty: @escaping (Ride) -> Void = { _ in },
         onOngoingRideClick: @escaping () -> Void = {},
         onCreateRoomClick: @escaping () -> Void = {},
+        onPickSearchDestination: (() -> Void)? = nil,
+        onClearSearchDestination: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         _viewModel = HostedViewModel(wrappedValue: ExploreViewModel(repository: repository))
+        _finderViewModel = HostedViewModel(wrappedValue: ReservationFinderViewModel(repository: repository))
         self.activeRide = activeRide
+        self.searchDestination = searchDestination
         self.onJoinParty = onJoinParty
         self.onOngoingRideClick = onOngoingRideClick
         self.onCreateRoomClick = onCreateRoomClick
+        self.onPickSearchDestination = onPickSearchDestination
+        self.onClearSearchDestination = onClearSearchDestination
         self.onTabSelect = onTabSelect
     }
 
@@ -321,26 +373,73 @@ public struct ExploreRoute: View {
     /// `ExploreViewModel` 을 하나 들고 여기로 넘기고, 로그아웃 때 버린다(`clearBackStack` 자리).
     /// `TabView` 처럼 뷰를 살려 두는 호스트는 `init(repository:…)` 로 충분하다.
     ///
+    /// 예약 조회(`ReservationFinderViewModel`)도 원본에서는 같은 엔트리의 뷰모델이라 **같은 수명으로**
+    /// 함께 받는다 — 한쪽만 탭 바깥에 두면 복귀 때 예약 목록만 비어 「불러오는 중」부터 다시 그린다.
+    ///
     /// 뷰 수명 동안 처음 받은 인스턴스를 쓴다.
     public init(
         viewModel: ExploreViewModel,
+        finderViewModel: ReservationFinderViewModel,
         activeRide: Ride? = nil,
+        searchDestination: Place? = nil,
         onJoinParty: @escaping (Ride) -> Void = { _ in },
         onOngoingRideClick: @escaping () -> Void = {},
         onCreateRoomClick: @escaping () -> Void = {},
+        onPickSearchDestination: (() -> Void)? = nil,
+        onClearSearchDestination: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         _viewModel = HostedViewModel(wrappedValue: viewModel)
+        _finderViewModel = HostedViewModel(wrappedValue: finderViewModel)
         self.activeRide = activeRide
+        self.searchDestination = searchDestination
         self.onJoinParty = onJoinParty
         self.onOngoingRideClick = onOngoingRideClick
         self.onCreateRoomClick = onCreateRoomClick
+        self.onPickSearchDestination = onPickSearchDestination
+        self.onClearSearchDestination = onClearSearchDestination
         self.onTabSelect = onTabSelect
+    }
+
+    private var mode: ExploreMode {
+        selectedMode ?? tabSavedState?.value(ExploreModeKey) ?? .realtime
+    }
+
+    private var dateOffset: Int {
+        selectedDateOffset ?? tabSavedState?.value(ExploreDateOffsetKey) ?? 0
+    }
+
+    private func setMode(_ next: ExploreMode) {
+        selectedMode = next
+        tabSavedState?.set(ExploreModeKey, next)
+    }
+
+    private func setDateOffset(_ next: Int) {
+        selectedDateOffset = next
+        tabSavedState?.set(ExploreDateOffsetKey, next)
+    }
+
+    /// 화면이 시작 상태가 됐거나, 시작 상태에서 모드가 바뀌었다 — 원본의 두 `LifecycleStartEffect` 가 시작될 때 하는 일.
+    ///
+    /// **예약 모드에서는 실시간 폴링을 끈다.** 그 목록은 화면에 없고(모드가 하나다) 4초마다
+    /// 뷰포트를 다시 읽는 비용만 남는다 — 가시성 게이트가 이미 「보이지 않으면 멈춘다」를 아는
+    /// 스위치이므로(`ExploreViewModel.visible`) 같은 스위치를 모드에도 쓴다. 뷰모델에 모드를
+    /// 알려 줄 필요가 없고, 모드를 되돌리면 그 자리에서 1회 조회 후 주기가 재개된다.
+    ///
+    /// 예약 조회는 **화면에 돌아올 때마다 한 번** 다시 읽는다(폴링이 없는 대신이다 —
+    /// `ReservationFinderViewModel` 설명). 기준 시각도 여기서 갱신해 자정을 넘긴 뒤의 「오늘」을
+    /// 바로잡는다. 실시간 모드일 때는 아무 일도 하지 않는다(요청이 nil 이라 조회가 없다).
+    private func startEffects(mode: ExploreMode) {
+        if mode.isReservation { viewModel.onScreenStop() } else { viewModel.onScreenStart() }
+        now = Date()
+        if mode.isReservation { finderViewModel.retry() }
     }
 
     public var body: some View {
         let viewModel = viewModel
+        let finderViewModel = finderViewModel
         let location = myLocation
+        let mode = mode
         // 좌표·오차·방향을 한 덩어리로 넘긴다 — 지도가 파란 점과 오차 원을 같은 fix 로 그려야 한다
         let myFix = location.coordinates.map {
             MyLocationFix(
@@ -349,58 +448,134 @@ public struct ExploreRoute: View {
                 bearingDegrees: $0.bearingDegrees
             )
         }
+        // `now` 가 바뀔 때만 달라진다(화면이 다시 보일 때) — 그릴 때마다 시계를 읽지 않는다
+        let dateOptions = reservationDates(now: now)
+        let selectedDate = dateOptions[min(max(dateOffset, 0), dateOptions.count - 1)]
+
+        // 조회 입력이 바뀔 때마다(모드·지도 범위·내 좌표·날짜·도착지) 요청을 다시 올린다(아래 `.task(id:)`).
+        // 입력이 모자라면 `reservationQueryOrNull` 이 nil 을 주고 뷰모델은 목록을 비운다 —
+        // 화면은 그 상태를 「실패」가 아니라 「아직 못 물어봤다」로 그린다.
+        let reservationDestination = reservationDestinationOrNull(
+            latitude: searchDestination?.latitude,
+            longitude: searchDestination?.longitude
+        )
+        let reservationQuery = reservationQueryOrNull(
+            mode: mode,
+            bounds: visibleBounds,
+            myLatitude: myFix?.position.latitude,
+            myLongitude: myFix?.position.longitude,
+            date: selectedDate,
+            destination: reservationDestination,
+            now: now
+        )
+
+        // 내가 이미 참여 중인 방은 목록·마커에서 뺀다(`exploreList`·`reservationFeed`).
+        //
+        // **뷰모델이 아니라 여기서** 거르는 이유:
+        // ① `activeRide` 는 `ActivePartyViewModel`(앱 전체가 공유하는 홀더)이 들고 있는 값이고
+        //    이 뷰모델은 그걸 모른다. 넘겨주려면 탐색 뷰모델에 두 번째 데이터 출처가 생기고,
+        //    그 출처가 바뀔 때마다 상태를 다시 만들어야 한다.
+        // ② `UiState.success(parties, stale)` 는 **서버가 말한 것**이어야 한다. 거기서 걸러
+        //    버리면 `stale`(갱신 연속 실패 표시)과 목록이 다른 뜻을 갖게 된다 — 「서버 목록은
+        //    낡지 않았는데 내가 뺀 탓에 비었다」를 구분할 수 없고, `hasParties` 같은 폴링 판정이
+        //    표시용 목록을 보게 된다.
+        // 거르는 층이 화면 쪽이라도 **마커·카드·헤더 N 은 어긋나지 않는다** — 모드마다 그 셋이 모두
+        // 한 목록에서 나온다(`ExploreScreen` 의 `shownRides`).
+        let realtime: (parties: [Ride], stale: Bool)? =
+            if case .success(let parties, let stale) = viewModel.uiState { (parties, stale) } else { nil }
+        let list = exploreList(parties: realtime?.parties ?? [], myPartyId: activeRide?.id)
+        let finderItems: [ReservationCardUi] =
+            if case .success(let items) = finderViewModel.uiState { items } else { [] }
+        let feed = reservationFeed(items: finderItems, myPartyId: activeRide?.id)
 
         // 분기를 `ZStack` 하나로 감싼다. 아래 이펙트가 상태 분기마다 따로 걸리면(`Group`) 로딩 → 목록 전환이
         // 사라짐·나타남으로 읽혀 가시성이 끊겼다 이어지고, 그때마다 조회가 한 번 더 나간다.
         ZStack {
             // 로딩·에러에서도 하단탭은 남긴다 — 조회 실패로 탭 이동이 막히면 안 된다 (QA F-1)
-            switch viewModel.uiState {
-            case .loading:
-                TabStateScaffold(selectedTab: .explore, onTabSelect: onTabSelect) {
-                    LoadingBox()
-                }
-            case .error(let message):
-                TabStateScaffold(selectedTab: .explore, onTabSelect: onTabSelect) {
-                    ErrorBox(message: message, onRetry: { viewModel.refresh() })
-                }
-            case .success(let parties, let stale):
-                // 내가 이미 참여 중인 방은 목록·마커에서 뺀다(`exploreList`).
-                //
-                // **뷰모델이 아니라 여기서** 거르는 이유:
-                // ① `activeRide` 는 `ActivePartyViewModel`(앱 전체가 공유하는 홀더)이 들고 있는 값이고
-                //    이 뷰모델은 그걸 모른다. 넘겨주려면 탐색 뷰모델에 두 번째 데이터 출처가 생기고,
-                //    그 출처가 바뀔 때마다 상태를 다시 만들어야 한다.
-                // ② `UiState.success(parties, stale)` 는 **서버가 말한 것**이어야 한다. 거기서 걸러
-                //    버리면 `stale`(갱신 연속 실패 표시)과 목록이 다른 뜻을 갖게 된다 — 「서버 목록은
-                //    낡지 않았는데 내가 뺀 탓에 비었다」를 구분할 수 없고, `hasParties` 같은 폴링 판정이
-                //    표시용 목록을 보게 된다.
-                // 거르는 층이 화면 쪽이라도 **마커·카드·헤더 N 은 어긋나지 않는다** — 셋 다
-                // `ExploreScreen` 의 `parties` **한 파라미터**에서 나온다(지도는 `rides = parties`).
-                let list = exploreList(parties: parties, myPartyId: activeRide?.id)
+            //
+            // **예약 모드에서는 실시간 조회 상태가 화면을 가리지 않는다.** 그 폴링은 멈춰 있어서
+            // (아래 `lifecycleEffect`) 그 상태는 지금 보고 있는 목록과 무관하고, 전체 화면 에러로
+            // 덮으면 모드를 되돌릴 칩까지 사라져 **빠져나올 길이 없다**. 반대로 실시간 모드에서는
+            // 지금까지와 똑같이 세 상태를 그린다.
+            if mode.isReservation || realtime != nil {
                 ExploreScreen(
                     parties: list.parties,
                     activeRide: activeRide,
-                    myPartyHidden: list.myPartyHidden,
-                    stale: stale,
+                    // 빈 목록 문구가 이 값으로 갈린다 — 모드에 맞는 쪽을 넘긴다
+                    myPartyHidden: mode.isReservation ? feed.myPartyHidden : list.myPartyHidden,
+                    // 「낡음」은 실시간 주기 조회의 신호다. 예약 모드에서는 화면이 그리지 않지만
+                    // (`ExploreScreen` 이 모드를 본다) 값 자체도 목록 상태가 아니면 false 다.
+                    stale: realtime?.stale == true,
                     locationGranted: location.isGranted,
                     myLocation: myFix,
                     initialSheetState: tabSavedState?.value(ExploreSheetStateKey) ?? .peek,
+                    reservations: ReservationPaneUi(
+                        mode: mode,
+                        dates: dateOptions,
+                        selectedDate: selectedDate,
+                        items: feed.items,
+                        loading: finderViewModel.uiState == .loading,
+                        failed: finderViewModel.uiState == .failed,
+                        // 「날짜로 찾기」인데 내 좌표가 없다 — **실패가 아니라 아직 못 물어본 것**이다.
+                        // 권한이 없을 때는 이 화면이 지도 대신 권한 안내를 그리므로 여기 오지 않는다.
+                        locating: mode == .byDate && location.isGranted && myFix == nil,
+                        destinationName: reservationDestination != nil ? searchDestination?.name : nil,
+                        now: now
+                    ),
                     onJoinParty: onJoinParty,
                     onOngoingRideClick: onOngoingRideClick,
                     onCreateRoomClick: onCreateRoomClick,
                     onRequestLocationPermission: { location.onRequestPermission() },
-                    onVisibleBoundsChange: { viewModel.onVisibleBoundsChange($0) },
+                    onVisibleBoundsChange: { bounds in
+                        // 지도는 하나이고 두 목록이 같은 신호를 쓴다 — 실시간 조회는 뷰모델이 받고,
+                        // 「곧 출발」은 기억해 둔 마지막 범위로 요청을 다시 만든다(위 `reservationQuery`).
+                        visibleBounds = bounds
+                        viewModel.onVisibleBoundsChange(bounds)
+                    },
+                    onModeSelect: { setMode($0) },
+                    onDateSelect: { date in
+                        // 선택은 **일수**로 저장한다 — 화면 상태를 날짜 객체로 들고 있으면 자정을 넘길 때
+                        // 목록에 없는 날이 선택된 채 남는다(`reservationQueryOrNull` 의 마지막 줄).
+                        setDateOffset(dateOptions.firstIndex(of: date) ?? 0)
+                    },
+                    onRetryReservations: { finderViewModel.retry() },
+                    onPickSearchDestination: onPickSearchDestination,
+                    onClearSearchDestination: onClearSearchDestination,
                     onTabSelect: onTabSelect
                 )
+            } else if case .error(let message) = viewModel.uiState {
+                TabStateScaffold(selectedTab: .explore, onTabSelect: onTabSelect) {
+                    ErrorBox(message: message, onRetry: { viewModel.refresh() })
+                }
+            } else {
+                TabStateScaffold(selectedTab: .explore, onTabSelect: onTabSelect) {
+                    LoadingBox()
+                }
             }
         }
         .myLocationEffect($myLocation)
         // 화면이 보이는 동안만 조회·폴링한다 — 탭을 옮기거나 다른 화면이 위에 올라오거나 앱이 백그라운드로
         // 가면 즉시 멈추고, 돌아오면 그 자리에서 1회 조회한 뒤 주기를 재개한다 (24 채팅방과 같은 배치).
         .lifecycleEffect(
-            onStart: { viewModel.onScreenStart() },
-            onStop: { viewModel.onScreenStop() }
+            onStart: {
+                screenStarted = true
+                startEffects(mode: mode)
+            },
+            onStop: {
+                screenStarted = false
+                viewModel.onScreenStop()
+            }
         )
+        // 원본은 두 `LifecycleStartEffect` 의 키에 `mode` 가 있어, 시작 상태에서 모드가 바뀌면 효과가 멈췄다
+        // 다시 시작한다. `lifecycleEffect` 에는 키가 없어 그 재시작을 여기서 한다 — 가려진 동안의 모드 변경은
+        // 다음 시작이 그 모드로 처리하므로 건드리지 않는다.
+        .onChange(of: mode) { _, next in
+            guard screenStarted else { return }
+            startEffects(mode: next)
+        }
+        .task(id: reservationQuery) {
+            finderViewModel.request(reservationQuery)
+        }
         // 첫 조회는 지도를 기다리지 않고 기준 범위로 먼저 쏜다.
         // 지도는 목록 상태에서만 붙으므로(로딩 화면에는 지도가 없다) 지도의 첫 idle 을
         // 기다리면 로딩에서 영영 못 나온다. 권한을 거부해 지도가 아예 없는 경로도 같다.
@@ -409,7 +584,13 @@ public struct ExploreRoute: View {
         // 탭을 다녀오면 이 이펙트가 **다시** 실행되지만, 그때 쓸 범위는 기준점이 아니라
         // 보던 카메라다 — `ExploreViewModel.onInitialBounds` 가 이미 범위를 받은 뒤의 호출을 무시한다.
         .task {
-            viewModel.onInitialBounds(defaultExploreBounds(center: myFix?.position))
+            let initial = defaultExploreBounds(center: myFix?.position)
+            viewModel.onInitialBounds(initial)
+            // 「곧 출발」도 **같은 기준 범위로** 시작한다. 지도의 첫 idle 을 기다리면 모드를 바꾼 직후
+            // 조회할 범위가 없어 목록이 0건이 되는데, 그 0건은 **「없다」가 아니라 「못 물어봤다」**다 —
+            // 그 상태를 「30분 안에 출발하는 예약이 없어요」로 적으면 거짓이다. 위치 권한을 거부해
+            // 지도가 아예 없는 경로도 이 범위를 쓴다(실시간 목록이 하는 것과 같다).
+            if visibleBounds == nil { visibleBounds = initial }
         }
     }
 }
@@ -465,7 +646,11 @@ func exploreList(parties: [Ride], myPartyId: String?) -> ExploreList {
 }
 
 /// 같은 방인가. 숫자로 읽히면 숫자로, 아니면 문자열로 본다(`exploreList` 설명).
-private func samePartyId(_ a: String, _ b: String) -> Bool {
+///
+/// `internal` 인 이유: 예약 목록도 **같은 규칙으로** 내 방을 걸러야 한다(`reservationFeed`).
+/// 두 곳이 각자 비교를 세우면 한쪽만 「목록 partyId 와 상세 id 의 문자열 모양이 다를 수 있다」는
+/// 사정을 알게 된다.
+func samePartyId(_ a: String, _ b: String) -> Bool {
     let left = Int64(a)
     let right = Int64(b)
     return left != nil || right != nil ? left == right : a == b
