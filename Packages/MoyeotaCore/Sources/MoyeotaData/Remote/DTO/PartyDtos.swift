@@ -113,9 +113,9 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
     ///
     /// 그래도 nullable 인 이유는 **명시적 `null` 하나가 방 화면을 못 열게 만들지 않기 위해서**다.
     /// 서버 `PartyDetailResult.currentMembers` 는 `party.getMembers().size()` 라 운영에서는 늘 실리지만,
-    /// non-null 로 선언하면 null 이 오는 순간 파싱이 터져 상세가 **통째로** 실패한다 — 25·26 의 주기
-    /// 조회가 이 상세 하나에 걸려 있어 그 실패는 배차·운행 전이를 영영 못 잡는 것으로 번진다.
-    /// (같은 판단: `MemberInfo` 의 문자열 필드들, `version`.)
+    /// non-null 로 선언하면 null 이 오는 순간 파싱이 터져 상세가 **통째로** 실패한다 — 방 화면이
+    /// 읽는 유일한 조회이고 SSE 스냅샷도 같은 모양이라, 그 실패는 방 화면이 아예 열리지 않는 것으로
+    /// 번진다. (같은 판단: `MemberInfo` 의 문자열 필드들, `version`.)
     public var currentMembers: Int?
     /// 서버가 방에 박아 둔 반경(m). **사용자가 고른 값이 아니다** — 요청에서 빠지고 서버 고정값
     /// (`Radius.DEFAULT` = 500m)이 됐다(Backend `a668aee`). 응답에는 남아 있어 서버 record 와 모양을
@@ -133,9 +133,11 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
     public var estimateTime: Int?
     /// Google Encoded Polyline. 서버가 방 생성 시 네이버 경로 API 로 산출해 저장해 둔 값.
     public var route: String?
-    public var taxiDriverId: Int64?
+    // `taxiDriverId` 는 **없다.** 기사·배차가 서버에서 사라졌다(Backend #297~#302). 서버는 출시된
+    // 앱 호환을 위해 응답에 키를 남겨 두지만(늘 null) 받지 않는다 — 디코더가 모르는 키로 조용히
+    // 흘린다(`MoyeotaJSON`). 되살리면 아무도 읽지 않는 항상-null 필드가 된다.
     /// 이 상세가 찍힌 시점의 방 순번(Backend V18, `Party.version`). 들고 남이 있을 때마다 1씩 오른다
-    /// (서버에서 올리는 곳은 join·leave·finish·expire 네 군데뿐 — 배차·운행 전이는 올리지 않는다).
+    /// (서버에서 올리는 곳은 join·leave·finish·expire 네 군데뿐이다).
     ///
     /// **쓰는 이유는 하나다 — 프레임 순서가 뒤집히기 때문이다.** 서버는 구독을 레지스트리에 먼저
     /// 등록한 뒤 DB 를 읽어 `connected` 를 보내므로, 그 사이에 커밋된 변경분이 `connected` 보다
@@ -165,7 +167,6 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
         estimateFare: Int? = nil,
         estimateTime: Int? = nil,
         route: String? = nil,
-        taxiDriverId: Int64? = nil,
         version: Int64? = nil
     ) {
         self.id = id
@@ -185,7 +186,6 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
         self.estimateFare = estimateFare
         self.estimateTime = estimateTime
         self.route = route
-        self.taxiDriverId = taxiDriverId
         self.version = version
     }
 
@@ -193,7 +193,7 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey, CaseIterable {
         case id, departureLat, departureLng, destinationLat, destinationLng, departure, destination, capacity
         case currentMembers, departureRadius, destinationRadius, status, createdAt, members
-        case estimateFare, estimateTime, route, taxiDriverId, version
+        case estimateFare, estimateTime, route, version
     }
 
     public init(from decoder: any Decoder) throws {
@@ -215,7 +215,6 @@ public struct PartyDetailResponse: Decodable, Equatable, Sendable {
         estimateFare = try c.decodeIfPresent(Int.self, forKey: .estimateFare)
         estimateTime = try c.decodeIfPresent(Int.self, forKey: .estimateTime)
         route = try c.decodeIfPresent(String.self, forKey: .route)
-        taxiDriverId = try c.decodeIfPresent(Int64.self, forKey: .taxiDriverId)
         version = try c.decodeIfPresent(Int64.self, forKey: .version)
     }
 
@@ -402,7 +401,8 @@ public struct MemberLeftPayload: Decodable, Equatable, Sendable {
 ///
 /// 두 필드 모두 서버 record 가 박싱 타입(String/Integer)이라 기본값으로 방어한다.
 public struct PartyStatusResponse: Decodable, Equatable, Sendable {
-    /// 서버 `PartyStatus` enum 이름(ACTIVE/COMPLETED/MATCHING/DRIVER_ASSIGNED/IN_RIDE/FINISHED/CANCELED).
+    /// 서버 `PartyStatus` enum 이름 — **ACTIVE/COMPLETED/FINISHED/CANCELED 넷뿐**이다.
+    /// `MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE` 는 서버 enum 에서 삭제됐다(Backend #297~#302).
     public var status: String
     /// 합류 **직후**의 인원. 서버 record 가 `Integer` 이고 값은 `party.getMembers().size()` 라 운영에서는
     /// 늘 1 이상이 실린다. 그래도 non-null 로 두지 않는 이유는 **여기서의 파싱 실패 대가가 가장 크기**
@@ -489,7 +489,7 @@ public struct OpenPartyResponse: Decodable, Equatable, Sendable {
     public var estimateFare: Int?
     public var estimateTime: Int?
     public var route: String?
-    public var taxiDriverId: Int64?
+    // 상세와 같은 이유로 `taxiDriverId` 가 없다(`PartyDetailResponse` 참고).
 
     public init(
         id: Int64,
@@ -507,8 +507,7 @@ public struct OpenPartyResponse: Decodable, Equatable, Sendable {
         createdAt: String? = nil,
         estimateFare: Int? = nil,
         estimateTime: Int? = nil,
-        route: String? = nil,
-        taxiDriverId: Int64? = nil
+        route: String? = nil
     ) {
         self.id = id
         self.departureLat = departureLat
@@ -526,13 +525,12 @@ public struct OpenPartyResponse: Decodable, Equatable, Sendable {
         self.estimateFare = estimateFare
         self.estimateTime = estimateTime
         self.route = route
-        self.taxiDriverId = taxiDriverId
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, departureLat, departureLng, destinationLat, destinationLng, departure, destination, capacity
         case currentMembers, departureRadius, destinationRadius, status, createdAt
-        case estimateFare, estimateTime, route, taxiDriverId
+        case estimateFare, estimateTime, route
     }
 
     public init(from decoder: any Decoder) throws {
@@ -553,35 +551,11 @@ public struct OpenPartyResponse: Decodable, Equatable, Sendable {
         estimateFare = try c.decodeIfPresent(Int.self, forKey: .estimateFare)
         estimateTime = try c.decodeIfPresent(Int.self, forKey: .estimateTime)
         route = try c.decodeIfPresent(String.self, forKey: .route)
-        taxiDriverId = try c.decodeIfPresent(Int64.self, forKey: .taxiDriverId)
     }
 }
 
-// GET /api/v1/matching/rooms/{partyId}/driver — 백엔드 driver/api/DriverSummary
-// 기사 이름·별점 필드는 서버에 없다.
-public struct DriverSummaryResponse: Decodable, Equatable, Sendable {
-    public var seats: Int?
-    public var plateNumber: String
-    /// 차종. 서버 필드명이 type 이다.
-    public var type: String
-
-    public init(seats: Int? = nil, plateNumber: String = "", type: String = "") {
-        self.seats = seats
-        self.plateNumber = plateNumber
-        self.type = type
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case seats, plateNumber, type
-    }
-
-    public init(from decoder: any Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        seats = try c.decodeIfPresent(Int.self, forKey: .seats)
-        plateNumber = try c.decodeOrDefault(.plateNumber, default: "")
-        type = try c.decodeOrDefault(.type, default: "")
-    }
-}
+// `GET /api/v1/matching/rooms/{partyId}/driver` 의 `DriverSummaryResponse` 는 **지웠다** —
+// 그 엔드포인트가 서버에서 사라졌다(Backend #297~#302).
 
 // POST /api/v1/matching/routes — 백엔드 RouteRequest / RouteEstimate
 // 컨트롤러가 도메인 record RouteEstimate 를 그대로 반환한다(RoutePreviewResponse 와 필드명 동일).

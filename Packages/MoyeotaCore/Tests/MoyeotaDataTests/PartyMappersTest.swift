@@ -12,20 +12,27 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
 
 @Suite struct PartyMappersTest {
 
+    /// 서버 `PartyStatus` 가 보낼 수 있는 값은 **이 넷뿐**이다(기사·배차 상태 셋은 삭제됐다).
     @Test("백엔드 PartyStatus 를 RideStatus 로 매핑한다")
     func mapsBackendPartyStatus() {
         #expect(partyStatusToRideStatus(status: "ACTIVE") == .recruiting)
         #expect(partyStatusToRideStatus(status: "COMPLETED") == .matched)
-        #expect(partyStatusToRideStatus(status: "MATCHING") == .dispatching)
-        #expect(partyStatusToRideStatus(status: "DRIVER_ASSIGNED") == .dispatching)
-        #expect(partyStatusToRideStatus(status: "IN_RIDE") == .ongoing)
         #expect(partyStatusToRideStatus(status: "FINISHED") == .completed)
         #expect(partyStatusToRideStatus(status: "CANCELED") == .canceled)
     }
 
-    @Test("알 수 없는 상태는 RECRUITING 으로 처리한다")
+    /// **모르는 문자열이 RECRUITING 으로 떨어지는 것**이 옛 서버와 앱 사이의 유일한 안전장치다.
+    ///
+    /// 지워진 세 값(`MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE`)을 여기서 함께 못 박는다 — 아직 배포되지
+    /// 않은 서버는 그 값을 계속 보낼 수 있고, 그때 `default` 가 없으면(혹은 `fatalError(...)` 로 바뀌면)
+    /// 방 상세 파싱이 터져 21 대기 화면이 통째로 죽는다. 되살려 매핑하는 것도 안 된다 —
+    /// 짝이 될 `RideStatus` 가 없다.
+    @Test("알 수 없는 상태와 삭제된 기사 배차 상태는 RECRUITING 으로 떨어진다")
     func unknownStatusIsRecruiting() {
         #expect(partyStatusToRideStatus(status: "SOMETHING_NEW") == .recruiting)
+        for gone in ["MATCHING", "DRIVER_ASSIGNED", "IN_RIDE"] {
+            #expect(partyStatusToRideStatus(status: gone) == .recruiting, "\(gone)")
+        }
     }
 
     @Test("목록 PartyItem 을 Ride 로 매핑한다")
@@ -109,7 +116,7 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(ride.id == "7")
     }
 
-    @Test("상세 응답을 Ride 로 매핑하고 요금 경로 기사 id 를 채운다")
+    @Test("상세 응답을 Ride 로 매핑하고 요금과 경로를 채운다")
     func mapsDetail() {
         let detail = detailResponse()
 
@@ -118,14 +125,13 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(ride.id == "7")
         #expect(ride.origin == "서울시청")
         #expect(ride.destination == "강남역")
-        #expect(ride.status == .dispatching)
+        #expect(ride.status == .matched)
         #expect(ride.members.count == 2)
         #expect(isClose(37.5665, ride.originLat, 0.0001))
         #expect(isClose(127.0276, ride.destinationLng, 0.0001))
         #expect(ride.estimatedFare == 9600)
         #expect(ride.estimatedMinutes == 14)
         #expect(ride.routePolyline == "_p~iF~ps|U")
-        #expect(ride.driverId == 42)
         // 전체 요금은 정원으로 나눠 1인당 요금을 만든다(9600 / 3).
         #expect(ride.totalFare == 9600)
         #expect(ride.farePerPerson == 3200)
@@ -476,8 +482,7 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             createdAt: "2026-08-24T09:00:00Z",
             estimateFare: 9600,
             estimateTime: 14,
-            route: "_p~iF~ps|U",
-            taxiDriverId: nil
+            route: "_p~iF~ps|U"
         )
 
         let ride = response.toRide()
@@ -487,7 +492,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(ride.members.count == 1)
         #expect(ride.members[0].nickname == "멤버 1")
         #expect(ride.routePolyline == "_p~iF~ps|U")
-        #expect(ride.driverId == nil)
     }
 
     /// **인원 수를 모르면(키 누락·null) 멤버를 지어내지 않는다.**
@@ -568,21 +572,24 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(ride.originLat == nil)
         #expect(ride.estimatedFare == nil)
         #expect(ride.routePolyline == nil)
-        #expect(ride.driverId == nil)
         #expect(ride.members.isEmpty)
         #expect(ride.status == .recruiting)
     }
 
     @Test("상세 응답 JSON 을 실제 서버 shape 그대로 역직렬화한다")
     func decodesDetailJSON() throws {
-        // PartyDetailResult(… members, estimateFare, estimateTime, route, taxiDriverId) 기준.
+        // PartyDetailResult(… members, estimateFare, estimateTime, route) 기준.
         // members 는 MemberInfo(publicId, nickname, imageUrl, badgeId, rideCount) —
         // 내부 PK memberId 와 joinedAt 은 사라졌고, 둘째 멤버는 요약이 없는(탈퇴) 경우다.
         // badgeId 는 서버 TODO 라 항상 null.
+        //
+        // `taxiDriverId` 를 **일부러 남겨 둔다**: 서버가 출시된 앱 호환으로 이 키를 계속 실어 보내고,
+        // DTO 에는 받는 자리가 없다(기사·배차 삭제). 즉 이 줄은 디코더가 그 키를 모르는 키로 조용히
+        // 흘린다(`MoyeotaJSON`)는 계약을 지키는 자리다 — 지우면 그 보장이 사라진다.
         let body = """
             {"id":7,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
              "destinationLng":127.0276,"departure":"서울시청","destination":"강남역","capacity":3,
-             "currentMembers":2,"departureRadius":500,"destinationRadius":500,"status":"DRIVER_ASSIGNED",
+             "currentMembers":2,"departureRadius":500,"destinationRadius":500,"status":"COMPLETED",
              "createdAt":"2026-08-30T09:00:00Z",
              "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","imageUrl":null,"badgeId":null,
                          "rideCount":4},
@@ -598,12 +605,11 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(decoded.departureRadius == 500)
         #expect(decoded.destinationRadius == 500)
         #expect(ride.id == "7")
-        #expect(ride.status == .dispatching)
+        #expect(ride.status == .matched)
         #expect(ride.members.map(\.id) == [UUID_ME, ""])
         #expect(ride.members.map(\.nickname) == ["성윤", "탈퇴한 회원"])
         #expect(ride.members.map(\.rideCount) == [4, 0])
         #expect(ride.members.map(\.isMe) == [true, false])
-        #expect(ride.driverId == 42)
         #expect(ride.estimatedFare == 9600)
     }
 
@@ -633,30 +639,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
 
         #expect(decoded.list.count == 1)
         #expect(decoded.list[0].toRide().id == "7")
-    }
-
-    @Test("기사 요약 응답을 도메인 모델로 매핑한다")
-    func mapsDriverSummary() throws {
-        // 서버 DriverSummary(seats, plateNumber, type) — 이름/별점 필드가 없다.
-        let decoded = try decodeJSON(
-            DriverSummaryResponse.self,
-            #"{"seats":4,"plateNumber":"12가 3456","type":"쏘나타"}"#
-        )
-
-        let driver = decoded.toAssignedDriver()
-
-        #expect(driver.seats == 4)
-        #expect(driver.plateNumber == "12가 3456")
-        #expect(driver.vehicleType == "쏘나타")
-    }
-
-    @Test("기사 요약에 좌석 수가 없어도 매핑이 깨지지 않는다")
-    func driverSummaryWithoutSeats() throws {
-        let driver = try decodeJSON(DriverSummaryResponse.self, #"{"plateNumber":"99하 1111"}"#)
-            .toAssignedDriver()
-
-        #expect(driver.seats == nil)
-        #expect(driver.vehicleType == "")
     }
 
     @Test("경로 미리보기 요청 본문 필드명이 백엔드 RouteRequest 와 일치한다")
@@ -711,14 +693,17 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
 
     /// 합류 응답은 상세와 **같은 상태 변환표**를 써야 한다(`partyStatusToRideStatus`) —
     /// 갈리면 합류 직후 상태와 방 상세가 같은 방을 서로 다른 단계로 보여 준다.
+    ///
+    /// 그래서 **실제 합류 응답에는 올 수 없는 값**(`CANCELED`)을 일부러 넣는다. 매퍼가 변환표를
+    /// 공유하지 않고 「합류니까 ACTIVE 아니면 COMPLETED」로 좁혀 두면 여기서 걸린다.
     @Test("합류 응답을 도메인 PartyStatus 로 매핑한다")
     func mapsJoinResponse() {
         let status = PartyStatusResponse(
-            status: "DRIVER_ASSIGNED",
+            status: "CANCELED",
             currentMembers: 3
         ).toPartyStatus()
 
-        #expect(status.status == .dispatching)
+        #expect(status.status == .canceled)
         #expect(status.currentMembers == 3)
     }
 
@@ -786,25 +771,28 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
     func detailWithLegacyFingerprint() throws {
         let body = """
             {"id":7,"departure":"서울시청","destination":"강남역","capacity":3,"currentMembers":3,
-             "status":"MATCHING","fingerprint":"9f3c1a7b4e2d0586"}
+             "status":"COMPLETED","fingerprint":"9f3c1a7b4e2d0586"}
             """
 
         let ride = try decodeJSON(PartyDetailResponse.self, body).toRide()
 
         #expect(ride.id == "7")
-        #expect(ride.status == .dispatching)
+        #expect(ride.status == .matched)
     }
 
     /// 상세 DTO 에 지문 필드가 **되살아나지 않는 것**을 못박는다. 서버가 지웠으니 되살리면 항상 null 인
     /// 필드가 되고, 그 null 을 근거로 「바뀌었나」를 판정하던 옛 분기가 따라 돌아온다
     /// (「지문이 없으면 매 주기 상세를 읽는다」 같은 예외 조건).
-    @Test("상세 응답 DTO 에 지문 필드가 없다")
+    @Test("상세 응답 DTO 에 지문도 기사 id 도 없다")
     func detailHasNoFingerprint() {
         let fields = fieldNames(PartyDetailResponse.CodingKeys.self)
 
         #expect(!fields.contains("fingerprint"), "PartyDetailResponse 에 fingerprint 가 되살아났다")
-        // 폴링이 읽는 값들은 그대로 있어야 한다 — 상세가 25·26 의 유일한 전이 근거다.
-        #expect(Set(fields).isSuperset(of: ["status", "members", "taxiDriverId", "route"]))
+        // 서버는 출시된 앱 호환으로 `taxiDriverId` 를 계속 실어 보내지만 앱은 받지 않는다 —
+        // 되살리면 아무도 읽지 않는 항상-null 필드가 된다(기사·배차 삭제).
+        #expect(!fields.contains("taxiDriverId"), "PartyDetailResponse 에 taxiDriverId 가 되살아났다")
+        // 화면이 읽는 값들은 그대로 있어야 한다.
+        #expect(Set(fields).isSuperset(of: ["status", "members", "route"]))
     }
 
     /// 같은 방의 상세를 두 번 매핑하면 **`==` 로 같다**는 것 — 25·26 폴링이 「안 바뀌었다」를 판정하는
@@ -847,13 +835,12 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             currentMembers: members.count,
             departureRadius: 500,
             destinationRadius: 500,
-            status: "MATCHING",
+            status: "COMPLETED",
             createdAt: "2026-08-17T09:00:00Z",
             members: members,
             estimateFare: 9600,
             estimateTime: 14,
-            route: "_p~iF~ps|U",
-            taxiDriverId: 42
+            route: "_p~iF~ps|U"
         )
     }
 

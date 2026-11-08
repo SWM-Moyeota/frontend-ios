@@ -30,6 +30,9 @@ Mixpanel 을 아는 파일은 리포터 하나라서 Amplitude 로 바꾸더라�
 | 2 | `request_match` | 16 방 만들기 또는 20 합류가 서버에 받아들여졌을 때 | `method`(create/join), `capacity`, `origin_area`, `destination_area`, `estimated_fare` |
 | 3 | `complete_match` | 21 매칭 대기가 방 상태를 정원 충족(MATCHED) 이상으로 처음 봤을 때 | `capacity`, `member_count`, `waited_seconds`(화면 진입 기준) |
 
+`complete_match` 정원 판정은 **status 로만** 한다: `MATCHED` 충족, `RECRUITING`·`COMPLETED`·`CANCELED` 아님.
+(예전에는 `DISPATCHING`·`ONGOING` 도 충족에 들어갔다. 둘은 기사·배차와 함께 지웠다 — **Android 와 대시보드의 같은 판정도 함께 맞춰야 한다.**)
+
 ### 나머지
 
 | 종류 | 이벤트 | 기록 시점 | 프로퍼티 |
@@ -41,9 +44,11 @@ Mixpanel 을 아는 파일은 리포터 하나라서 Amplitude 로 바꾸더라�
 | Action | `fail_match_request` | 방 만들기·합류가 거절됨 | `method`, `reason`(already_in_party·party_full·party_closed·party_not_found·already_joined·same_departure_destination·out_of_service_area·invalid_capacity·route_unavailable·network·unknown) |
 | Action | `cancel_match` | 21 「그만 찾기」·「방 나가기」 성공 | `capacity`, `member_count` |
 | Action | `finish_party` | 동승 모드 「합승 완료」 성공(방장) | `member_count` |
-| Action | `finish_ride` | 택시 모드에서 운행 종료를 감지해 33 으로 넘어감 | — |
-| Action | `trigger_emergency` | 27 긴급 신고 3초 홀드 완료 | — |
 | Action | `delete_account` | 37 탈퇴가 204 를 받음 | — |
+
+**은퇴한 이름 — `finish_ride` · `trigger_emergency`.** 유일한 기록 지점이던 26 운행 중·27 긴급 신고를
+택시 제거(2026-11-04)로 지워 보내는 곳이 없어졌다. 보드에 옛 데이터가 남아 있으니 **다른 뜻으로
+되살려 쓰지 않는다** — 이름이 같고 뜻이 다른 두 시기가 한 퍼널에 섞인다.
 
 모든 이벤트에 리포터가 `build`(debug/release)를 super property 로 붙인다. Mixpanel SDK 가 OS·앱 버전·기기 모델을 알아서 붙인다.
 

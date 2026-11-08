@@ -1,22 +1,18 @@
 import MoyeotaDomain
 
-/// 매칭·신고 도메인만 서버 연동 — 나머지는 더미로 위임한다.
+/// 매칭 도메인만 서버 연동 — 나머지는 더미로 위임한다.
 ///
 /// `session` 이 필요한 이유는 하나다: 방 상세의 멤버 중 **누가 나인지**는 서버가 표시해 주지 않는다.
 /// `MemberInfo.publicId` 가 JWT `sub` 와 같은 값이라 앱이 직접 비교해야 하고, 비교 대상인
 /// 현재 사용자 UUID 의 단일 출처가 `session` 이다. 매퍼에 세션을 들려 보내지 않으면 화면마다
 /// "나 찾기"를 다시 구현하게 된다.
 ///
-/// `reportApi` 기본값 null: 신고 배선이 없는 생성 호출(테스트 등)을 깨지 않기 위함.
-/// 배선 전 신고 호출은 한국어 `IllegalStateException` 으로 실패한다 (화면은 다이얼을 우선 연다).
-/// `currentLocation`: 신고 시점의 실측 좌표 공급자(앱 타깃이 `CLLocationManager` 로 주입).
-/// 못 얻으면 null — 서버 ReportRequest 는 좌표 null 을 허용하므로 가짜 좌표를 지어내지 않는다.
+/// 긴급 신고 배선(`reportApi`)과 측위 공급자(`currentLocation`)는 **없어졌다** — 기사·배차와 함께
+/// 긴급 신고를 걷어냈다. 채팅 메시지 신고는 `RemoteChatRepository` 쪽이다.
 public final class RemoteRideRepository: RideRepository {
     private let api: any MatchingApi
     private let session: any UserSession
     private let local: any RideRepository
-    private let reportApi: (any ReportApi)?
-    private let currentLocation: @Sendable () async throws -> (Double, Double)?
     /// 매칭방 변화 신호(SSE). null 이면 신호 없이 폴링만 한다(테스트·더미)
     private let partyEvents: PartyEventSource?
 
@@ -24,15 +20,11 @@ public final class RemoteRideRepository: RideRepository {
         api: any MatchingApi,
         session: any UserSession,
         local: any RideRepository = DummyRideRepository(),
-        reportApi: (any ReportApi)? = nil,
-        currentLocation: @escaping @Sendable () async throws -> (Double, Double)? = { nil },
         partyEvents: PartyEventSource? = nil
     ) {
         self.api = api
         self.session = session
         self.local = local
-        self.reportApi = reportApi
-        self.currentLocation = currentLocation
         self.partyEvents = partyEvents
     }
 
@@ -223,56 +215,6 @@ public final class RemoteRideRepository: RideRepository {
             throw error
         } catch {
             throw realtimeMatchException(failure: error, error: error.readApiError())
-        }
-    }
-
-    public func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver {
-        try await api.getAssignedDriver(partyId: partyId).toAssignedDriver()
-    }
-
-    public func reportEmergency(partyId: Int64?) async throws -> Int64 {
-        guard let report = reportApi else {
-            throw IllegalStateException("신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-        }
-        // 실측 좌표. 측위 실패(권한 없음·타임아웃)는 신고를 막지 않는다 — 좌표만 null 로 보낸다.
-        let location: (Double, Double)?
-        do {
-            location = try await currentLocation()
-        } catch where isCancellation(throwable: error) {
-            throw error
-        } catch {
-            location = nil
-        }
-        return try await runReportCall("긴급 신고 저장에 실패했어요") {
-            try await report.report(
-                request: ReportRequestDto(
-                    partyId: partyId,
-                    latitude: location?.0,
-                    longitude: location?.1
-                )
-            ).reportId
-        }
-    }
-
-    public func confirmEmergencyCall(called: Bool) async throws {
-        guard let report = reportApi else {
-            throw IllegalStateException("신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-        }
-        try await runReportCall("112 통화 결과 저장에 실패했어요") {
-            try await report.confirmCallResult(request: CallResultRequestDto(called: called))
-        }
-    }
-
-    // 신고 흐름의 계약: 어떤 원인(HTTP 4xx/5xx, 네트워크, 직렬화)이든 한국어 메시지의
-    // IllegalStateException 하나로 전파한다. 화면은 이 실패를 "저장 실패 플래그"로만 다루고
-    // 112 다이얼은 무조건 연다 (통화 최우선). 취소는 삼키지 않고 그대로 올린다.
-    private func runReportCall<T>(_ message: String, _ block: () async throws -> T) async throws -> T {
-        do {
-            return try await block()
-        } catch where isCancellation(throwable: error) {
-            throw error
-        } catch {
-            throw IllegalStateException(message, cause: error)
         }
     }
 

@@ -126,7 +126,8 @@ struct WaitingMembershipTest {
     /// ACTIVE 유령 방이 바로 이 결함의 본체였다(닫힌 방은 `PartyEvent.closed` 가 이미 잡는다).
     @Test("단계와 무관하게 판정한다")
     func anyStage() {
-        for status in [RideStatus.recruiting, .matched, .dispatching] {
+        // 열거형 전체를 훑는다 — 「status 를 보지 않는다」가 요점이므로 목록을 손으로 적을 이유가 없다.
+        for status in RideStatus.allCases {
             #expect(
                 hasLostMembership(sawMyself: true, ride: ride([user("u1")], status: status)),
                 "status=\(status) 에서 상실을 놓쳤다"

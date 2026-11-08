@@ -9,14 +9,15 @@ import Testing
 /// 그래서 「통과해야 하는 경우」를 전부 못 박는다.
 @Suite struct UpdateGateTest {
     private func config(min: Int? = nil, recommended: Int? = nil) -> AppConfig {
-        AppConfig(taxiEnabled: false, minVersionCode: min, recommendedVersionCode: recommended)
+        AppConfig(minVersionCode: min, recommendedVersionCode: recommended)
     }
 
     // ───────────────────── 반드시 통과해야 하는 경우 ─────────────────────
 
     @Test("서버가 기준을 안 주면 통과한다")
     func passesWithoutThreshold() {
-        // 2026-11-01 현재 서버 응답이 이 상태다 — taxiEnabled 하나뿐.
+        // 2026-11-01 현재 서버 응답이 이 상태다 — 두 기준 중 어느 것도 오지 않는다.
+        // (서버는 `taxiEnabled` 를 아직 싣지만 도메인에서 필드를 지워 앱이 읽지 않는다.)
         #expect(updateRequirement(config: config(), installedVersionCode: 26110101) == .none)
     }
 

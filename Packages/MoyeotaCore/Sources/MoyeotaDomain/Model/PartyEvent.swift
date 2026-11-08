@@ -8,11 +8,11 @@
 /// - 구독 직후 `snapshot` 이 방 상세 **전체**를 준다. 끊겨 다시 붙을 때마다 또 온다 — 그 사이
 ///   놓친 변화를 스냅샷이 통째로 보정하므로 **catch-up 조회도, 평상시 폴링도 필요 없다**.
 /// - 그 뒤로는 `memberJoined`·`memberLeft` 로 한 명씩 들고 나는 것만 온다. 둘 다 **변경 후 방 상태**를
-///   함께 실어 주므로, 정원이 차서 생기는 전이(모집 중 → 정원 충족/배차 시작)도 이 신호로 알 수 있다.
+///   함께 실어 주므로, 정원이 차서 생기는 전이(모집 중 → 정원 충족)도 이 신호로 알 수 있다.
 ///
-/// 반면 **배차·운행 전이(MATCHING→DRIVER_ASSIGNED→IN_RIDE→FINISHED)는 이 스트림에 오지 않는다** —
-/// 서버의 발행처가 `PartyService` 의 참여·퇴장·종료(join/leave/finish/expire)뿐이다. 그 단계를 보는
-/// 화면(25 배차 현황·26 운행)은 폴링을 유지해야 한다.
+/// 서버의 발행처는 `PartyService` 의 참여·퇴장·종료(join/leave/finish/expire)다. 예전에 이 자리에
+/// 적혀 있던 배차·운행 전이(`MATCHING→DRIVER_ASSIGNED→IN_RIDE`)는 **서버에서 사라졌다** — 그 status
+/// 자체가 없어졌으므로 기다릴 신호도, 폴링으로 메울 단계도 없다.
 ///
 /// **`snapshot` 이 먼저 온다는 보장은 없다.** 서버는 구독을 레지스트리에 **먼저 등록한 뒤** DB 를 읽어
 /// `connected` 를 보내므로, 그 사이에 커밋된 변경분이 `connected` 보다 **먼저** 도착할 수 있다
@@ -33,8 +33,9 @@
 /// `memberJoined`, 없는 publicId 의 `memberLeft` 는 목록을 그대로 두고 상태만 반영한다.
 ///
 /// version 을 버리면 어떻게 되는지가 중요하다: 늦게 온 낡은 `snapshot` 이 이미 반영한 합류를 덮어
-/// 지우고, 그 합류가 **정원을 채운 사람**이었다면 서버는 배차를 시작했는데 화면은 모집 중에 멈춘다.
-/// 스트림이 살아 있으니 재연결 스냅샷도 없어 30분 만료까지 그대로다.
+/// 지우고, 그 합류가 **정원을 채운 사람**이었다면 화면은 정원이 찬 방을 모집 중으로 보여 준다
+/// — 방장에게 「합승 완료」 버튼이 뜨지 않는다. 스트림이 살아 있으니 재연결 스냅샷도 없어
+/// 30분 만료까지 그대로다.
 public enum PartyEvent: Hashable, Sendable {
     /// 구독 직후 서버가 준 방 상세 전체(`connected` 이벤트의 data = `PartyDetailResult`).
     ///
@@ -85,7 +86,7 @@ public enum PartyEvent: Hashable, Sendable {
     /// data 는 `{partyId, status, version}` JSON 이지만 앱은 읽지 않는다 — 종결 신호로만 쓴다.
     /// (옛 서버는 partyId 숫자 문자열을 보냈다. 어느 쪽이든 읽지 않으므로 상관없다.)
     ///
-    /// **version 으로 거르지 않는다.** 배차 실패·운행 완료로 닫히는 경우 서버가 version 을 올리지 않아
+    /// **version 으로 거르지 않는다.** 서버가 version 을 올리지 않고 닫는 경우가 있어
     /// 직전과 같은 값이 실려 오기 때문이다(`PartySseController`: "closed 는 version 과 상관없이 종료로
     /// 처리한다"). 종료는 늦게 와도 종료다.
     case closed

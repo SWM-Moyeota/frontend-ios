@@ -37,9 +37,6 @@ final class AppContainer {
     /// 쓰는데, **동작은 하기 때문에** 여기서 정한 타임아웃·디스크 캐시가 적용되지 않는 걸 눈치채기 어렵다.
     let imageClient: URLSession
 
-    /// 긴급 신고에 싣는 실측 좌표 — 권한 없음/타임아웃이면 nil 을 돌려주고 신고는 계속된다.
-    private let reportLocationProvider = ReportLocationProvider()
-
     /// FCM 기기 토큰 ↔ 서버 등록 상태를 맞추는 창구.
     ///
     /// 컨테이너 수명 = 앱 프로세스 수명이라 「보류 중인 토큰」이 화면 전환에도 살아남는다
@@ -54,7 +51,9 @@ final class AppContainer {
     private let activePartyStorage = UserDefaultsActivePartyStorage()
 
     let authRepository: any AuthRepository
-    /// 택시 모드 등 서버 운영 설정. 앱 시작 시 한 번 읽고(`AppConfigViewModel`), 실패하면 기본값(기사 모드).
+    /// 서버 운영 설정(`GET /api/v1/config`). 앱 시작 시 한 번 읽는다(`AppConfigViewModel`).
+    /// 택시 플래그를 걷어낸 뒤로 남은 것은 버전 게이트뿐이고, 조회가 실패하면
+    /// **아무도 막지 않는** 기본값으로 간다(`AppConfig.Default`).
     let appConfigRepository: any AppConfigRepository
     /// 세션을 넘기는 건 방 상세 멤버 중 「나」를 매퍼가 판정하기 위해서다(`RemoteRideRepository`).
     let rideRepository: any RideRepository
@@ -71,7 +70,6 @@ final class AppContainer {
     /// 세션을 넘기는 건 메시지의 「내 것」 판정 때문이다(`RemoteChatRepository`).
     /// 채팅은 실시간(STOMP) + 폴링을 함께 쓴다 — 소켓이 앞서고, 끊긴 구간은 폴링이 메운다.
     let chatRepository: any ChatRepository
-    let dispatchRepository: any DispatchRepository
 
     /// 「지금 내가 타고 있는 방」의 단일 출처. 서버에 `GET /matching/rooms/me` 가 없어
     /// 앱이 방 id 를 로컬에 기억했다가 상세 조회로 되살린다(`RemoteActivePartyRepository`).
@@ -82,7 +80,6 @@ final class AppContainer {
         let sessionManager = SessionManager(storage: KeychainTokenStorage(), scope: applicationScope)
         let apis = try NetworkModule.create(baseUrl: baseUrl, debugLogging: debugLogging, tokenHolder: sessionManager)
         let fcmTokenRegistrar = FcmTokenRegistrar(userApi: apis.user, session: sessionManager)
-        let reportLocationProvider = reportLocationProvider
 
         self.sessionManager = sessionManager
         self.apis = apis
@@ -100,8 +97,6 @@ final class AppContainer {
         let rideRepository = RemoteRideRepository(
             api: apis.matching,
             session: sessionManager,
-            reportApi: apis.report,
-            currentLocation: { try await reportLocationProvider.current() },
             partyEvents: PartyEventSource(baseUrl: baseUrl, client: apis.streamClient)
         )
         self.rideRepository = rideRepository
@@ -113,7 +108,6 @@ final class AppContainer {
             socket: ChatSocket(baseUrl: baseUrl, session: apis.socketClient, tokens: sessionManager)
         )
         self.chatRepository = chatRepository
-        self.dispatchRepository = RemoteDispatchRepository(api: apis.dispatch)
         self.activePartyRepository = RemoteActivePartyRepository(
             rideRepository: rideRepository,
             chatRepository: chatRepository,

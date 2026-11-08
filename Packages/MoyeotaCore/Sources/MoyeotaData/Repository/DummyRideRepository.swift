@@ -107,10 +107,6 @@ public final class DummyRideRepository: RideRepository {
 
     public func finishParty(partyId: Int64) async throws {}
 
-    public func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver {
-        AssignedDriver(seats: 4, plateNumber: "12가 3456", vehicleType: "쏘나타")
-    }
-
     /// 직선거리 기준으로 요금·시간을 지어낸다(서울 택시 기본요금 4,800원 + km 당 1,300원,
     /// 평균 시속 22km + 승하차 3분). 경로는 출발·도착을 잇는 2점짜리 인코딩 폴리라인이라
     /// 지도에 직선이 그려진다 — 상수 빈 문자열보다 화면 확인에 쓸모 있다.
@@ -165,11 +161,6 @@ public final class DummyRideRepository: RideRepository {
         }
         out.unicodeScalars.append(UnicodeScalar(UInt8(v + 63)))
     }
-
-    // 신고도 성공한 척만 한다 — 프리뷰/오프라인에서 UI 흐름(다이얼→복귀 다이얼로그) 확인용.
-    public func reportEmergency(partyId: Int64?) async throws -> Int64 { 1 }
-
-    public func confirmEmergencyCall(called: Bool) async throws {}
 }
 
 /// Kotlin `Double.roundToInt()` — 정확히 .5 는 양의 무한대 쪽으로 올리고, 32비트 `Int` 범위를 넘으면

@@ -15,13 +15,12 @@ import Testing
 /// 소스를 문자열로 읽는 테스트라 서식을 크게 바꾸면 깨질 수 있다. 깨지면 **먼저 결정이 그대로인지
 /// 확인하고** 정규식을 고쳐라 — 결정을 되돌리면서 테스트를 지우는 것이 이 테스트가 막는 일이다.
 ///
-/// 대상 파일(`MainNavGraph.swift`, 21·25 의 Route)이 아직 없으면 그 테스트는 건너뛴다.
+/// 대상 파일(`MainNavGraph.swift`, 21 의 Route)이 아직 없으면 그 테스트는 건너뛴다.
 /// 포팅되는 즉시 이 테스트가 그 파일을 검사하기 시작한다.
 @Suite struct ConfigChangeStateTest {
     private static let navGraphPath = "AppNavigation/MainNavGraph.swift"
     private static let waitingRoutes = [
         ("FeatureMatching/MatchWaitingRoute.swift", "MatchWaitingScreen("),
-        ("FeatureMatching/DispatchStatusRoute.swift", "DispatchStatusScreen("),
     ]
 
     private func assertSavedState(_ names: [String], message: (String) -> String) throws {
@@ -35,13 +34,16 @@ import Testing
 
     // ───────────────────────── 1. 방 id 는 살아남는다 ─────────────────────────
 
-    /// 21·22·25·26·27 이 「어느 방인가」를 묻는 값.
+    /// 20·21·22 가 「어느 방인가」를 묻는 값.
+    ///
+    /// 셋이었다. `activePartyId`(25·26·27 이 읽던 「지금 배차·운행 중인 방」)는 그 세 화면이
+    /// 사라지면서 독자를 잃어 함께 지웠다 — 여기 남겨 두면 없는 선언을 찾다 실패한다.
     @Test(
         "화면 사이로 넘기는 방 id 는 구성 변경에서 살아남는다",
         .enabled(if: SourceTree.exists(navGraphPath), "MainNavGraph.swift 가 아직 포팅되지 않았다")
     )
     func partyIdsSurvive() throws {
-        try assertSavedState(["createdPartyId", "activePartyId", "selectedPartyId"]) {
+        try assertSavedState(["createdPartyId", "selectedPartyId"]) {
             "\($0) 이 @State 가 아니다 — 방 id 가 날아가면 21·25 가 어느 방인지 모르게 된다"
         }
     }
@@ -58,8 +60,11 @@ import Testing
         }
     }
 
-    /// `finishedRide`(`Ride`)·`selectedPartner`(`User`)는 **일부러** 저장 상태(`@SceneStorage`)에 넣지 않는다.
-    /// 값이 크고, 두 값이 없을 때 33·23 은 거짓을 말하지 않는다(요약 줄을 숨기거나 안내로 되돌린다).
+    /// `selectedPartner`(`User`)는 **일부러** 저장 상태(`@SceneStorage`)에 넣지 않는다.
+    /// 값이 크고, 없을 때 23 은 거짓을 말하지 않는다(안내로 되돌린다).
+    ///
+    /// 짝이었던 `finishedRide`(`Ride`)는 선언째 사라졌다 — 그 값의 독자가 33 도착 완료 하나였고,
+    /// 그 화면이 26 운행 중과 함께 삭제됐다.
     ///
     /// 이 테스트는 그 결정을 **기록**한다. 바꿀 이유가 생기면 이 테스트를 고쳐라.
     @Test(
@@ -68,7 +73,7 @@ import Testing
     )
     func largeObjectsStayInMemory() throws {
         let navGraph = try #require(SourceTree.read(Self.navGraphPath))
-        for name in ["finishedRide", "selectedPartner"] {
+        for name in ["selectedPartner"] {
             let pattern = #"@State\s+(?:(?:private|fileprivate|internal)\s+)?var\s+"# + name + #"\b"#
             #expect(
                 !SourceTree.matches(pattern, in: navGraph).isEmpty,
@@ -79,16 +84,19 @@ import Testing
 
     // ──────────────── 2. 방을 모를 때 예시 방을 그리지 않는다 ────────────────
 
-    /// 21·25 의 `partyId == nil` 분기. 20·22·23 과 같은 방식 — 사실대로 말하고 되돌린다.
+    /// 21 의 `partyId == nil` 분기. 20·22·23 과 같은 방식 — 사실대로 말하고 되돌린다.
     ///
-    /// 분기 **안**을 본다: 화면 호출(`MatchWaitingScreen(`·`DispatchStatusScreen(`)이 아니라
-    /// `ErrorBox` 가 있어야 한다. 「잠시 후 다시 시도」류 문구도 함께 막는다 — 되돌아가는 것
-    /// 말고는 사용자가 할 수 있는 게 없는 자리다.
+    /// 분기 **안**을 본다: 화면 호출(`MatchWaitingScreen(`)이 아니라 `ErrorBox` 가 있어야 한다.
+    /// 「잠시 후 다시 시도」류 문구도 함께 막는다 — 되돌아가는 것 말고는 사용자가 할 수 있는 게
+    /// 없는 자리다.
+    ///
+    /// 짝이었던 25 배차 현황(`DispatchStatusRoute`)은 사라졌다. 같은 트랩이 새 화면에 생기는 것은
+    /// 아래 「화면 기본 인자」 테스트가 UI 패키지 전체를 훑어 막는다.
     @Test(
-        "방 id 가 없으면 21 과 25 는 예시 방 대신 사실을 말한다",
+        "방 id 가 없으면 21 은 예시 방 대신 사실을 말한다",
         .enabled(
             if: waitingRoutes.contains { SourceTree.exists($0.0) },
-            "21·25 Route 가 아직 포팅되지 않았다"
+            "21 Route 가 아직 포팅되지 않았다"
         )
     )
     func missingPartyIdTellsTheTruth() throws {
@@ -107,12 +115,15 @@ import Testing
     /// 컴파일을 통과하면서 가짜 방을 그린다. 기본값을 걷어낸 지금은 같은 사고가 나려면 컴파일이
     /// 먼저 깨진다.
     ///
-    /// 범위를 21·25 로 좁히지 않고 UI 패키지 전체를 본다 — 같은 트랩이 25b·25c·17 에도 있었고
+    /// 범위를 21 로 좁히지 않고 UI 패키지 전체를 본다 — 같은 트랩이 25b·25c·17 에도 있었고
     /// (2026-10-15 함께 제거), 새 화면에 다시 생기는 것을 여기서 막는다.
+    ///
+    /// 타입 목록에서 `AssignedDriver` 를 뺐다 — 기사·배차와 함께 **도메인에서 사라진 타입**이라
+    /// 그 이름의 파라미터는 더 이상 존재할 수 없다(남겨 두면 영영 아무것도 걸러내지 않는 이름이 된다).
     @Test("화면 기본 인자로 도메인 데이터를 지어내지 않는다")
     func noFabricatedDefaultArguments() throws {
         // "들여쓴 파라미터: 도메인타입 = nil·빈값이 아닌 무엇" 을 찾는다.
-        let pattern = #"^\s+\w+: \[?(?:Ride|User|ChatRoom|ChatMessage|Place|FavoritePlace|AssignedDriver)\]?\??\s*=\s*(?!nil|\[\]|\[:\])\S"#
+        let pattern = #"^\s+\w+: \[?(?:Ride|User|ChatRoom|ChatMessage|Place|FavoritePlace)\]?\??\s*=\s*(?!nil|\[\]|\[:\])\S"#
         let files = SourceTree.swiftFiles()
         // 소스를 하나도 못 읽고 통과하는 일을 막는다.
         #expect(files.contains { $0.lastPathComponent == "ActiveParty.swift" })
@@ -154,7 +165,7 @@ import Testing
         #expect(!SourceTree.matches(state, in: "@State private var createdPartyId: Int64?").isEmpty)
         #expect(!SourceTree.matches(state, in: "@SceneStorage(\"a\") var createdPartyId = 0").isEmpty)
         #expect(SourceTree.matches(state, in: "private var createdPartyId: Int64?").isEmpty)
-        #expect(SourceTree.int64Constant("PARTY_DETAIL_POLL_FLOOR_MS", under: "PresentationCore") == 6_000)
+        #expect(SourceTree.int64Constant("PARTY_FALLBACK_POLL_INTERVAL_MS", under: "FeatureMatching") == 6_000)
         #expect(SourceTree.int64Constant("NO_SUCH_CONSTANT", under: "PresentationCore") == nil)
 
         let fabricated = #"^\s+\w+: \[?(?:Ride|User)\]?\??\s*=\s*(?!nil|\[\]|\[:\])\S"#

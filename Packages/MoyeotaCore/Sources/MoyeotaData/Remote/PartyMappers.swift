@@ -1,19 +1,22 @@
 import Foundation
 import MoyeotaDomain
 
-// 방 상세의 멤버는 이제 닉네임·프로필 이미지·탑승 횟수까지 서버가 준다(PartyDetailResult.MemberInfo).
-// 다만 별점과 인증 배지는 여전히 서버에 값이 없어 0.0 / "" 로 채운다 — 지어내지 않는다.
+/// 서버 `PartyStatus` 이름 → 도메인 `RideStatus`. 서버가 보낼 수 있는 값은 **이 네 개뿐**이다.
+///
+/// `MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE` 분기는 지웠다 — 기사·배차를 걷어내면서 서버 enum 에서
+/// 그 세 값이 **삭제됐다**(Backend #297~#302). 되살리면 짝이 될 `RideStatus` 가 없다.
+///
+/// **`default` 는 건드리지 말 것.** 모르는 문자열을 `RideStatus.recruiting` 으로 떨어뜨리는 이 한 줄이
+/// 지금은 **옛 서버와 앱 사이의 유일한 안전장치**다: 아직 배포되지 않은 서버가 `MATCHING` 을 보내도
+/// 방 상세 파싱이 살아 있어야 21 대기 화면이 열린다. 지우거나 `fatalError(...)` 로 바꾸면 그 순간
+/// 롤아웃 중인 사용자의 방 화면이 통째로 죽는다.
 public func partyStatusToRideStatus(status: String) -> RideStatus {
     switch status {
     case "ACTIVE": return .recruiting
     case "COMPLETED": return .matched
-    case "MATCHING": return .dispatching
-    // 기사 배정 완료 = 배차 확정. 아직 탑승 전이라 배차 단계로 본다.
-    case "DRIVER_ASSIGNED": return .dispatching
-    case "IN_RIDE": return .ongoing
     case "FINISHED": return .completed
-    // 정상 종료(FINISHED)와 갈라 둔다 — 기사 매칭 3분 타임아웃도 여기로 떨어지는데,
-    // 25b 가 「기사님을 찾지 못했어요」를 띄우려면 완료와 구분돼야 한다.
+    // 정상 종료(FINISHED)와 갈라 둔다 — 아무도 출발지에 오지 않아 서버가 자동 정리한 방이 여기로
+    // 떨어지는데, 「탄 적 없이 닫힌 방」을 완료와 같은 값으로 접으면 둘을 구분할 수 없다.
     case "CANCELED": return .canceled
     default: return .recruiting
     }
@@ -80,6 +83,9 @@ extension PartyDetailResponse.MemberInfo {
     ///
     /// 요약 없는 멤버(전 필드 null)에서는 publicId 가 null 이라 `User.isMe` 가 false 이므로 이 폴백도
     /// false 로 떨어진다 — 누군지 모르는 멤버를 방장으로 세우지 않는다.
+    ///
+    /// 멤버는 이제 닉네임·프로필 이미지·탑승 횟수까지 서버가 준다(`PartyDetailResult.MemberInfo`).
+    /// 다만 별점과 인증 배지는 여전히 서버에 값이 없어 0.0 / "" 로 채운다 — 지어내지 않는다.
     fileprivate func toUser(currentUuid: String?) -> User {
         let isMe = publicId != nil && publicId == currentUuid
         return User(
@@ -143,8 +149,7 @@ extension PartyDetailResponse {
             destinationLng: destinationLng,
             estimatedFare: estimateFare,
             estimatedMinutes: estimateTime,
-            routePolyline: route,
-            driverId: taxiDriverId
+            routePolyline: route
             // 응답의 departureRadius/destinationRadius 는 **옮기지 않는다** — 서버 고정값이고
             // 아무 조회·판정도 읽지 않는다(`PartyDetailResponse.departureRadius` 주석).
         )
@@ -229,8 +234,7 @@ extension OpenPartyResponse {
             destinationLng: destinationLng,
             estimatedFare: estimateFare,
             estimatedMinutes: estimateTime,
-            routePolyline: route,
-            driverId: taxiDriverId
+            routePolyline: route
             // 반경은 상세 매퍼와 같은 이유로 옮기지 않는다(`PartyDetailResponse.departureRadius` 주석).
         )
     }
@@ -252,12 +256,6 @@ extension NewParty {
             destination: destination,
             capacity: capacity
         )
-    }
-}
-
-extension DriverSummaryResponse {
-    public func toAssignedDriver() -> AssignedDriver {
-        AssignedDriver(seats: seats, plateNumber: plateNumber, vehicleType: type)
     }
 }
 

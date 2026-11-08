@@ -35,7 +35,7 @@ final class FakeAppConfigRepository: AppConfigRepository, @unchecked Sendable {
     func getConfig() async throws -> AppConfig { config }
 }
 
-final class FakeRideRepository: RideRepository, DispatchRepository, @unchecked Sendable {
+final class FakeRideRepository: RideRepository, @unchecked Sendable {
     var ride: Ride?
     var parties: [Ride] = []
     private let lock = NSLock()
@@ -66,13 +66,9 @@ final class FakeRideRepository: RideRepository, DispatchRepository, @unchecked S
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw FakeFailure() }
     func leaveParty(partyId: Int64) async throws {}
     func finishParty(partyId: Int64) async throws {}
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw FakeFailure() }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw FakeFailure() }
-    func confirmEmergencyCall(called: Bool) async throws {}
     func previewRoute(
         departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double
     ) async throws -> RouteEstimate { throw FakeFailure() }
-    func getDriverLocation(partyId: Int64) async throws -> DriverLocation { throw FakeFailure() }
 }
 
 final class FakePlaceRepository: PlaceRepository, @unchecked Sendable {
@@ -136,11 +132,11 @@ final class FakeRideRecordRepository: RideRecordRepository, @unchecked Sendable 
     }
 }
 
-func fakeRide(id: String = "7", status: RideStatus = .recruiting, driverId: Int64? = nil) -> Ride {
+func fakeRide(id: String = "7", status: RideStatus = .recruiting) -> Ride {
     Ride(
         id: id, origin: "부산대", destination: "서면", departureLabel: "지금 출발",
         capacity: 2, members: [], farePerPerson: 0, totalFare: 0,
-        status: status, driverId: driverId
+        status: status
     )
 }
 
@@ -175,7 +171,6 @@ struct GraphHarness: View {
             rideRepository: rides,
             placeRepository: FakePlaceRepository(),
             chatRepository: chat,
-            dispatchRepository: rides,
             activePartyRepository: active,
             rideRecordRepository: FakeRideRecordRepository(),
             pendingChatRoomId: pending.roomId,
@@ -184,7 +179,6 @@ struct GraphHarness: View {
                 pending.handled += 1
             },
             installedVersionCode: installedVersionCode,
-            debuggable: true,
             probe: probe
         )
         // 씬이 없는 창의 scenePhase 는 background 라 `lifecycleEffect` 가 시작하지 않는다. 실기의 전면 상태로 맞춘다.

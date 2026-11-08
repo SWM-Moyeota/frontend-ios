@@ -89,16 +89,18 @@ public struct PartyJoinException: Throwable {
 /// 「합승 완료」 실패를 화면이 **사유별로 안내할 수 있는 형태**로 좁힌 예외
 /// (`RideRepository.finishParty` 전용).
 ///
-/// 따로 둔 이유는 이 액션의 실패가 **서로 다른 네 가지 뜻**을 갖는데 **HTTP 상태로는 갈리지 않기**
-/// 때문이다 — 403 이 둘(`NOT_PARTY_MEMBER`·`NOT_PARTY_HOST`), 409 가 둘(`PARTY_NOT_COMPLETED`·
-/// `DRIVER_ALREADY_ASSIGNED`)이다(서버 `Party.finishWithoutDriver` 의 검사 순서가 그대로
-/// 이 순서다). 예전에는 넷 다 「합승을 완료하지 못했어요」 하나로 떨어져서, **방장이 아니라서 막힌
-/// 사람이 다음에 뭘 해야 하는지 알 수 없었다** — 같은 버튼을 다시 눌러도 같은 403 이다.
+/// 따로 둔 이유는 이 액션의 **403 이 두 가지 뜻**을 갖는데 **HTTP 상태로는 갈리지 않기** 때문이다 —
+/// `NOT_PARTY_MEMBER`(이 방 멤버가 아니다)와 `NOT_PARTY_HOST`(멤버이지만 방장이 아니다)다. 예전에는
+/// 둘이 「합승을 완료하지 못했어요」 하나로 떨어져서, **방장이 아니라서 막힌 사람이 다음에 뭘 해야
+/// 하는지 알 수 없었다** — 같은 버튼을 다시 눌러도 같은 403 이다.
 ///
 /// 그래서 **상태 코드로는 폴백하지 않는다.** 403 을 「방장만 할 수 있어요」로 뭉개면 방 멤버가 아닌
-/// 사람에게 방장을 찾으라고 말하게 되고, 409 를 「정원이 안 찼어요」로 뭉개면 기사가 배정된 방에
-/// 거짓을 말하게 된다. 코드를 모르면 `code` 는 null 이고 화면은 **일반 문구**로 떨어진다 —
-/// 서버가 코드를 늘려도 앱이 틀린 말을 하지 않는다.
+/// 사람에게 방장을 찾으라고 말하게 된다. 코드를 모르면 `code` 는 null 이고 화면은 **일반 문구**로
+/// 떨어진다 — 서버가 코드를 늘려도 앱이 틀린 말을 하지 않는다.
+///
+/// 409 는 지금 `PARTY_NOT_COMPLETED` 하나뿐이다. `DRIVER_ALREADY_ASSIGNED` 도 있었지만 서버가
+/// 기사·배차와 함께 **에러 코드째 지웠다**(서버 `MatchingErrorCode` 에 없다) — 올 수 없는 코드를
+/// 받아 두면 화면이 영원히 안 쓰는 분기를 들고 있게 된다.
 ///
 /// 분기 근거를 프로퍼티로 노출하는 건 `PartyJoinException` 과 같은 이유다 — 서버 코드 문자열 비교가
 /// 화면으로 새어 나가면 서버가 enum 이름을 바꿀 때 조용히 어긋난다.
@@ -144,19 +146,14 @@ public struct PartyFinishException: Throwable {
     /// 409 `PARTY_NOT_COMPLETED` — 정원이 아직 다 차지 않았다(서버는 COMPLETED 방만 닫아 준다).
     public var isNotCompleted: Bool { code == Self.PARTY_NOT_COMPLETED }
 
-    /// 409 `DRIVER_ALREADY_ASSIGNED` — 기사가 배정됐다. 이 방은 기사 없이 끝낼 방이 아니다.
-    public var isDriverAssigned: Bool { code == Self.DRIVER_ALREADY_ASSIGNED }
-
     /// 404 `PARTY_NOT_FOUND` — 방이 사라졌다.
     public var isPartyNotFound: Bool { code == Self.PARTY_NOT_FOUND }
 
-    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다
-    /// (`PartyService.finish` → `Party.finishWithoutDriver`). 문자열을 아는 곳을 여기 하나로 묶어
-    /// 데이터 계층과 화면이 각자 들고 있지 않게 한다.
+    /// 서버 `MatchingErrorCode` 중 **이 엔드포인트가 실제로 던지는** 코드만 둔다. 문자열을 아는 곳을
+    /// 여기 하나로 묶어 데이터 계층과 화면이 각자 들고 있지 않게 한다.
     public static let NOT_PARTY_MEMBER = "NOT_PARTY_MEMBER"
     public static let NOT_PARTY_HOST = "NOT_PARTY_HOST"
     public static let PARTY_NOT_COMPLETED = "PARTY_NOT_COMPLETED"
-    public static let DRIVER_ALREADY_ASSIGNED = "DRIVER_ALREADY_ASSIGNED"
     public static let PARTY_NOT_FOUND = "PARTY_NOT_FOUND"
 }
 

@@ -21,9 +21,14 @@ import SwiftUI
 /// 서버에서 사라져(Backend #221) 「바뀌었나」를 싸게 묻는 길이 없다. 폴백 수단은 서버 쿼리 3개에 경로
 /// 폴리라인까지 실려 오는 **방 상세 하나**뿐이라, 같은 간격을 유지하면 부하가 3배가 된다.
 ///
-/// 그래서 값은 25·26 이 쓰는 상세 폴링의 **공통 하한**(`PARTY_DETAIL_POLL_FLOOR_MS`)에 맞춘다 — 그 아래로
-/// 내리면 옛 구조보다 부하가 커진다. 21 은 그 두 화면과 달리 **끊긴 동안에만** 도므로 하한을 그대로 쓰고 더
-/// 늦추지는 않는다: 끊긴 상태에서는 이게 유일한 갱신 수단이라, 들고 나는 사람이 보이기까지의 지연이 그만큼 길어진다.
+/// 그래서 6초를 **하한으로 잡는다** — 그 아래로 내리면 옛 구조(상태 조회 4초 × 쿼리 1개)보다 부하가
+/// 커진다. 부하테스트에서 방 상세 폴링이 전체 요청의 45% 였다(Backend #177). 하한을 그대로 쓰고 더
+/// 늦추지는 않는다: 끊긴 상태에서는 이게 유일한 갱신 수단이라, 들고 나는 사람이 보이기까지의 지연이
+/// 그만큼 길어진다.
+///
+/// 이 값은 예전에 25·26 과 함께 쓰던 `PresentationCore/PartyDetailPolling.swift` 의 공통 상수였다. 두 화면이
+/// 사라져 방 상세를 폴링하는 곳이 **여기 하나뿐**이 되면서 「공통 하한」이 성립하지 않아, 그 파일을 지우고
+/// 근거를 이 자리로 들였다.
 let PARTY_FALLBACK_POLL_INTERVAL_MS: Int64 = 6_000
 
 private let logger = Logger(subsystem: "com.moyeota.presentation", category: "MatchWaiting")
@@ -450,8 +455,8 @@ public final class MatchWaitingViewModel {
     /// 취소도 원본 `runCatching` 처럼 false 로 돌려준다. 호출부가 취소를 따로 다룰 일이 없다 — 폴백 루프는 다음
     /// 대기에서, 구독 패스는 `Task.checkCancellation` 에서 멈춘다. `refresh` 는 뷰모델이 살아 있는 동안 취소되지 않는다.
     ///
-    /// 내용이 똑같은 상세를 다시 흘려 넣어도 재구성은 일어나지 않는다 — `publish` 가 같은 값이면 쓰지 않는다
-    /// (25·26 이 `shouldPublishDetail` 로 명시해 둔 것과 같은 절약이다).
+    /// 내용이 똑같은 상세를 다시 흘려 넣어도 재구성은 일어나지 않는다 — `publish` 가 `MutableStateFlow` 처럼
+    /// 같은 값이면 쓰지 않는다. 들고 있던 것과 비교하는 판정을 이 자리에 따로 두지 않아도 재구성이 생기지 않는다.
     ///
     /// **읽어 온 목록에서 내가 사라졌는지도 여기서 본다**(`hasLostMembership`). SSE 403 이 같은 사실을
     /// 먼저 말해 주지만, 그 스트림이 아예 붙지 않는 망에서는 이 조회가 **유일한 창구**다 — 방 상세에는
@@ -586,7 +591,7 @@ public final class MatchWaitingViewModel {
         }
     }
 
-    /// 1차 배포 모드의 「합승 완료」 — 기사 없이 방을 닫는다. 한 명이 누르면 **모두의** 방이 끝난다.
+    /// 「합승 완료」 — 방을 닫는 **유일한** 길이다. 한 명이 누르면 **모두의** 방이 끝난다.
     ///
     /// 실패 사유가 여럿이고 **각각 다음 행동이 다르다** — 그래서 `finishFailureMessage` 로 문구를 가른다.
     /// 예전에는 네트워크 끊김도, 403 도, 409 도 전부 「합승을 완료하지 못했어요」 하나였다.
@@ -698,18 +703,24 @@ public final class MatchWaitingViewModel {
 }
 
 /// 21 대기 화면이 머무는 단계 — 아직 사람을 모으는 중(서버 ACTIVE)이거나 정원이 찬(서버 COMPLETED) 상태.
-/// 이 밖으로 나가면 배차가 시작됐거나(25 배차 현황) 방이 닫힌 것이라 폴백 폴링을 끝낸다.
+///
+/// 이 밖은 **닫힌 방뿐이다**(서버 FINISHED·CANCELED) — 기사·배차를 걷어낸 뒤로 대기 단계를 벗어나는
+/// 길이 그 하나로 줄었다. 그래서 이 판정이 false 가 되면 폴백 폴링을 끝낸다: 닫힌 방을 다시 읽어도
+/// 「닫혔다」만 재확인하고, Route 가 이미 화면을 떠나게 한다.
 func isWaitingForMembers(status: RideStatus) -> Bool {
     status == .recruiting || status == .matched
 }
 
-/// 정원이 찼는가 — 정원 충족(MATCHED) 과 그 뒤 단계(배차·운행). `complete_match` 의 판정이다.
+/// 정원이 찼는가 — 서버 COMPLETED(=`RideStatus.matched`). `complete_match` 의 판정이다.
+///
+/// 예전에는 그 뒤 단계(`DISPATCHING`·`ONGOING`)도 함께 셌다. 기사·배차를 걷어내면서 서버가 그 두
+/// status 를 **보낼 수 없게** 되어 남은 값이 하나뿐이다 — 「정원이 찼다」는 사실의 유일한 표현이다.
 ///
 /// 닫힌 방(COMPLETED·CANCELED)은 아니다: 모집 중에 30분 만료로 닫힌 방을 「매칭 완료」로 세면 퍼널이
 /// 거짓을 말한다. 판정을 status 로만 하는 이유는 `hasMemberDrift` 와 같다 — 목록은 유실될 수 있는 신호를
 /// 더해 만든 값이고, status 는 서버가 그 자리에서 판정한 값이다.
 func isMatchFull(status: RideStatus) -> Bool {
-    status == .matched || status == .dispatching || status == .ongoing
+    status == .matched
 }
 
 /// 이번 주기에 방 상세를 읽어야 하나 — **폴링 정책 그 자체**.
@@ -1012,24 +1023,31 @@ func hasMemberDrift(ride: Ride) -> Bool {
     }
 }
 
-/// 서버가 나가기를 허용하는가. 서버 `ensureRecruiting` = ACTIVE 또는 COMPLETED.
+/// 서버가 나가기를 허용하는가. 서버 `ensureRecruiting` = ACTIVE 또는 COMPLETED, 즉 **대기 단계 전부**다
+/// (`isWaitingForMembers` 와 같은 두 값).
 ///
-/// 기사 모드에선 COMPLETED 가 순간이라(곧 MATCHING) 사실상 ACTIVE 에서만 나갈 수 있고, 눌러 봐야 409 다 —
-/// 그래서 예전처럼 막는다. 1차 배포 모드에선 COMPLETED 에 머무르므로 거기서도 나갈 수 있어야 한다
-/// (나가면 서버가 방을 ACTIVE 로 되돌려 다시 모집한다).
-func canLeaveParty(status: RideStatus, taxiEnabled: Bool) -> Bool {
-    status == .recruiting || (!taxiEnabled && status == .matched)
+/// 예전에는 여기에 모드 분기가 있었다 — 기사 모드에선 COMPLETED 가 순간이라(곧 MATCHING) 사실상 ACTIVE
+/// 에서만 나갈 수 있어 정원이 찬 방의 나가기를 미리 막았다. 그 모드가 사라져 **COMPLETED 에 머무는 것이
+/// 유일한 동작**이 됐고, 거기서 나가면 서버가 방을 ACTIVE 로 되돌려 다시 모집한다. 그래서 두 값 다 참이다.
+///
+/// 그래도 함수를 남긴 이유: 닫힌 방(FINISHED·CANCELED)에서는 **거짓이어야 한다.** 서버가 방을 닫은
+/// 순간과 Route 가 그걸 알아채 화면을 떠나는 순간 사이에 한 프레임이 있고, 그 프레임에서 눌린 나가기는
+/// 409 로만 끝난다(`leaveFailureMessage`).
+func canLeaveParty(status: RideStatus) -> Bool {
+    isWaitingForMembers(status: status)
 }
 
-/// 1차 배포 모드에서 **방을 손으로 닫는 단계**인가 — 정원이 찼고(COMPLETED) 기사가 없을 때.
-/// 기사 모드에선 절대 참이 아니다(정원이 차면 곧바로 25 배차 현황으로 넘어간다).
+/// **방을 손으로 닫는 단계**인가 — 정원이 찼을 때(서버 COMPLETED = `RideStatus.matched`).
+///
+/// 기사·배차를 걷어낸 뒤로 방을 끝내는 길은 **사람이 누르는 것 하나뿐**이다. 예전에는 기사 모드에서
+/// 정원이 차면 서버가 배차를 시작해 이 단계가 아예 없었고, 그 분기를 `isMatchFull` 과 함께 지웠다.
 ///
 /// `canFinishParty` 와 **일부러 갈라 두었다**: 이쪽은 「방이 어떤 단계인가」, 저쪽은 「내가 누를 수
 /// 있는가」다. 헤드라인(「같이 탈 사람이 모였어요」)·나가기 문구(「방 나가기」)처럼 방장 여부와
 /// 상관없는 표시는 **이쪽**을 봐야 한다 — 저쪽을 보면 정원이 찬 방을 보고 있는 비방장에게
 /// 「같이 탈 사람 찾는 중」이라고 거짓말을 하게 된다.
-func isFinishStage(status: RideStatus, taxiEnabled: Bool) -> Bool {
-    !taxiEnabled && status == .matched
+func isFinishStage(status: RideStatus) -> Bool {
+    status == .matched
 }
 
 /// 「합승 완료」 버튼을 **내게** 보여 줄 때 — 손으로 닫는 단계이고(`isFinishStage`) 내가 방장일 때.
@@ -1048,8 +1066,8 @@ func isFinishStage(status: RideStatus, taxiEnabled: Bool) -> Bool {
 ///
 /// true 라도 **서버가 최종 판정이다.** 방장은 멤버가 들고 날 때마다 바뀌어 내 스냅샷이 낡을 수
 /// 있으므로 403 경로(`finishFailureMessage`)는 노출을 막은 뒤에도 그대로 남는다.
-func canFinishParty(ride: Ride, taxiEnabled: Bool) -> Bool {
-    isFinishStage(status: ride.status, taxiEnabled: taxiEnabled) && ride.isHostedByMe
+func canFinishParty(ride: Ride) -> Bool {
+    isFinishStage(status: ride.status) && ride.isHostedByMe
 }
 
 /// 비방장이 「합승 완료」가 있던 자리에서 읽는 안내문 — **버튼을 숨긴 자리를 비워 두지 않는다.**
@@ -1090,11 +1108,14 @@ private let FINISH_FAILED_MESSAGE = "합승을 완료하지 못했어요"
 /// | 방장이 아니다 | `NOT_PARTY_HOST` (403) | 가장 먼저 참여한 사람에게 눌러 달라고 한다 |
 /// | 멤버가 아니다 | `NOT_PARTY_MEMBER` (403) | 홈에서 진행 중인 방을 확인한다 |
 /// | 정원 미달 | `PARTY_NOT_COMPLETED` (409) | 인원이 모두 모일 때까지 기다린다 |
-/// | 기사 배정됨 | `DRIVER_ALREADY_ASSIGNED` (409) | 직접 끝낼 방이 아니다 — 누를 일이 없다 |
 /// | 방 없음 | `PARTY_NOT_FOUND` (404) | 홈으로 돌아간다 |
 /// | 그 밖·네트워크 | 코드 없음 | `FINISH_FAILED_MESSAGE` |
 ///
-/// **403 과 409 가 각각 두 가지 뜻**이라 상태 코드로는 가를 수 없다(서버 `Party.finishWithoutDriver` 의
+/// 「이미 기사가 배정됐다」(`DRIVER_ALREADY_ASSIGNED`)는 지웠다 — 서버에 기사를 배정하는 길이 없어
+/// **그 코드가 올 수 없다.** 올 수 없는 사유에 문구를 두면 그 자리가 영영 검증되지 않고, 그 문구를
+/// 읽은 개발자는 아직 기사가 있는 줄로 읽는다. 모르는 코드는 `FINISH_FAILED_MESSAGE` 로 떨어진다.
+///
+/// **403 이 두 가지 뜻**이라 상태 코드로는 가를 수 없다(서버 `Party.finishWithoutDriver` 의
 /// 검사 순서가 위 표 순서다). 그래서 분기 근거는 서버 코드를 도메인이 한 번 걸러 준
 /// `PartyFinishException` 의 프로퍼티다 — 20 합류의 `joinFailureMessage` 와 같은 선례다.
 ///
@@ -1113,7 +1134,6 @@ func finishFailureMessage(e: PartyFinishException) -> String {
     if e.isNotHost { return "방장만 합승을 완료할 수 있어요. 가장 먼저 참여한 분에게 부탁해 주세요" }
     if e.isNotMember { return "이 방의 참여자가 아니에요. 홈에서 진행 중인 방을 확인해 주세요" }
     if e.isNotCompleted { return "아직 정원이 다 차지 않았어요. 인원이 모두 모이면 완료할 수 있어요" }
-    if e.isDriverAssigned { return "이미 기사가 배정된 방이라 직접 완료할 수 없어요" }
     if e.isPartyNotFound { return "이미 사라진 방이에요. 홈으로 돌아가 주세요" }
     return FINISH_FAILED_MESSAGE
 }
@@ -1130,18 +1150,24 @@ private let LEAVE_FAILED_MESSAGE = "방에서 나가지 못했어요"
 ///
 /// | 사유 | 서버 코드(HTTP) | 사용자가 할 일 |
 /// |---|---|---|
-/// | 모집 단계가 아니다 | `PARTY_NOT_RECRUITING` (409) | 기다린다 — 배차가 시작돼 나갈 수 없다 |
+/// | 모집 단계가 아니다 | `PARTY_NOT_RECRUITING` (409) | 홈으로 돌아간다 — 방이 이미 닫혔다 |
 /// | 방 없음 | `PARTY_NOT_FOUND` (404) | 홈으로 돌아간다(이미 닫힌 방이다) |
 /// | 그 밖·네트워크 | 코드 없음 | `LEAVE_FAILED_MESSAGE` |
+///
+/// 409 문구가 「매칭이 시작돼 지금은 나갈 수 없어요」였던 것은 **기사 모드 이야기다.** 서버
+/// `ensureRecruiting` 은 ACTIVE·COMPLETED 를 통과시키므로, 기사·배차를 걷어낸 지금 이 409 가 오는
+/// 경우는 **방이 이미 닫혔을 때**(FINISHED·CANCELED) 하나뿐이다 — 기다려서 풀리는 일이 아니라서
+/// 「기다린다」로 안내하면 사용자를 끝난 방에 붙들어 둔다. 404 와 문구가 비슷한 것은 사정이 비슷하기
+/// 때문이다(방이 없거나, 있지만 닫혔다 — 어느 쪽이든 할 일은 홈으로 돌아가기다).
 ///
 /// 「이미 나갔다」(403 `NOT_PARTY_MEMBER`)는 **이 함수에 오지 않는다** — 데이터 계층이 성공으로
 /// 되돌리므로 화면은 나가기 성공과 같은 길(홈)로 간다.
 ///
-/// 409 에 「잠시 후 다시 시도」를 붙이지 않는다: 다시 눌러도 같은 409 다(방이 모집 단계로 돌아가는
-/// 길은 없다). 대신 **왜** 못 나가는지를 말한다 — 화면은 이 단계에서 버튼을 이미 비활성으로
-/// 바꾸지만(`canLeaveParty`) 전이를 알아채기까지 한 주기가 비고, 그 틈에 눌린 것이 여기로 온다.
+/// 「잠시 후 다시 시도」는 넣지 않는다: 다시 눌러도 같은 409 다. 화면은 닫힌 방에서 버튼을 이미
+/// 비활성으로 바꾸지만(`canLeaveParty`) 전이를 알아채기까지 한 프레임이 비고, 그 틈에 눌린 것이
+/// 여기로 온다.
 func leaveFailureMessage(e: PartyLeaveException) -> String {
-    if e.isNotRecruiting { return "매칭이 시작돼 지금은 나갈 수 없어요" }
+    if e.isNotRecruiting { return "이미 끝난 방이에요. 홈으로 돌아가 주세요" }
     if e.isPartyNotFound { return "이미 사라진 방이에요. 홈으로 돌아가 주세요" }
     return LEAVE_FAILED_MESSAGE
 }
@@ -1155,17 +1181,13 @@ func leaveFailureMessage(e: PartyLeaveException) -> String {
 public struct MatchWaitingRoute: View {
     private let repository: any RideRepository
     private let partyId: Int64?
-    private let taxiEnabled: Bool
     private let onCancelSearch: () -> Void
     private let onExitKeepingParty: () -> Void
     private let onCardClick: () -> Void
-    private let onMatchingStarted: () -> Void
     private let onPartyClosed: () -> Void
     private let onOpenChat: (() -> Void)?
 
     /// - Parameters:
-    ///   - taxiEnabled: 서버 운영 설정의 택시 모드(`AppConfig.taxiEnabled`).
-    ///     false(1차 배포)면 정원이 찼을 때 기사 대기 대신 「합승 완료」를 보여 준다.
     ///   - onExitKeepingParty: 방을 유지한 채 화면만 벗어난다(나가기가 막힌 단계의 뒤로가기)
     ///   - onPartyClosed: 방이 닫혔다(FINISHED·CANCELED) — 내가 「합승 완료」를 눌렀거나, 다른 참여자가 눌렀거나,
     ///     30분 스윕이 닫았다. 호출자는 진행 중 기억을 지우고 홈으로 보낸다.
@@ -1173,21 +1195,17 @@ public struct MatchWaitingRoute: View {
     public init(
         repository: any RideRepository,
         partyId: Int64?,
-        taxiEnabled: Bool = false,
         onCancelSearch: @escaping () -> Void = {},
         onExitKeepingParty: @escaping () -> Void = {},
         onCardClick: @escaping () -> Void = {},
-        onMatchingStarted: @escaping () -> Void = {},
         onPartyClosed: @escaping () -> Void = {},
         onOpenChat: (() -> Void)? = nil
     ) {
         self.repository = repository
         self.partyId = partyId
-        self.taxiEnabled = taxiEnabled
         self.onCancelSearch = onCancelSearch
         self.onExitKeepingParty = onExitKeepingParty
         self.onCardClick = onCardClick
-        self.onMatchingStarted = onMatchingStarted
         self.onPartyClosed = onPartyClosed
         self.onOpenChat = onOpenChat
     }
@@ -1208,11 +1226,9 @@ public struct MatchWaitingRoute: View {
             MatchWaitingContent(
                 repository: repository,
                 partyId: partyId,
-                taxiEnabled: taxiEnabled,
                 onCancelSearch: onCancelSearch,
                 onExitKeepingParty: onExitKeepingParty,
                 onCardClick: onCardClick,
-                onMatchingStarted: onMatchingStarted,
                 onPartyClosed: onPartyClosed,
                 onOpenChat: onOpenChat
             )
@@ -1237,31 +1253,25 @@ private struct MatchWaitingContent: View {
     // 여기서 다이얼로그를 띄우면 흐름을 끊는다. 이미 허용돼 있으면(14·17 에서 받았을 것) 점이 뜬다.
     @RememberMyLocationState(autoRequestPermission: false) private var myLocation
 
-    private let taxiEnabled: Bool
     private let onCancelSearch: () -> Void
     private let onExitKeepingParty: () -> Void
     private let onCardClick: () -> Void
-    private let onMatchingStarted: () -> Void
     private let onPartyClosed: () -> Void
     private let onOpenChat: (() -> Void)?
 
     init(
         repository: any RideRepository,
         partyId: Int64,
-        taxiEnabled: Bool,
         onCancelSearch: @escaping () -> Void,
         onExitKeepingParty: @escaping () -> Void,
         onCardClick: @escaping () -> Void,
-        onMatchingStarted: @escaping () -> Void,
         onPartyClosed: @escaping () -> Void,
         onOpenChat: (() -> Void)?
     ) {
         _viewModel = HostedViewModel(wrappedValue: MatchWaitingViewModel(repository: repository, partyId: partyId))
-        self.taxiEnabled = taxiEnabled
         self.onCancelSearch = onCancelSearch
         self.onExitKeepingParty = onExitKeepingParty
         self.onCardClick = onCardClick
-        self.onMatchingStarted = onMatchingStarted
         self.onPartyClosed = onPartyClosed
         self.onOpenChat = onOpenChat
     }
@@ -1294,7 +1304,6 @@ private struct MatchWaitingContent: View {
                     foundCount: ride.members.count,
                     conditionLabel: "\(ride.capacity)인",
                     myLocation: myLocation.coordinates,
-                    taxiEnabled: taxiEnabled,
                     actionInProgress: action.inProgress,
                     actionErrorMessage: action.errorMessage,
                     onCancelSearch: { viewModel.leaveParty() }, // 나가기 성공 시 14 홈
@@ -1336,12 +1345,15 @@ private struct MatchWaitingContent: View {
         .task(id: membershipLost) {
             if membershipLost { onPartyClosed() }
         }
-        // 매칭 시작 버튼이 없어졌으므로, 25 배차 현황으로의 이동은 서버 status 전이가 유일한 신호다.
-        // 그 전이는 SSE 로 오지 않지만(서버 발행처가 참여·퇴장·종료뿐) 정원이 찬 뒤 서버가 곧바로 배차를
-        // 시작하므로, 변경분에 실려 온 status 와 끊김 폴백의 상세가 함께 그 전이를 비춘다.
+        // **이 화면이 넘어가는 곳은 이제 홈뿐이다.** 예전에는 정원이 차면 서버가 기사 매칭을 시작해
+        // `DISPATCHING`·`ONGOING` 으로 전이했고, 그 두 status 가 25 배차 현황으로 보내는 신호였다
+        // (`onMatchingStarted`). 서버가 그 status 를 보낼 수 없게 되면서 **보낼 화면도, 신호도 사라졌다** —
+        // 정원이 차도 방은 MATCHED 에 머물고, 사용자는 여기서 채팅으로 만날 곳을 정한 뒤 「합승 완료」로 닫는다.
+        //
+        // 남은 전이는 「방이 닫혔다」 하나다. SSE `closed`(`MatchWaitingViewModel.partyClosed`) 가 보통 먼저
+        // 알려 주지만 그 스트림은 at-most-once 라, 끊김 폴백이 읽어 온 status 로도 같은 결론에 닿게 둔다.
         .task(id: status) {
             switch status {
-            case .dispatching, .ongoing: onMatchingStarted()
             case .completed, .canceled: onPartyClosed()
             default: break
             }

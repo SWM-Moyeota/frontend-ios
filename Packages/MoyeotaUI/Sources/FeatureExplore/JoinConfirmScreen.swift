@@ -304,9 +304,7 @@ func joinStatusBadge(status: RideStatus) -> JoinStatusBadge {
     switch status {
     case .recruiting: JoinStatusBadge(kind: .success, text: "모집 중")
     case .matched: JoinStatusBadge(kind: .waiting, text: "모집 마감된 방")
-    case .dispatching: JoinStatusBadge(kind: .waiting, text: "기사님 찾는 방")
-    case .ongoing: JoinStatusBadge(kind: .info, text: "운행 중인 방")
-    case .completed: JoinStatusBadge(kind: .info, text: "운행이 끝난 방")
+    case .completed: JoinStatusBadge(kind: .info, text: "합승이 끝난 방")
     case .canceled: JoinStatusBadge(kind: .error, text: "취소된 방")
     }
 }
@@ -319,7 +317,7 @@ enum JoinGate {
     /// 이미 내가 이 방의 멤버다 — 합류가 아니라 돌아갈 자리다
     case alreadyJoined
 
-    /// 모집 중이 아닌 방(마감·배차·운행·취소)
+    /// 모집 중이 아닌 방(모집 마감·종료·취소)
     case notRecruiting
 
     /// 상태는 모집 중인데 자리가 없다

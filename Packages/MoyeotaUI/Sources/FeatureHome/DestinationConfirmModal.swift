@@ -20,7 +20,7 @@ public struct RoutePreviewUi: Equatable, Sendable {
     public var loading: Bool
     public var estimatedMinutes: Int?
     public var estimatedFare: Int? // 미터기 추정 총액(1인 요금 아님)
-    public var encodedPath: String? // Google Encoded Polyline — 25 배차 화면과 같은 형식
+    public var encodedPath: String? // Google Encoded Polyline — 21 대기·22 상세의 지도와 같은 형식
 
     public init(
         loading: Bool = false,
@@ -67,7 +67,7 @@ func routeSummaryLabel(routePreview: RoutePreviewUi, locale: Locale = .current) 
     return nil
 }
 
-/// 시트 푸터의 요금 안내. 1인 요금 = 미터기 추정 총액 ÷ 인원, 10원 단위 반올림(`farePerPersonWon` — 19·22·25 가 쓰는
+/// 시트 푸터의 요금 안내. 1인 요금 = 미터기 추정 총액 ÷ 인원, 10원 단위 반올림(`farePerPersonWon` — 20 합류·22 상세가 쓰는
 /// 서버 값 계산식과 **같은 규칙**이다). 추정이 아직 없거나 실패했어도 CTA 는 살려 둔다.
 func fareFooterText(routePreview: RoutePreviewUi, peopleCount: Int, locale: Locale = .current) -> String {
     if routePreview.loading { return "예상 요금 계산 중이에요" }
@@ -269,7 +269,7 @@ public struct DestinationConfirmModal: View {
     }
 
     private func mapBackground(sheet: MapSheetState) -> some View {
-        // 폴리라인 디코딩은 25 배차 화면과 같은 decodePolyline 을 쓴다
+        // 폴리라인 디코딩은 21 대기·22 상세의 지도와 같은 decodePolyline 을 쓴다
         let routePath = routeMemo.value(key: routePreview.encodedPath) {
             routePreview.encodedPath.map { decodePolyline(encoded: $0) } ?? []
         }
@@ -649,10 +649,10 @@ private struct NearbyCandidateCard: View {
 /// 예상 총 요금 ÷ 인원 = 1인 요금(원), **10원 단위 반올림**.
 ///
 /// **이 규칙은 data 쪽 `farePerPerson` 과 한 글자도 다르면 안 된다.** 16 모달은 방을 만들기 **전**의
-/// 추정치(`POST /matching/routes`)를 인원으로 나누고, 19 합류·22 상세·25 배차는 서버가 방에 박아 둔
+/// 추정치(`POST /matching/routes`)를 인원으로 나누고, 20 합류·21 대기·22 상세는 서버가 방에 박아 둔
 /// 요금을 정원으로 나눈 값(`Ride.farePerPerson`)을 쓴다 — 나누는 수가 같은 값(정원)이므로 **반올림
 /// 규칙만 어긋나도 같은 방이 화면마다 다른 금액**을 보여 준다(실제로 7,900원·3인 방이 16 에서
-/// 2,630원, 25 에서 2,633원이었다). 모듈 경계(presentation ↔ data) 때문에 함수를 공유할 수 없어
+/// 2,630원, 22 에서 2,633원이었다). 모듈 경계(presentation ↔ data) 때문에 함수를 공유할 수 없어
 /// 규칙을 양쪽에 적고, 「두 값이 같다」는 `FarePerPersonRuleTest`(여기)와 `PartyMappersTest`(data)가
 /// **같은 표**로 못 박는다.
 ///

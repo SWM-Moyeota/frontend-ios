@@ -96,9 +96,6 @@ struct MatchWaitingViewModelTest {
         ) async throws -> [MatchCandidate] { throw StubError() }
         func createParty(request: NewParty) async throws -> Ride { throw StubError() }
         func joinParty(partyId: Int64) async throws -> PartyStatus { throw StubError() }
-        func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw StubError() }
-        func reportEmergency(partyId: Int64?) async throws -> Int64 { throw StubError() }
-        func confirmEmergencyCall(called: Bool) async throws { throw StubError() }
         func previewRoute(
             departureLat: Double,
             departureLng: Double,
@@ -357,7 +354,7 @@ struct MatchWaitingViewModelTest {
             httpStatus: 409
         )
         viewModel.leaveParty()
-        #expect(await eventually { viewModel.actionState.errorMessage == "매칭이 시작돼 지금은 나갈 수 없어요" })
+        #expect(await eventually { viewModel.actionState.errorMessage == "이미 끝난 방이에요. 홈으로 돌아가 주세요" })
         #expect(!viewModel.actionState.inProgress)
         #expect(!viewModel.actionState.left)
 

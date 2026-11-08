@@ -17,13 +17,19 @@ struct LeaveFailureMessageTest {
         PartyLeaveException(code: code, serverMessage: nil, httpStatus: httpStatus)
     }
 
-    /// 409 — 매칭이 시작돼 서버가 막는다(`Party.ensureRecruiting`). **「잠시 후 다시」를 붙이지 않는다**:
-    /// 방이 모집 단계로 되돌아가는 길이 없어 다시 눌러도 같은 409 다. 대신 **왜** 못 나가는지 말한다.
+    /// 409 `PARTY_NOT_RECRUITING` — 서버가 막는다(`Party.ensureRecruiting`). **「잠시 후 다시」를 붙이지
+    /// 않는다**: 방이 모집 단계로 되돌아가는 길이 없어 다시 눌러도 같은 409 다. 대신 **왜** 못 나가는지
+    /// 말한다.
+    ///
+    /// 문구가 「매칭이 시작돼 지금은 나갈 수 없어요」였던 것은 **택시 시절**의 사실이다. 서버의
+    /// `isRecruiting()` 은 `ACTIVE`·`COMPLETED` 둘 다 참이라, 기사 배차 단계가 사라진 뒤로 이 409 가
+    /// 올 수 있는 경우는 **방이 이미 닫힌 것**(FINISHED·CANCELED)뿐이다. 옛 문구는 일어날 수 없는
+    /// 일을 기다리라고 말하는 셈이었다.
     @Test("모집 단계가 아니면 왜 못 나가는지 말한다")
     func notRecruiting() {
         let message = leaveFailureMessage(e: failure(PartyLeaveException.PARTY_NOT_RECRUITING))
 
-        #expect(message == "매칭이 시작돼 지금은 나갈 수 없어요")
+        #expect(message == "이미 끝난 방이에요. 홈으로 돌아가 주세요")
     }
 
     @Test("사라진 방 - 코드가 없는 404 도 같게 다룬다")

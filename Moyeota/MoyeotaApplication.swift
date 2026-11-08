@@ -10,7 +10,7 @@ import UIKit
 
 private let logger = Logger(subsystem: "com.moyeota.app", category: "MoyeotaFcm")
 
-/// HTTP 본문 로깅·크래시 수집·개발자 옵션을 가르는 판단 근거. 원본 `isDebuggableBuild`(`FLAG_DEBUGGABLE`) 자리다.
+/// HTTP 본문 로깅·크래시 수집·행동 이벤트의 `build` 구분을 가르는 판단 근거. 원본 `isDebuggableBuild`(`FLAG_DEBUGGABLE`) 자리다.
 /// 앱 타깃의 빌드 구성을 본다 — 모듈마다 다른 값을 보는 함정을 피해 한곳에서만 판단한다.
 var isDebuggableBuild: Bool {
     #if DEBUG

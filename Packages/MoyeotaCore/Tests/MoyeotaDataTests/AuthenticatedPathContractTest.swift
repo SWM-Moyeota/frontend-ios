@@ -184,8 +184,8 @@ import Testing
     /// **삭제했으므로**(`04f6be7` — 매칭방 변화가 SSE 전용이 되어 폴링용 조회가 쓰이지 않게 됐다)
     /// 지금은 상세 하나만 남는다. `/status` 를 되살리면 **404** 다.
     ///
-    /// 25·26 의 주기 조회가 이 경로로 옮겨와 **폴링이 이 한 경로에 걸려 있다** — 틀리면 두 화면이
-    /// 배차·운행 전이를 영영 못 잡는다(그 전이에는 SSE 도 FCM 도 없다).
+    /// 상세는 방을 읽는 **유일한 경로**다 — 목록 응답에는 멤버·요금·경로가 없고, SSE 스냅샷도 이
+    /// 상세와 같은 모양을 쓴다. 틀리면 방 화면이 통째로 열리지 않는다.
     @Test("방 상세 조회 경로에는 뒤에 붙는 세그먼트가 없다")
     func partyDetailPath() {
         #expect(MatchingApiRoute.getPartyDetail.route.path == "api/v1/matching/rooms/{partyId}")
@@ -194,11 +194,6 @@ import Testing
             MatchingApiRoute(rawValue: "getPartyStatus") == nil,
             "MatchingApi 에 상태 조회(/status) 메서드가 되살아났다 — 서버에 없는 경로다"
         )
-    }
-
-    @Test("기사 위치 조회는 partyId 만 담은 경로를 쓴다")
-    func driverLocationPath() {
-        #expect(DispatchApiRoute.getDriverLocation.route.path == "api/v1/dispatch/rides/{partyId}")
     }
 
     @Test("즐겨찾기는 userId 없이 me 경로를 쓴다")
@@ -227,14 +222,6 @@ import Testing
         #expect(route == .POST(route.path), "batch-delete 가 HTTP 로 선언됐다 — DELETE 로 나가면 400 INVALID_REQUEST placeId 다")
     }
 
-    // 백엔드가 이 경로를 `{reportId}` 유무로 오간 이력이 있다. 현행 컨트롤러
-    // (report/interfaces/ReportController.java)는 reportId 없이 @CurrentUser 의 신고에 기록한다 —
-    // 컨트롤러 소스 기준(실서버 미검증)이며, 다시 바뀌면 이 테스트부터 깨지는 게 정상이다.
-    @Test("통화 결과 확정은 reportId 없는 경로를 쓴다")
-    func callResultPath() {
-        #expect(ReportApiRoute.confirmCallResult.route.path == "api/v1/reports/call-result")
-    }
-
     /// 전환된 엔드포인트에 memberId/userId 가 되살아나는 걸 막는다.
     /// 채팅이 마지막 예외였는데 백엔드가 `@CurrentUser` 로 넘기면서 **전 도메인이 대상이 됐다**
     /// (방 생성은 본문 creatorId 를 떼면서 합류됐고, 본문 쪽은
@@ -247,8 +234,8 @@ import Testing
                 .map { "\(R.self).\($0.rawValue)" }
         }
 
-        let found = leftovers(MatchingApiRoute.self) + leftovers(DispatchApiRoute.self) + leftovers(PlaceApiRoute.self)
-            + leftovers(ReportApiRoute.self) + leftovers(UserApiRoute.self) + leftovers(ChatApiRoute.self)
+        let found = leftovers(MatchingApiRoute.self) + leftovers(PlaceApiRoute.self)
+            + leftovers(UserApiRoute.self) + leftovers(ChatApiRoute.self)
 
         #expect(found.isEmpty, "토큰이 정하는 주체를 앱이 다시 보내고 있다: \(found)")
     }
@@ -328,32 +315,25 @@ import Testing
         #expect(ChatApiRoute.reportMessage.route.path == "api/v1/chat-rooms/{chatRoomId}/reports")
     }
 
-    /// 채팅 메시지 신고와 긴급 신고는 **다른 엔드포인트·다른 본문**이다. 둘을 한 DTO 로 합치려는
-    /// 시도를 막는다 — 긴급 신고에는 사유 필드가 없고(`ReportDtos` 주석: 「사유(reason) 필드는
-    /// 서버에 없다 — 임의로 추가하지 말 것」) 메시지 신고에는 `reason` 이 **필수**다. 섞으면
-    /// 서버가 400 `INVALID_REQUEST` 를 낸다(실측 2026-11-01).
+    /// **앱에 남은 신고는 채팅 메시지 신고 하나다.** 운행 중 긴급 신고(`POST /api/v1/reports` +
+    /// `PATCH /api/v1/reports/call-result`)는 기사·배차와 함께 지웠다 — 그쪽은 「파티 + 내 좌표」를
+    /// 보내고 사유 필드가 아예 없었다. 이쪽은 **메시지 1건**을 가리키고 `reason` 이 **필수**다.
     ///
-    /// 이름이 비슷해서(`reportMessage` / `report`) 다음 사람이 「신고는 하나로 합치자」로 손대기
-    /// 쉬운 자리다. 그러면 사유가 붙은 본문이 `POST /api/v1/reports` 로 가거나 좌표가 메시지
-    /// 신고로 가서 **둘 다 400** 이 된다. 신고 대상도 다르다 — 그쪽은 파티, 이쪽은 메시지 1건이다.
-    @Test("메시지 신고와 긴급 신고는 서로 다른 본문 타입을 쓴다")
-    func reportBodiesDiffer() async throws {
-        let stub = StubServer(status: 200, body: #"{"reportId":1}"#)
+    /// 그래서 본문 타입을 여기서 못 박는다: 없어진 긴급 신고를 「신고 기능이 없어졌네」 하고 이
+    /// 경로로 되살리면(좌표를 실어 보내거나 사유를 떼면) 서버가 400 `INVALID_REQUEST` 를 낸다
+    /// (실측 2026-11-01). 경로도 `/api/v1/reports` 가 아니라 `/api/v1/chat-rooms/{id}/reports` 다.
+    @Test("메시지 신고 본문은 ChatReportRequestDto 다")
+    func chatReportBody() async throws {
+        let stub = StubServer(status: 201)
         let chat = RestChatApi(rest: try stub.rest())
-        let report = RestReportApi(rest: try stub.rest())
 
         // 본문 타입은 컴파일이 못 박는다: 이 대입은 서명이 정확히 이 DTO 를 받을 때만 통과한다.
         let chatReport: (Int64, ChatReportRequestDto) async throws -> Void = chat.reportMessage(chatRoomId:request:)
-        let emergency: (ReportRequestDto) async throws -> ReportResponse = report.report(request:)
 
         try await chatReport(7, ChatReportRequestDto(chatMessageId: 2, reason: "SPAM"))
-        _ = try await emergency(ReportRequestDto(partyId: 3, latitude: 37.5, longitude: 127.0))
 
         let chatKeys = Set(try parseJSONObject(try #require(stub.requests[0].bodyString)).keys)
-        let emergencyKeys = Set(try parseJSONObject(try #require(stub.requests[1].bodyString)).keys)
         #expect(chatKeys == ["chatMessageId", "reason"])
-        #expect(emergencyKeys == ["partyId", "latitude", "longitude"])
-        #expect(chatKeys != emergencyKeys)
 
         // 메시지 신고는 **방 id 만** 경로에 담는다 — 신고자는 토큰이, 피신고자는 서버가 메시지에서
         // 찾는다. 경로에 사용자 id 가 끼면 「전환된 API 어디에도 memberId userId 가 없다」와 충돌한다.

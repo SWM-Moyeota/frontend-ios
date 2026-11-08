@@ -151,12 +151,12 @@ public final class MoyeotaNavController {
     /// 걷어낸다).
     ///
     /// 그래서 쓸 수 있는 곳은 **그 화면이 스택 바닥이어도 되는 자리**뿐이다 — 13 가입 완료·로그인
-    /// 직후의 14 홈, 33 도착 완료의 「확인」, 04/04a(로그아웃·세션 만료는 `resetAfterSignOut`).
+    /// 직후의 14 홈, 04/04a(로그아웃·세션 만료는 `resetAfterSignOut`).
     ///
-    /// 진행 화면(25·26)에는 쓰지 않는다. 목적지가 하나뿐인 스택에서 뒤로가기를 누르면 그 하나가
+    /// 진행 화면(21)에는 쓰지 않는다. 목적지가 하나뿐인 스택에서 뒤로가기를 누르면 그 하나가
     /// pop 돼 **화면 없는 빈 그래프**가 남고(`Route.loginForm` 의 onBack 이 가드를 둔 그 함정),
     /// 홈이 사라져 `navigateTab` 의 「탭 교체」도 「탭 쌓기」가 된다. 그 자리에는
-    /// `popUpTo(.home)` 으로 **홈을 바닥에 남기는** 이동을 쓴다(26 진입·`navigateToStage` 가 그 모양이다).
+    /// `popUpTo(.home)` 으로 **홈을 바닥에 남기는** 이동을 쓴다(`navigateToStage` 가 그 모양이다).
     public func resetTo(_ route: Route) {
         navigate(route) {
             $0.popUpToGraphRoot()
@@ -192,8 +192,8 @@ public final class MoyeotaNavController {
         if currentRoute == route { return }
         if !backStack.contains(where: { $0.route == .home }) {
             // 홈이 스택에 없으면 아래 두 장치(홈 pop 복귀 · popUpTo(.home))가 **둘 다 무효**라
-            // 탭이 교체가 아니라 그냥 쌓인다 — [rideOngoing, chatRoom, home] 처럼. 그러면 홈에서
-            // 뒤로가기를 누를 때마다 방금 나온 채팅방·운행 중 화면이 되살아나고, 나간 방에 재진입도
+            // 탭이 교체가 아니라 그냥 쌓인다 — [matchWaiting, chatRoom, home] 처럼. 그러면 홈에서
+            // 뒤로가기를 누를 때마다 방금 나온 채팅방·대기 화면이 되살아나고, 나간 방에 재진입도
             // 된다(403 → ErrorBox). 그때는 스택을 실제로 비워 홈을 바닥에 세운다.
             resetTo(.home)
             if route == .home { return }
@@ -207,7 +207,7 @@ public final class MoyeotaNavController {
             // 홈 경유만 초기화되는 비대칭이 있었다(합승→채팅→합승은 보존, 합승→홈→합승은 초기화).
             //
             // 다만 **탭에서 떠날 때만** 켠다. `saveState = true` 인 pop 은 엔트리의 상태를 버리지 않는다 —
-            // 21·25·26·채팅방에서 navigateTab(.home) 으로 빠져나오는 길까지 켜면 이미 떠난 방의 뷰모델이
+            // 21·22·채팅방에서 navigateTab(.home) 으로 빠져나오는 길까지 켜면 이미 떠난 방의 뷰모델이
             // 프로세스 끝까지 남는다(그 보관분을 지우는 clearBackStack 은 resetAfterSignOut 이 탭 넷에만 건다).
             let leavingTab = currentRoute.map { TabRoutes.contains($0) } == true
             if popBackStack(.home, inclusive: false, saveState: leavingTab) {
@@ -227,24 +227,23 @@ public final class MoyeotaNavController {
     /// | `Ride` | 목적지 |
     /// |---|---|
     /// | RECRUITING · MATCHED(서버 COMPLETED = 정원 충족) | 21 매칭 대기 |
-    /// | DISPATCHING (기사 미배정) | 25b — `Route.dispatchStatus` 안에서 갈린다 |
-    /// | DISPATCHING (기사 배정) | 25c·25 — 같은 라우트 |
-    /// | ONGOING | 26 운행 중 |
-    /// | 그 외(끝난 방) | 14 홈 |
+    /// | COMPLETED · CANCELED(끝난 방) | 14 홈 |
+    ///
+    /// **표가 두 줄이 된 것이 이 함수의 현재 모습이다.** 예전에는 `DISPATCHING`(→ 25 배차 현황)과
+    /// `ONGOING`(→ 26 운행 중)이 있었고, 「동승 모드인데 배차 단계가 왔다」를 잡아 서버 설정을 다시
+    /// 읽는 분기도 함께 있었다. 기사·배차를 걷어내면서 서버가 그 두 status 를 **보낼 수 없게** 되어
+    /// 목적지도, 모드가 어긋났는지 보는 판정도 사라졌다 — 지금 진행 중인 방이 갈 곳은 21 하나다.
     public static func stageRoute(_ stage: ActiveStage) -> Route? {
         switch stage {
         case .waiting: .matchWaiting
-        // 25b/25c/25 는 한 라우트가 서버 status 로 갈아 끼운다(DispatchStatusRoute)
-        case .driverSearch, .driverComing: .dispatchStatus
-        case .ongoing: .rideOngoing
         // 끝난 방을 가리키는 배너가 남아 있을 수 있다 — 없는 단계로 보내는 대신 홈으로
         case .none: nil
         }
     }
 
-    /// 단계 화면으로 가는 스택 이동. 방 id 기억·설정 재조회는 호스트의 `navigateToStage(ride:)` 가 한다.
+    /// 21 로 가는 스택 이동. 방 id 기억은 호스트의 `navigateToStage(_:)` 가 한다.
     ///
-    /// 스택은 **홈 위에 단계 화면 하나**로 만든다(resetTo 로 통째로 비우지 않는다) — 단계 화면의
+    /// 스택은 **홈 위에 21 하나**로 만든다(resetTo 로 통째로 비우지 않는다) — 21 의
     /// 뒤로가기가 갈 곳이 있어야 하고, 홈은 언제나 스택 바닥이라 popUpTo 로 나머지만 걷어내면 된다.
     public func navigateToStage(route: Route) {
         if currentRoute == route { return }
@@ -252,15 +251,14 @@ public final class MoyeotaNavController {
         // 새로 쌓으면 같은 화면이 두 겹이 되고, 뒤로가기가 자기 자신으로 돌아가는 길이 생긴다.
         if popBackStack(route, inclusive: false) { return }
         navigate(route) {
-            // 홈은 스택 바닥이라 여기까지만 걷어내면 「홈 위에 단계 화면 하나」가 된다.
-            // 26 진입도 홈을 바닥에 남기므로(DispatchStatusRoute 의 onStartRide) 홈이 없는
-            // 스택은 더 이상 만들어지지 않는다. 그래도 남았다면 `navigateTab` 이 홈부터 다시 세운다.
+            // 홈은 스택 바닥이라 여기까지만 걷어내면 「홈 위에 21 하나」가 된다.
+            // 홈이 없는 스택이 남았다면 `navigateTab` 이 홈부터 다시 세운다.
             $0.popUpTo(.home)
             $0.launchSingleTop = true
         }
     }
 
-    /// 진행 화면(21·25·26)의 「채팅 열기」. 채팅 **탭**이 아니라 채팅방을 **쌓아** 연다 —
+    /// 21 대기 화면의 「채팅 열기」. 채팅 **탭**이 아니라 채팅방을 **쌓아** 연다 —
     /// 탭으로 보내면 매칭 화면이 스택에서 빠져 돌아올 길이 없어진다(이 작업의 출발점이 된 결함).
     public func openActiveChatRoom(roomId: Int64) {
         navigate(.chatRoom(roomId: roomId))
@@ -290,7 +288,7 @@ public final class MoyeotaNavController {
 
     /// 이 칸에 묶인 상태. 칸이 스택에도 저장분에도 없게 되는 순간 함께 버린다 — 원본 엔트리의 `ViewModelStore` 와 같은 수명이다.
     ///
-    /// 그래서 원본의 세 경우가 그대로 나온다: 탭을 떠나면(`saveState`) 남고, 21·25·26 에서 홈으로 가면(`saveState` 없음)
+    /// 그래서 원본의 세 경우가 그대로 나온다: 탭을 떠나면(`saveState`) 남고, 21·22·채팅방에서 홈으로 가면(`saveState` 없음)
     /// 죽고, 로그아웃하면 전부 죽는다. `resetTo(.home)` 으로 새 홈 칸이 서면 새 상태다.
     public func retained<State: AnyObject>(for entry: NavBackStackEntry, make: () -> State) -> State {
         let key = ObjectIdentifier(State.self)

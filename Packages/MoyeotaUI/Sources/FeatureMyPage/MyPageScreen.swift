@@ -13,7 +13,7 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///
 /// 진입: 하단탭 마이페이지
 ///
-/// 구성: 프로필 카드 → 「설정」 카드 → 「안내」 카드 → 「계정」 카드 → 버전 → (디버그) 개발자 옵션
+/// 구성: 프로필 카드 → 「설정」 카드 → 「안내」 카드 → 「계정」 카드 → 버전
 ///
 /// ```
 /// 프로필 카드 (사진 · 이름 / 닉네임·사진 바꾸기)  ›
@@ -23,7 +23,6 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 /// [계정]  로그아웃 / 탈퇴하기(빨강)            ›   ← 한 카드, 구분선
 ///         탈퇴하면 계정과 저장한 정보가 사라지고…
 ///                      v1.0                      ← 가운데
-/// (디버그) 개발자 옵션
 /// ```
 ///
 /// 이동(디스크립션):
@@ -63,7 +62,10 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///   사진을 고른 적 없는 사용자에게도 서버는 기본 이미지 주소를 주므로, 로딩 중에 그리면
 ///   기본 이미지가 한 번 스쳐 보인다. 사진은 36 에서 서버가 주는 16장 중에 고른다.
 /// - 하단 버전 표기는 설치된 앱의 표시 버전이다(읽기 실패 시 숨김).
-/// - 개발자 옵션(동승/택시 모드 강제)은 `modeDebug` 가 있을 때만, 즉 디버그 빌드에서만 그린다.
+///
+/// 개발자 옵션 절은 없다. 유일한 항목이었던 「동승/택시 모드 강제」가 모드와 함께 사라졌고
+/// (서버가 `taxiEnabled` 를 보내지 않는다), 빈 절만 남기면 디버그 빌드에 아무것도 없는 제목이 뜬다.
+/// 새 개발자 옵션이 필요해지면 그때 절을 다시 세운다.
 public struct MyPageScreen: View {
     // 로그인 사용자의 표시 이름(닉네임)과 프로필 사진 주소. 조회 전에는 loading(이름·사진 자리를 비움),
     // 서버에 이름이 없으면 resolved(nil). 사진을 따로 받지 않는 이유는 아바타 호출부 주석에 적어 뒀다.
@@ -73,7 +75,6 @@ public struct MyPageScreen: View {
     private let onLogout: () -> Void               // → 04a 로그인 (세션 정리 후)
     private let onDeleteAccount: () -> Void        // → 37 회원 탈퇴
     private let onTabSelect: (MoyeotaTab) -> Void  // → 14 / 17 / 24
-    private let modeDebug: ModeDebugOptions?       // 디버그 빌드 전용 개발자 옵션. 릴리스는 nil
     // 「안내」 카드가 여는 주소. 기본값은 운영 값이고, 테스트가 빈 상태를 넣어 본다.
     private let links: SupportLinkTargets
 
@@ -87,7 +88,6 @@ public struct MyPageScreen: View {
         onLogout: @escaping () -> Void = {},
         onDeleteAccount: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
-        modeDebug: ModeDebugOptions? = nil,
         links: SupportLinkTargets = SupportLinkTargets()
     ) {
         self.userName = userName
@@ -96,7 +96,6 @@ public struct MyPageScreen: View {
         self.onLogout = onLogout
         self.onDeleteAccount = onDeleteAccount
         self.onTabSelect = onTabSelect
-        self.modeDebug = modeDebug
         self.links = links
     }
 
@@ -149,11 +148,6 @@ public struct MyPageScreen: View {
                                 .multilineTextAlignment(.center)
                                 .frame(maxWidth: .infinity)
                                 .padding(.horizontal, 16)
-                        }
-
-                        if let modeDebug {
-                            Spacer().frame(height: 32)
-                            ModeDebugSection(options: modeDebug)
                         }
 
                         Spacer().frame(height: 24)
@@ -388,86 +382,6 @@ struct ExternalLinkIcon: View {
         }
         .frame(width: 16, height: 16)
         .accessibilityHidden(true)
-    }
-}
-
-/// 디버그 빌드 전용 개발자 옵션 — 서버 모드와 무관하게 동승/택시 화면을 강제한다.
-///
-/// 택시 화면(25·26)은 서버가 배차 status 를 줘야 열리므로, 동승 서버에 택시를 강제해도 21 의 문구·버튼만
-/// 바뀐다. 25·26 까지 보려면 `TAXI_ENABLED=true` 로 띄운 로컬 서버가 필요하다(docs/MODE-ROUTES.md).
-public struct ModeDebugOptions {
-    /// 서버가 준 값(강제 미적용).
-    public var serverTaxiEnabled: Bool
-    /// 서버 응답을 받았는가. false 면 서버 값은 아직 기본값이다.
-    public var serverResolved: Bool
-    /// 강제값. nil 이면 서버 값을 따른다.
-    public var override: Bool?
-    public var onOverride: (Bool?) -> Void
-
-    public init(
-        serverTaxiEnabled: Bool,
-        serverResolved: Bool,
-        override: Bool?,
-        onOverride: @escaping (Bool?) -> Void
-    ) {
-        self.serverTaxiEnabled = serverTaxiEnabled
-        self.serverResolved = serverResolved
-        self.override = override
-        self.onOverride = onOverride
-    }
-}
-
-private struct ModeDebugSection: View {
-    let options: ModeDebugOptions
-
-    var body: some View {
-        let serverLabel = if !options.serverResolved {
-            "미수신 (기본값 동승)"
-        } else if options.serverTaxiEnabled {
-            "택시"
-        } else {
-            "동승"
-        }
-        VStack(alignment: .leading, spacing: 0) {
-            Text("개발자 옵션 · 디버그 빌드에만 보여요")
-                .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 11, fontWeight: .medium), color: GrayAsh)
-            Spacer().frame(height: 8)
-            Text("서버 모드: \(serverLabel)")
-                .moyeotaText(
-                    MaterialTextStyle.bodyLarge(fontSize: 13, fontWeight: .medium),
-                    color: MoyeotaColor.InkPrimary
-                )
-            Spacer().frame(height: 8)
-            HStack(spacing: 8) {
-                ModeChip(text: "서버 값", selected: options.override == nil) { options.onOverride(nil) }
-                ModeChip(text: "동승 강제", selected: options.override == false) { options.onOverride(false) }
-                ModeChip(text: "택시 강제", selected: options.override == true) { options.onOverride(true) }
-            }
-            Spacer().frame(height: 6)
-            Text("강제값은 앱을 완전히 종료하면 풀려요. 25 배차·26 운행 화면은 택시 모드 서버가 있어야 열려요.")
-                .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 11), color: GrayAsh)
-        }
-        .padding(.horizontal, 16)
-    }
-}
-
-private struct ModeChip: View {
-    let text: String
-    let selected: Bool
-    let onClick: () -> Void
-
-    var body: some View {
-        Button(action: onClick) {
-            Text(text)
-                .moyeotaText(
-                    MaterialTextStyle.bodyLarge(fontSize: 12, fontWeight: .bold),
-                    color: selected ? .white : GrayMute
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
-                .background(selected ? MoyeotaColor.Primary500 : MoyeotaColor.SurfaceCanvas, in: Capsule(style: .circular))
-        }
-        .buttonStyle(PressOverlayStyle(shape: Capsule(style: .circular)))
     }
 }
 

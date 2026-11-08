@@ -69,7 +69,7 @@ struct WaitingHostNoticeTest {
     func hostSeesButton() {
         let ride = fullParty([member("me", isMe: true, isHost: true), member("u2")])
 
-        #expect(canFinishParty(ride: ride, taxiEnabled: false))
+        #expect(canFinishParty(ride: ride))
     }
 
     /// **이 테스트가 이번 변경의 핵심이다.** 예전에는 여기서도 true 가 나와, 비방장이 확인
@@ -78,9 +78,9 @@ struct WaitingHostNoticeTest {
     func nonHostDoesNotSeeButton() {
         let ride = fullParty([member("me", isMe: true), member("u2", isHost: true)])
 
-        #expect(!canFinishParty(ride: ride, taxiEnabled: false))
+        #expect(!canFinishParty(ride: ride))
         // 단계 자체는 그대로다 — 헤드라인·나가기 문구는 비방장에게도 「정원이 찼다」로 보여야 한다.
-        #expect(isFinishStage(status: ride.status, taxiEnabled: false))
+        #expect(isFinishStage(status: ride.status))
     }
 
     /// 내가 목록에 아예 없으면(식별자 없는 응답·요약 없는 멤버) 「내가 방장이다」라고 말해 주는 근거가
@@ -89,7 +89,7 @@ struct WaitingHostNoticeTest {
     func notInListNoButton() {
         let ride = fullParty([member("u1", isHost: true), member("u2")])
 
-        #expect(!canFinishParty(ride: ride, taxiEnabled: false))
+        #expect(!canFinishParty(ride: ride))
     }
 
     /// 매퍼의 fail-open 폴백(`host ?? isMe`)이 살아 있는 경로 — 옛 서버를 보고 있으면 내 줄만 true 다.
@@ -100,7 +100,7 @@ struct WaitingHostNoticeTest {
         // 폴백 결과와 같은 모양: 내 줄만 isHost = true
         let ride = fullParty([member("me", isMe: true, isHost: true), member("u2"), member("u3")])
 
-        #expect(canFinishParty(ride: ride, taxiEnabled: false))
+        #expect(canFinishParty(ride: ride))
     }
 
     // ─── 안내문 ──────────────────────────────────────────────────────────────

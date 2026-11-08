@@ -175,15 +175,6 @@ private struct FakeSession: UserSession {
         #expect(try await repository.getPartiesWithin(swLat: 35.20, swLng: 129.05, neLat: 35.26, neLng: 129.12).isEmpty)
     }
 
-    @Test("배정된 기사 요약을 도메인 모델로 돌려준다")
-    func assignedDriver() async throws {
-        let driver = try await RemoteRideRepository(api: FakeMatchingApi(), session: session()).getAssignedDriver(partyId: 7)
-
-        #expect(driver.seats == 4)
-        #expect(driver.plateNumber == "12가 3456")
-        #expect(driver.vehicleType == "쏘나타")
-    }
-
     @Test("경로 미리보기는 좌표 4개를 본문으로 보내고 path 를 encodedPath 로 돌려준다")
     func previewRouteMapsPath() async throws {
         let api = FakeMatchingApi()
@@ -294,9 +285,14 @@ private struct FakeSession: UserSession {
         #expect(!error.isNotHost)
     }
 
-    /// 409 도 두 가지다 — 정원 미달과 기사 배정은 사용자가 할 일이 정반대다(기다리기 / 기다릴 일 없음).
-    @Test("합승 완료 409 두 가지를 코드로 가른다")
-    func finish409TwoMeanings() async throws {
+    /// 409 는 이제 **정원 미달 하나뿐**이다. `DRIVER_ALREADY_ASSIGNED` 는 서버가 기사·배차를 걷어내며
+    /// **에러 코드째 지웠다**(서버 `MatchingErrorCode` 에 없다).
+    ///
+    /// 그래도 그 코드가 오는 경우를 함께 고정한다 — 옛 서버나 되돌린 배포가 보낼 수 있고, 그때 앱은
+    /// **사유를 추측하지 않고** 코드만 들고 와 일반 문구로 떨어져야 한다. 삭제한 분기가 「어느 사유도
+    /// 아님」으로 떨어지는 것까지가 이 삭제의 안전함이다.
+    @Test("합승 완료 409 는 정원 미달뿐이고 사라진 기사 코드는 사유가 되지 않는다")
+    func finish409OnlyNotCompleted() async throws {
         let notCompleted = try await thrownError(PartyFinishException.self) {
             try await RemoteRideRepository(
                 api: FakeMatchingApi(finishFailure: conflict("PARTY_NOT_COMPLETED", "정원이 다 차지 않은 방입니다.")),
@@ -304,7 +300,7 @@ private struct FakeSession: UserSession {
             ).finishParty(partyId: 7)
         }
 
-        let driverAssigned = try await thrownError(PartyFinishException.self) {
+        let removedDriverCode = try await thrownError(PartyFinishException.self) {
             try await RemoteRideRepository(
                 api: FakeMatchingApi(finishFailure: conflict("DRIVER_ALREADY_ASSIGNED", "이미 기사가 배정된 방입니다.")),
                 session: session()
@@ -312,9 +308,11 @@ private struct FakeSession: UserSession {
         }
 
         #expect(notCompleted.isNotCompleted)
-        #expect(!notCompleted.isDriverAssigned)
-        #expect(driverAssigned.isDriverAssigned)
-        #expect(!driverAssigned.isNotCompleted)
+
+        #expect(removedDriverCode.code == "DRIVER_ALREADY_ASSIGNED")
+        #expect(!removedDriverCode.isNotCompleted)
+        #expect(!removedDriverCode.isNotHost)
+        #expect(!removedDriverCode.isNotMember)
     }
 
     /// **서버가 코드를 늘려도 앱이 틀린 말을 하면 안 된다.** 모르는 코드·빈 본문은 code = null 로 올라와
@@ -336,7 +334,8 @@ private struct FakeSession: UserSession {
         // 모르는 코드는 그대로 들고 오지만 어느 사유도 아니다.
         #expect(unknownCode.code == "PARTY_SOMETHING_NEW")
         #expect(!unknownCode.isNotCompleted)
-        #expect(!unknownCode.isDriverAssigned)
+        #expect(!unknownCode.isNotHost)
+        #expect(!unknownCode.isNotMember)
 
         #expect(bodyless.code == nil)
         #expect(!bodyless.isNotHost)
@@ -739,115 +738,6 @@ struct RemoteRideRepositoryBoundaryTest {
         #expect(repository.getNearbyParties() == DummyRideRepository().getNearbyParties())
     }
 
-    @Test("신고 배선이 없으면 한국어 메시지로 실패한다")
-    func reportNotWired() async throws {
-        let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session())
-
-        let report = try await thrownError(IllegalStateException.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        let confirm = try await thrownError(IllegalStateException.self) {
-            try await repository.confirmEmergencyCall(called: true)
-        }
-
-        #expect(report.message == "신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-        #expect(confirm.message == "신고 API가 아직 연결되지 않았어요 (AppContainer 배선 필요)")
-    }
-
-    @Test("신고는 파티와 실측 좌표를 위도·경도 순서로 싣고 신고 id 를 돌려준다")
-    func reportSendsLocation() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { (37.5, 127.0) }
-        )
-
-        let id = try await repository.reportEmergency(partyId: 7)
-
-        #expect(id == 99)
-        #expect(reports.requests.value == [ReportRequestDto(partyId: 7, latitude: 37.5, longitude: 127.0)])
-    }
-
-    /// 통화가 최우선이다 — 측위 실패가 신고 저장까지 막으면 안 된다.
-    @Test("측위 실패는 신고를 막지 않고 좌표만 비운다")
-    func reportSurvivesLocationFailure() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { throw IOException("권한 없음") }
-        )
-
-        _ = try await repository.reportEmergency(partyId: nil)
-
-        #expect(reports.requests.value == [ReportRequestDto(partyId: nil, latitude: nil, longitude: nil)])
-    }
-
-    @Test("측위 중 취소는 신고를 보내지 않고 그대로 올린다")
-    func reportLocationCancellation() async {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: reports,
-            currentLocation: { throw CancellationError() }
-        )
-
-        await #expect(throws: CancellationError.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        #expect(reports.requests.value.isEmpty)
-    }
-
-    @Test("신고 저장 실패는 원인과 무관하게 한국어 메시지 하나로 올린다")
-    func reportFailureMessage() async throws {
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: FakeReportApi(failure: HttpException(Response<Void>.error(500, "")))
-        )
-
-        let report = try await thrownError(IllegalStateException.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        let confirm = try await thrownError(IllegalStateException.self) {
-            try await repository.confirmEmergencyCall(called: true)
-        }
-
-        #expect(report.message == "긴급 신고 저장에 실패했어요")
-        #expect(report.cause is HttpException)
-        #expect(confirm.message == "112 통화 결과 저장에 실패했어요")
-    }
-
-    @Test("신고 저장 중 취소는 실패 메시지로 바꾸지 않는다")
-    func reportCallCancellation() async {
-        let repository = RemoteRideRepository(
-            api: FakeMatchingApi(),
-            session: session(),
-            reportApi: FakeReportApi(failure: CancellationError())
-        )
-
-        await #expect(throws: CancellationError.self) {
-            _ = try await repository.reportEmergency(partyId: 7)
-        }
-        await #expect(throws: CancellationError.self) {
-            try await repository.confirmEmergencyCall(called: false)
-        }
-    }
-
-    @Test("통화 결과는 called 값만 싣는다")
-    func confirmSendsCalled() async throws {
-        let reports = FakeReportApi()
-        let repository = RemoteRideRepository(api: FakeMatchingApi(), session: session(), reportApi: reports)
-
-        try await repository.confirmEmergencyCall(called: true)
-
-        #expect(reports.confirmed.value == [CallResultRequestDto(called: true)])
-    }
-
     @Test("SSE 를 주입하지 않으면 흐름은 바로 끝난다")
     func noEventSourceFinishes() async throws {
         var events: [PartyEvent] = []
@@ -973,27 +863,6 @@ struct RemoteRideRepositoryBoundaryTest {
     }
 }
 
-private final class FakeReportApi: ReportApi {
-    private let failure: (any Error)?
-    let requests = Locked<[ReportRequestDto]>([])
-    let confirmed = Locked<[CallResultRequestDto]>([])
-
-    init(failure: (any Error)? = nil) {
-        self.failure = failure
-    }
-
-    func report(request: ReportRequestDto) async throws -> ReportResponse {
-        if let failure { throw failure }
-        requests.append(request)
-        return ReportResponse(reportId: 99)
-    }
-
-    func confirmCallResult(request: CallResultRequestDto) async throws {
-        if let failure { throw failure }
-        confirmed.append(request)
-    }
-}
-
 private final class FakeMatchingApi: MatchingApi {
     private let joinFailure: (any Error)?
     private let finishFailure: (any Error)?
@@ -1097,10 +966,6 @@ private final class FakeMatchingApi: MatchingApi {
     func leaveParty(partyId: Int64) async throws {
         leaveCall.value = partyId
         if let leaveFailure { throw leaveFailure }
-    }
-
-    func getAssignedDriver(partyId: Int64) async throws -> DriverSummaryResponse {
-        DriverSummaryResponse(seats: 4, plateNumber: "12가 3456", type: "쏘나타")
     }
 
     // 실서버(localhost:8080) 응답을 축약한 값 — 폴리라인 필드명이 path 다.

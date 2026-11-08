@@ -68,8 +68,9 @@ public protocol UserApi: Sendable {
     /// 기준: `user/interfaces/UserController.java` — 이쪽만 프리픽스가 `/api/v1/users` 다
     /// (`getMyProfile` 의 `/api/v1/local` 과 다르다. 둘을 바꿔 쓰면 401 로 떨어져 세션 만료로 오인한다).
     ///
-    /// 이 토큰이 있어야 기사 도착 시 `FcmPassengerNotifier` 가 이 사용자를 멀티캐스트 대상에 넣는다
-    /// — 등록이 없으면 서버는 조용히 `"FCM 토큰이 등록된 승객이 없음"` 을 로그로 남기고 끝낸다.
+    /// 이 토큰이 있어야 서버가 푸시 대상에 이 사용자를 넣는다 — 약속 시간 알림(`FcmMeetingNotifier`),
+    /// 예약 방 리마인더(`FcmReservationReminderNotifier`), 채팅 메시지(`FcmChatNotifier`) 셋이다.
+    /// 등록이 없으면 서버는 조용히 넘어간다. 기사 도착 알림은 기사·배차와 함께 사라졌다.
     func registerFcmToken(request: FcmTokenRequest) async throws
 
     /// 푸시 토큰 해제. 204 No Content.

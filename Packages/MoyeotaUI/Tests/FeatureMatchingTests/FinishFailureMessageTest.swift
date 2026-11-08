@@ -49,14 +49,6 @@ struct FinishFailureMessageTest {
         )
     }
 
-    @Test("기사가 배정됐다 - 직접 끝낼 방이 아니라고 말한다")
-    func driverAssigned() {
-        #expect(
-            finishFailureMessage(e: failure(PartyFinishException.DRIVER_ALREADY_ASSIGNED))
-                == "이미 기사가 배정된 방이라 직접 완료할 수 없어요"
-        )
-    }
-
     @Test("사라진 방")
     func partyNotFound() {
         #expect(
@@ -65,8 +57,11 @@ struct FinishFailureMessageTest {
         )
     }
 
-    /// **서버가 코드를 늘려도 앱이 지어내면 안 된다.** 403·409 가 각각 두 가지 뜻이라 상태 코드만으로
+    /// **서버가 코드를 늘려도 앱이 지어내면 안 된다.** 403 이 두 가지 뜻이라 상태 코드만으로
     /// 사유를 고르면 반드시 절반은 틀린 말이 된다 — 모르면 일반 문구로 떨어진다.
+    ///
+    /// 사라진 `DRIVER_ALREADY_ASSIGNED` 도 이 경로로 떨어진다(서버가 코드를 지웠다). 옛 서버가 보내도
+    /// 앱은 지어내지 않는다 — `RemoteRideRepositoryTest` 가 그 한 건을 따로 고정한다.
     @Test("모르는 코드는 일반 문구로 떨어진다 - 상태 코드로 추측하지 않는다")
     func unknownCode() {
         #expect(finishFailureMessage(e: failure("PARTY_SOMETHING_NEW")) == general)
@@ -88,7 +83,6 @@ struct FinishFailureMessageTest {
             failure(PartyFinishException.NOT_PARTY_HOST, httpStatus: 403),
             failure(PartyFinishException.NOT_PARTY_MEMBER, httpStatus: 403),
             failure(PartyFinishException.PARTY_NOT_COMPLETED),
-            failure(PartyFinishException.DRIVER_ALREADY_ASSIGNED),
             failure(PartyFinishException.PARTY_NOT_FOUND, httpStatus: 404),
             failure(nil, httpStatus: nil),
         ]
@@ -103,7 +97,7 @@ struct FinishFailureMessageTest {
 
     /// 지키지 못할 약속을 넣지 않는다. 이 저장소는 거짓 문구 19건을 들어낸 이력이 있고
     /// (`ProductClaimsTest` 주석), 여기서 특히 위험한 건 **재시도 안내**다 —
-    /// 403·409 는 다시 눌러도 같은 답이다. 방 사정(방장·정원·기사)이 바뀌어야 풀린다.
+    /// 403·409 는 다시 눌러도 같은 답이다. 방 사정(방장·정원)이 바뀌어야 풀린다.
     @Test("다시 누르면 된다고 약속하지 않는다")
     func noRetryPromise() {
         let allMessages = allFailures.map { finishFailureMessage(e: $0) }

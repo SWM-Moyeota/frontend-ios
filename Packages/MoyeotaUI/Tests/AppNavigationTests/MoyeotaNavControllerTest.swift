@@ -27,8 +27,8 @@ private final class Marker {}
 
     @Test("navigate 는 쌓고 칸마다 다른 id 를 준다 - 같은 라우트도 두 칸이다")
     func navigatePushes() {
-        let nav = controller(.home, .rideOngoing, .chatRoom(roomId: 1), .rideOngoing)
-        #expect(stack(nav) == [.home, .rideOngoing, .chatRoom(roomId: 1), .rideOngoing])
+        let nav = controller(.home, .matchWaiting, .chatRoom(roomId: 1), .matchWaiting)
+        #expect(stack(nav) == [.home, .matchWaiting, .chatRoom(roomId: 1), .matchWaiting])
         #expect(Set(nav.backStack.map(\.id)).count == 4)
     }
 
@@ -46,7 +46,7 @@ private final class Marker {}
     @Test("popBackStack(route) 는 없으면 false, 맨 위가 그 칸이면 뺀 것이 없어 false 다")
     func popToRoute() {
         let nav = controller(.home, .destination, .joinConfirm)
-        #expect(!nav.popBackStack(.rideOngoing, inclusive: false))
+        #expect(!nav.popBackStack(.matchWaiting, inclusive: false))
         #expect(stack(nav) == [.home, .destination, .joinConfirm])
         #expect(!nav.popBackStack(.joinConfirm, inclusive: false))
         #expect(stack(nav) == [.home, .destination, .joinConfirm])
@@ -58,9 +58,9 @@ private final class Marker {}
 
     @Test("popBackStack(route) 는 위에서부터 찾고 경로 인자는 보지 않는다")
     func popMatchesDestination() {
-        let nav = controller(.home, .chatRoom(roomId: 1), .rideOngoing, .chatRoom(roomId: 2), .emergency)
+        let nav = controller(.home, .chatRoom(roomId: 1), .matchWaiting, .chatRoom(roomId: 2), .rideDetail)
         #expect(nav.popBackStack(.chatRoom(roomId: 999), inclusive: false))
-        #expect(stack(nav) == [.home, .chatRoom(roomId: 1), .rideOngoing, .chatRoom(roomId: 2)])
+        #expect(stack(nav) == [.home, .chatRoom(roomId: 1), .matchWaiting, .chatRoom(roomId: 2)])
     }
 
     @Test("previousBackStackEntry 는 바로 아래 칸이고 혼자면 nil 이다")
@@ -73,10 +73,10 @@ private final class Marker {}
 
     @Test("launchSingleTop 은 맨 위가 같은 목적지면 칸을 그대로 둔다")
     func singleTopKeepsEntry() {
-        let nav = controller(.home, .rideOngoing)
+        let nav = controller(.home, .matchWaiting)
         let id = nav.currentBackStackEntry?.id
-        nav.navigate(.rideOngoing) { $0.launchSingleTop = true }
-        #expect(stack(nav) == [.home, .rideOngoing])
+        nav.navigate(.matchWaiting) { $0.launchSingleTop = true }
+        #expect(stack(nav) == [.home, .matchWaiting])
         #expect(nav.currentBackStackEntry?.id == id)
     }
 
@@ -254,26 +254,23 @@ private final class Marker {}
 
     @Test("홈이 스택에 없으면 스택부터 다시 세운다 - 홈 탭")
     func navigateTabWithoutHomeToHome() {
-        let nav = controller(.rideOngoing, .chatRoom(roomId: 1))
+        let nav = controller(.matchWaiting, .chatRoom(roomId: 1))
         nav.navigateTab(.home)
         #expect(stack(nav) == [.home])
     }
 
     @Test("홈이 스택에 없으면 스택부터 다시 세운다 - 다른 탭은 홈 위에 선다")
     func navigateTabWithoutHomeToTab() {
-        let nav = controller(.rideOngoing, .chatRoom(roomId: 1))
+        let nav = controller(.matchWaiting, .chatRoom(roomId: 1))
         nav.navigateTab(.chat)
         #expect(stack(nav) == [.home, .chat])
     }
 
     // ─── navigateToStage ───
 
-    @Test("단계 표 - 대기·배차 둘·운행·끝")
+    @Test("단계 표 - 대기·끝")
     func stageTable() {
         #expect(MoyeotaNavController.stageRoute(.waiting) == .matchWaiting)
-        #expect(MoyeotaNavController.stageRoute(.driverSearch) == .dispatchStatus)
-        #expect(MoyeotaNavController.stageRoute(.driverComing) == .dispatchStatus)
-        #expect(MoyeotaNavController.stageRoute(.ongoing) == .rideOngoing)
         #expect(MoyeotaNavController.stageRoute(ActiveStage.none) == nil)
     }
 
@@ -304,19 +301,6 @@ private final class Marker {}
     }
 
     // ─── 화면별 이동 ───
-
-    @Test("25 → 26 은 홈을 바닥에 남긴다")
-    func dispatchToOngoingKeepsHome() {
-        let nav = controller(.home, .destination, .dispatchStatus)
-        nav.navigate(.rideOngoing) {
-            $0.popUpTo(.home)
-            $0.launchSingleTop = true
-        }
-        #expect(stack(nav) == [.home, .rideOngoing])
-        // 26 의 뒤로가기(`navigateTab(.home)`)가 빈 화면을 만들지 않는다
-        nav.navigateTab(.home)
-        #expect(stack(nav) == [.home])
-    }
 
     @Test("채팅 열기는 쌓는다 - 뒤로가기가 원래 진행 화면이다")
     func openChatStacks() {
@@ -361,20 +345,6 @@ private final class Marker {}
         nav.navigate(.joinConfirm)
         nav.navigate(.matchWaiting) { $0.popUpTo(.joinConfirm, inclusive: true) }
         #expect(stack(nav) == [.home, .explore, .matchWaiting])
-    }
-
-    @Test("21 → 25 는 21 을 지운다 - 뒤로 왔을 때 튕기는 루프를 막는다")
-    func waitingToDispatch() {
-        let nav = controller(.home, .destination, .matchWaiting)
-        nav.navigate(.dispatchStatus) { $0.popUpTo(.matchWaiting, inclusive: true) }
-        #expect(stack(nav) == [.home, .destination, .dispatchStatus])
-    }
-
-    @Test("26 → 33 은 26 을 지운다")
-    func ongoingToComplete() {
-        let nav = controller(.home, .rideOngoing)
-        nav.navigate(.rideComplete) { $0.popUpTo(.rideOngoing, inclusive: true) }
-        #expect(stack(nav) == [.home, .rideComplete])
     }
 
     @Test("12 의 닉네임 중복·재인증은 10 으로 되돌아간다 - 같은 칸이라 입력이 남는다")
@@ -452,7 +422,7 @@ private final class Marker {}
         #expect(weakExplore == nil)
     }
 
-    @Test("resetTo(.home) 로 선 새 홈은 새 상태다 - 33 「확인」")
+    @Test("resetTo(.home) 로 선 새 홈은 새 상태다 - 13 가입 완료·로그인 직후")
     func newHomeNewState() {
         let nav = controller(.home)
         let old = nav.retained(for: nav.backStack[0]) { Marker() }

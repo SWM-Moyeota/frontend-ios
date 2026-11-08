@@ -5,6 +5,9 @@ import Testing
 /// 이벤트 이름·프로퍼티 키는 **Mixpanel 대시보드가 보는 문자열**이다. 여기서 못 박아 두면 이름을 고칠 때
 /// 테스트가 먼저 깨져 「보고서도 같이 고쳐야 한다」를 알려 준다. 전역 sink 라 `DiagnosticsTest` 와 같은 틀을 쓴다
 /// (`.serialized`, 끝날 때 `reset`).
+///
+/// `finish_ride`·`trigger_emergency` 는 **지웠다** — 기사·배차와 긴급 화면이 사라져 기록할 자리가
+/// 없어졌다. 보드에 그 두 이벤트의 과거 데이터는 남아 있으니 퍼널에서 빼야 한다.
 @Suite(.serialized)
 final class AnalyticsTest {
     private final class Recorder: @unchecked Sendable {
@@ -78,8 +81,6 @@ final class AnalyticsTest {
             (.matchCompleted(capacity: 3, memberCount: 3, waitedSeconds: 10), "complete_match"),
             (.matchCanceled(capacity: 3, memberCount: 1), "cancel_match"),
             (.partyFinished(memberCount: 3), "finish_party"),
-            (.rideFinished, "finish_ride"),
-            (.emergencyTriggered, "trigger_emergency"),
             (.accountDeleted, "delete_account"),
         ]
         for (event, name) in expected {

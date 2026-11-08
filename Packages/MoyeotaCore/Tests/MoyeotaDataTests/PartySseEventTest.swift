@@ -15,6 +15,11 @@ import Testing
     private static let UUID_OTHER = "01a06145-3caf-7614-a3bd-cee6e2531999"
 
     /// 구독 직후 `connected` 의 data — 방 상세(`PartyDetailResult`)를 Jackson 이 직렬화한 모양 그대로.
+    ///
+    /// 끝의 `taxiDriverId` 는 **일부러 남겨 둔 모르는 키**다. 기사·배차가 사라져 DTO 에는 받는 자리가
+    /// 없는데 서버는 출시된 앱 호환으로 이 키를 계속 실어 보낸다 — 즉 이 줄은
+    /// 디코더가 그걸 모르는 키로 조용히 흘린다(`MoyeotaJSON`)는 계약을 지킨다.
+    /// 지우면 그 보장이 사라지고, SSE 파싱 실패는 **화면에서 "아무 일도 안 일어남"으로만 보인다**.
     private let connectedData = """
         {"id":7,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
          "destinationLng":127.0276,"departure":"서울시청","destination":"강남역","capacity":3,

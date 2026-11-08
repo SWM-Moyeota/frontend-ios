@@ -21,7 +21,7 @@ public protocol MatchingApi: Sendable {
     /// 서버 메서드에 `@CurrentUser` 가 없지만 **토큰은 필수다** — Security 가 `/api/v1/auth/` 밖
     /// 전 경로에 `anyRequest().authenticated()` 를 건다. 참여자 검사는 없다.
     ///
-    /// **주기 조회(25 배차 상태·26 운행 중)가 부르는 것도 이 호출이다.** 전용 상태 조회
+    /// **주기 조회(SSE 가 끊긴 동안의 폴백 폴링)가 부르는 것도 이 호출이다.** 가벼운 전용 상태 조회
     /// `GET /rooms/{partyId}/status` 는 백엔드에서 **삭제됐다**(`04f6be7`) — 지금 부르면 404 다.
     /// 그 호출은 서버 쿼리 1개였고 이건 **3개**(방 + 멤버 요약 + 탑승 횟수)에 route 까지 실으므로,
     /// 부르는 화면은 간격을 벌려야 한다(부하테스트에서 상세 폴링이 전체 요청의 45% — Backend #177).
@@ -50,7 +50,7 @@ public protocol MatchingApi: Sendable {
     /// 버전이라 지문을 실어 보내도 디코더가 모르는 키를 흘린다(`MoyeotaJSON`).
     ///
     /// 응답의 `status` 는 합류 **직후**의 방 상태다 — 내가 마지막 자리를 채웠으면 서버가 그 자리에서 정원 충족
-    /// 처리까지 끝내고 `COMPLETED`(1차 배포) 또는 `MATCHING`(기사 모드)을 돌려준다.
+    /// 처리까지 끝내고 `COMPLETED` 를 돌려준다(기사 모드의 `MATCHING` 은 서버에서 사라졌다).
     ///
     /// 합류자는 **Bearer 토큰에서 추출**된다(`PartyController.join(@PathVariable Long partyId, @CurrentUser Long memberId)`)
     /// — 경로의 memberId 는 사라졌다. 토큰 없이 호출하면 401 `{"code":"USER005","message":"로그인이 필요합니다."}`.
@@ -63,15 +63,11 @@ public protocol MatchingApi: Sendable {
     /// 실측: `/leave/{id}` → 204, `/leave/{id}/0` → 404. 옛 형태를 되살리면 조용히 404 다.
     func leaveParty(partyId: Int64) async throws
 
-    /// 기사 없이 합승 종료 — 1차 배포 모드 전용. 204. `PartyController.finish`.
+    /// 합승 종료. 204. `PartyController.finish`.
     /// COMPLETED(정원 참) 방에서만 되고, 참여자 누구든 한 명이 부르면 방 전체가 FINISHED 다.
+    /// 예전에는 「기사 없이 끝내는 1차 배포 모드 전용」이었지만, 기사가 운행을 끝내는 길이
+    /// 서버에서 사라져 지금은 방을 닫는 유일한 길이다.
     func finishParty(partyId: Int64) async throws
-
-    /// 200 / 404 `PARTY_NOT_FOUND`·`ASSIGNED_DRIVER_NOT_FOUND` / **409 `DRIVER_NOT_ASSIGNED`**(배정 전).
-    /// 예전 주석의 「IllegalArgumentException → 500」은 옛 서버 얘기다 — 지금은 `PartyApplicationService.getAssignDriver`
-    /// 가 `BusinessException(MatchingErrorCode.DRIVER_NOT_ASSIGNED)` 를 던지고 전역 핸들러가 409 로 답한다.
-    /// 호출자는 배정 전에 부르지 말아야 한다(`shouldFetchDriverInfo`).
-    func getAssignedDriver(partyId: Int64) async throws -> DriverSummaryResponse
 
     /// 방을 만들기 전 출발·도착 좌표만으로 예상 요금·소요시간·경로를 미리 본다.
     ///
@@ -91,13 +87,15 @@ public protocol MatchingApi: Sendable {
     /// 502 `ROUTE_SEARCH_FAILED`(OSRM 실패).
     func getRealtimeCandidates(request: RealTimeMatchingRequestDto) async throws -> [MatchCandidateResponse]
 
-    // 삭제된 엔드포인트: matching/ready(POST·DELETE), matching/start(POST).
-    // 정원이 차면 서버가 스스로 매칭을 시작하므로 앱이 트리거하지 않는다.
+    // 삭제된 엔드포인트: matching/ready(POST·DELETE), matching/start(POST) —
+    // 정원이 차면 서버가 스스로 마감하므로 앱이 트리거하지 않는다.
+    // 배정된 기사 요약(`GET matching/rooms/{partyId}/driver`)도 지웠다 — 서버가 기사·배차를
+    // 걷어내면서(Backend #297~#302) 응답을 만들 재료가 없어졌고, 부르던 화면도 함께 사라졌다.
 }
 
 enum MatchingApiRoute: String, CaseIterable, ApiRouteSet {
     case getParties, getPartiesWithin, getPartyDetail, openParty, joinParty, leaveParty, finishParty
-    case getAssignedDriver, previewRoute, getRealtimeCandidates
+    case previewRoute, getRealtimeCandidates
 
     var route: ApiRoute {
         switch self {
@@ -108,7 +106,6 @@ enum MatchingApiRoute: String, CaseIterable, ApiRouteSet {
         case .joinParty: .POST("api/v1/matching/rooms/{partyId}/join")
         case .leaveParty: .DELETE("api/v1/matching/leave/{partyId}")
         case .finishParty: .POST("api/v1/matching/rooms/{partyId}/finish")
-        case .getAssignedDriver: .GET("api/v1/matching/rooms/{partyId}/driver")
         case .previewRoute: .POST("api/v1/matching/routes")
         case .getRealtimeCandidates: .POST("api/v1/matching/rooms/realtime")
         }
@@ -152,10 +149,6 @@ struct RestMatchingApi: MatchingApi {
 
     func finishParty(partyId: Int64) async throws {
         try await rest.callUnit(MatchingApiRoute.finishParty.route, path: ["partyId": partyId])
-    }
-
-    func getAssignedDriver(partyId: Int64) async throws -> DriverSummaryResponse {
-        try await rest.call(MatchingApiRoute.getAssignedDriver.route, path: ["partyId": partyId])
     }
 
     func previewRoute(request: RouteRequestDto) async throws -> RouteEstimateResponse {

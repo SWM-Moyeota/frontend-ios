@@ -20,15 +20,16 @@ public protocol RideRepository: Sendable {
     /// GET /api/v1/matching/rooms/{partyId} — 방 상세. 참여자가 아니어도 되고(403 없음),
     /// 방이 없으면 404 PARTY_NOT_FOUND.
     ///
-    /// **주기 조회가 필요한 화면(25 배차 상태·26 운행 중)은 이걸 부른다.** 예전에는 상태·인원·지문만
-    /// 담은 가벼운 `GET /rooms/{id}/status` 를 읽고 지문이 달라진 주기에만 상세를 읽었지만,
-    /// 그 엔드포인트가 백엔드에서 사라졌다(Backend `04f6be7` — 매칭방 변화는 SSE 가 유일한 전달 경로가
-    /// 되면서 폴링용으로 만든 상태 조회와 지문이 쓰이지 않게 됐다).
+    /// **주기 조회가 필요한 화면은 이걸 부른다.** 예전에는 상태·인원·지문만 담은 가벼운
+    /// `GET /rooms/{id}/status` 를 읽고 지문이 달라진 주기에만 상세를 읽었지만, 그 엔드포인트가
+    /// 백엔드에서 사라졌다(Backend `04f6be7` — 매칭방 변화는 SSE 가 유일한 전달 경로가 되면서
+    /// 폴링용으로 만든 상태 조회와 지문이 쓰이지 않게 됐다).
     ///
     /// 그래서 **이 호출은 비싸다**: 서버가 쿼리 3개(방 + 멤버 요약 + 탑승 횟수)를 돌리고 경로 폴리라인까지
     /// 실어 온다. 부하테스트에서 방 상세 폴링이 전체 요청의 45% 였다(Backend #177). 주기 조회에 쓰는
-    /// 화면은 **간격을 충분히 벌리고**(25·26 은 7·8초), 받은 `Ride` 가 들고 있던 것과 `==` 로 같으면
-    /// 화면 상태를 갱신하지 않아야 한다(불필요한 화면 갱신 방지).
+    /// 화면은 **간격을 충분히 벌리고**, 받은 `Ride` 가 들고 있던 것과 `==` 로 같으면
+    /// 화면 상태를 갱신하지 않아야 한다(불필요한 화면 갱신 방지). 지금 주기 조회가 남아 있는
+    /// 자리는 `observePartyEvents` 가 끊긴 동안의 **폴백** 하나뿐이다.
     func getPartyDetail(partyId: Int64) async throws -> Ride
 
     /// `getPartyDetail` 과 **같은 요청**이되 방 순번(`PartyDetail.version`)까지 돌려준다.
@@ -88,10 +89,10 @@ public protocol RideRepository: Sendable {
     /// 않는다**(Redis Pub/Sub 도 at-most-once). 그래서 "SSE 가 유일한 근거"인 화면은 만들지 않는다 —
     /// 끊김 동안의 폴백 폴링과, 재연결 `PartyEvent.snapshot` 의 전체 보정이 반드시 함께 있어야 한다.
     ///
-    /// **배차·운행 전이는 이 스트림에 오지 않는다** — 서버 발행처가 참여·퇴장·종료뿐이라
-    /// MATCHING→DRIVER_ASSIGNED→IN_RIDE→FINISHED 는 신호가 없다(FCM 도 `DRIVER_ARRIVED` 하나뿐).
-    /// 그 단계의 화면(25·26)은 폴링을 유지하며, 읽는 대상은 `getPartyDetail` 이다 — 그 화면들이 쓰던
-    /// 가벼운 상태 조회가 없어졌기 때문이다(Backend `04f6be7`).
+    /// 발행처는 **참여·퇴장·종료 셋뿐**이다. 예전에는 그 뒤로 배차·운행 전이
+    /// (`MATCHING`→`DRIVER_ASSIGNED`→`IN_RIDE`)가 있었고 그 전이에는 신호가 없어 화면이 폴링으로
+    /// 메웠지만, 서버가 기사·배차를 걷어내면서 그 상태들을 **보낼 수 없게 됐다**(서버 `PartyStatus`
+    /// 에서 삭제). 지금 남은 전이는 전부 이 스트림에 실려 온다.
     ///
     /// **흐름은 SSE 403 `NOT_PARTY_MEMBER` 에서 `PartyMembershipLostException` 으로 예외 종료한다.**
     /// 「스트림이 끝났다」와 반드시 구분해야 한다 — 전자는 호출부가 **화면을 떠나야** 하고, 후자는
@@ -132,7 +133,7 @@ public protocol RideRepository: Sendable {
     /// 주므로, 재조회를 거기에 맡기는 선택도 가능하다.
     ///
     /// 돌려주는 `PartyStatus.status` 로 "내가 마지막 자리를 채웠는지"를 알 수 있다 — 정원이 차면 서버가
-    /// 그 자리에서 정원 충족 처리까지 끝낸다(COMPLETED, 기사 모드면 이어서 MATCHING). 앱은 트리거하지 않는다.
+    /// 그 자리에서 정원 충족 처리까지 끝낸다(`COMPLETED`). 앱은 트리거하지 않는다.
     ///
     /// 실패는 모두 `PartyJoinException` 으로 올라온다(401 미로그인 / 409 `ALREADY_JOINED_OTHER_PARTY`·
     /// `PARTY_FULL`·`PARTY_CLOSED` / 404 `PARTY_NOT_FOUND` / 네트워크). 화면은 그 프로퍼티로 분기한다.
@@ -158,9 +159,10 @@ public protocol RideRepository: Sendable {
     /// 404 `PARTY_NOT_FOUND` / 네트워크).
     func leaveParty(partyId: Int64) async throws
 
-    /// POST /api/v1/matching/rooms/{partyId}/finish (204) — **기사 없이** 합승을 끝낸다.
-    /// 1차 배포 모드(`AppConfig.taxiEnabled` = false)에서
-    /// 정원이 찬(`COMPLETED`) 방을 닫는다 — 한 명이 닫으면 **모두의** 방이 `FINISHED` 가 된다.
+    /// POST /api/v1/matching/rooms/{partyId}/finish (204) — 합승을 끝낸다.
+    /// 정원이 찬(`COMPLETED`) 방을 닫는 **유일한 길**이다 — 한 명이 닫으면 **모두의** 방이
+    /// `FINISHED` 가 된다. (예전에는 기사가 운행을 끝내는 길이 따로 있어 이쪽이 「1차 배포 모드 전용」
+    /// 이었지만, 기사·배차가 사라져 이제 분기가 없다.)
     ///
     /// **방장 전용이다**: Backend #237 이 이 API 를 방장에게만 허용했고, 2026-10-15 **운영에 배포됐다**.
     /// 방장은 저장되는 값이 아니라 **지금 멤버 중 가장 먼저 합류한 사람**이고(`Party.hostId()` =
@@ -173,33 +175,16 @@ public protocol RideRepository: Sendable {
     /// **「앱은 방장을 알 수 없다」로 되돌리지 말 것**: 그 서술은 `host` 가 붙기 전의 사실이고,
     /// 그대로 믿으면 방장 게이팅이 근거 없는 추정으로 읽혀 지워진다.
     ///
-    /// 실패는 모두 `PartyFinishException` 으로 올라온다 — **403·409 가 각각 두 가지 뜻**이라
-    /// (403 `NOT_PARTY_HOST`·`NOT_PARTY_MEMBER` / 409 `PARTY_NOT_COMPLETED`·`DRIVER_ALREADY_ASSIGNED`)
-    /// 화면은 상태 코드가 아니라 그 예외의 프로퍼티로 분기한다. 모르는 코드·본문 없음은 code = null 이고
-    /// 화면이 일반 문구로 떨어진다.
+    /// 실패는 모두 `PartyFinishException` 으로 올라온다 — **403 이 두 가지 뜻**이라
+    /// (`NOT_PARTY_HOST`·`NOT_PARTY_MEMBER`, 그리고 409 `PARTY_NOT_COMPLETED`) 화면은 상태 코드가
+    /// 아니라 그 예외의 프로퍼티로 분기한다. 모르는 코드·본문 없음은 code = null 이고 화면이 일반
+    /// 문구로 떨어진다.
     func finishParty(partyId: Int64) async throws
 
-    /// GET /api/v1/matching/rooms/{partyId}/driver — 배정된 기사 요약.
-    /// 기사 미배정(taxiDriverId == null)이면 서버가 예외를 던지므로 status 가
-    /// DRIVER_ASSIGNED/IN_RIDE 일 때만 호출한다. 기사명·별점은 서버에 아직 없다.
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver
-
-    // 긴급 신고 — POST /api/v1/reports, PATCH /api/v1/reports/call-result
-
-    /// 긴급 신고 접수 — 서버가 파티·위치를 저장하고 신고 id 를 반환한다.
-    /// 위치는 데이터 계층이 채운다 (주입된 측위 소스에서 실측 — 실패 시 null 전송, 서버가 허용).
-    /// 저장 실패 시 한국어 메시지의 `IllegalStateException` 을 던진다 —
-    /// 화면은 실패 여부와 무관하게 112 다이얼을 먼저 열어야 한다 (통화 최우선).
-    ///
-    /// - Parameter partyId: 신고 대상 파티. 화면에서 알 수 없으면 null (서버는 REPORT_NOT_ALLOWED
-    ///   응답 — 저장 실패로 처리된다)
-    /// - Returns: 서버가 발급한 신고 id (reportId)
-    func reportEmergency(partyId: Int64?) async throws -> Int64
-
-    /// 112 다이얼에서 앱 복귀 후 "실제로 통화했는지" 결과를 저장한다.
-    /// reportId 는 보내지 않는다 — 서버가 토큰 주체(@CurrentUser)의 신고에 기록한다.
-    /// 실패 시 한국어 메시지의 `IllegalStateException` 을 던진다.
-    func confirmEmergencyCall(called: Bool) async throws
+    // 기사 요약 조회(`GET /rooms/{partyId}/driver`)와 긴급 신고 두 개
+    // (`POST /api/v1/reports`·`PATCH /api/v1/reports/call-result`)는 **지웠다** — 기사·배차가
+    // 사라지면서 부를 화면(25 배차 상태·26 운행 중·긴급)이 함께 없어졌다. 채팅 메시지 신고
+    // (`ChatRepository.reportMessage`)는 **다른 기능이고 그대로 남아 있다**.
 
     /// POST /api/v1/matching/routes — 방을 만들기 전 좌표만으로 보는 경로 미리보기.
     ///

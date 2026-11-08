@@ -41,11 +41,11 @@ import UIKit
 
     @Test("강제 업데이트 게이트 - 서버가 막으면 스택이 헐리고 풀리면 다시 선다")
     func updateGate() async throws {
-        let graph = HostedGraph(config: AppConfig(taxiEnabled: false, minVersionCode: 200), installedVersionCode: 100)
+        let graph = HostedGraph(config: AppConfig(minVersionCode: 200), installedVersionCode: 100)
         await graph.waitUntil("스택이 헐린다") { graph.navigationController == nil && graph.probe.navController != nil }
         await graph.close()
 
-        let passing = HostedGraph(config: AppConfig(taxiEnabled: false, minVersionCode: 50), installedVersionCode: 100)
+        let passing = HostedGraph(config: AppConfig(minVersionCode: 50), installedVersionCode: 100)
         await passing.waitForViewControllers(1)
         await passing.settle()
         #expect(passing.navigationController != nil)
@@ -160,10 +160,8 @@ import UIKit
         await graph.close()
     }
 
-    @Test("21·25·26 의 스와이프는 pop 대신 홈으로 간다", arguments: [
+    @Test("21 의 스와이프는 pop 대신 홈으로 간다", arguments: [
         (RideStatus.recruiting, Route.matchWaiting),
-        (RideStatus.dispatching, Route.dispatchStatus),
-        (RideStatus.ongoing, Route.rideOngoing),
     ])
     func progressScreensInterceptSwipe(status: RideStatus, route: Route) async throws {
         let graph = HostedGraph(activeRide: fakeRide(status: status))
@@ -313,8 +311,8 @@ import UIKit
         await graph.settle(8)
         let before = graph.rides.detailRequests.count
 
-        // 덮여 있는 동안 서버가 배차로 넘어갔다 — 원본은 21 이 멈춰 있어 사용자가 돌아와야 움직인다
-        graph.rides.ride = fakeRide(status: .dispatching)
+        // 덮여 있는 동안 서버가 방을 닫았다 — 원본은 21 이 멈춰 있어 사용자가 돌아와야 움직인다
+        graph.rides.ride = fakeRide(status: .completed)
         // 폴백 주기(6초)보다 길게 기다린다
         try? await Task.sleep(for: .seconds(7))
         await graph.settle(4)
@@ -322,8 +320,8 @@ import UIKit
         #expect(graph.routes == [.home, .explore, .destination, .matchWaiting, .chatRoom(roomId: 3)], "덮인 21 이 채팅방을 걷어냈다")
 
         try graph.nav.popBackStack()
-        await graph.waitUntil("돌아오면 21 이 읽고 25 로 간다") {
-            graph.routes == [.home, .explore, .destination, .dispatchStatus]
+        await graph.waitUntil("돌아오면 21 이 읽고 홈으로 간다") {
+            graph.routes == [.home]
         }
         await graph.close()
     }

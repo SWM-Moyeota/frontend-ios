@@ -64,23 +64,19 @@ public final class RideDetailViewModel {
 public struct RideDetailRoute: View {
     private let repository: any RideRepository
     private let partyId: Int64?
-    private let taxiEnabled: Bool
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
 
-    /// - Parameter taxiEnabled: 택시 모드(서버 설정). 정원 안내 문구가 갈린다 — 기본값은 동승(모르면 동승)
     public init(
         repository: any RideRepository,
         partyId: Int64?,
-        taxiEnabled: Bool = false,
         onBack: @escaping () -> Void = {},
         onPartnerClick: @escaping (User) -> Void = { _ in },
         onLeave: @escaping () -> Void = {}
     ) {
         self.repository = repository
         self.partyId = partyId
-        self.taxiEnabled = taxiEnabled
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
@@ -93,7 +89,6 @@ public struct RideDetailRoute: View {
             RideDetailContent(
                 repository: repository,
                 partyId: partyId,
-                taxiEnabled: taxiEnabled,
                 onBack: onBack,
                 onPartnerClick: onPartnerClick,
                 onLeave: onLeave
@@ -114,7 +109,6 @@ private struct RideDetailContent: View {
     // 「내 위치에서 약 N m」용 좌표. 20 합류 확인과 같은 이유로 권한을 자동 요청하지 않는다.
     @RememberMyLocationState(autoRequestPermission: false) private var myLocation
 
-    private let taxiEnabled: Bool
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
@@ -122,13 +116,11 @@ private struct RideDetailContent: View {
     init(
         repository: any RideRepository,
         partyId: Int64,
-        taxiEnabled: Bool,
         onBack: @escaping () -> Void,
         onPartnerClick: @escaping (User) -> Void,
         onLeave: @escaping () -> Void
     ) {
         _viewModel = HostedViewModel(wrappedValue: RideDetailViewModel(repository: repository, partyId: partyId))
-        self.taxiEnabled = taxiEnabled
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
@@ -155,7 +147,6 @@ private struct RideDetailContent: View {
                 RideDetailScreen(
                     ride: ride,
                     pickupDistanceMeters: pickupDistanceMeters(ride: ride, myLocation: myLocation.coordinates),
-                    taxiEnabled: taxiEnabled,
                     onBack: onBack,
                     onPartnerClick: onPartnerClick,
                     onLeave: { viewModel.leave() } // 나가기 성공 후 onLeave 로 화면 전환

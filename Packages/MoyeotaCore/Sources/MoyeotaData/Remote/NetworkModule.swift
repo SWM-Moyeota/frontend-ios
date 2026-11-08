@@ -124,9 +124,6 @@ public enum NetworkModule {
             matching: RestMatchingApi(rest: rest),
             place: RestPlaceApi(rest: rest),
             chat: RestChatApi(rest: rest),
-            dispatch: RestDispatchApi(rest: rest),
-            // 신고 두 엔드포인트 모두 @CurrentUser — 반드시 Bearer 가 붙는 apiClient 로 만든다.
-            report: RestReportApi(rest: rest),
             // 인증 API 와 이름이 비슷하지만 반드시 이쪽(apiClient) 이다 — 내 정보 조회는 토큰 필수다.
             user: RestUserApi(rest: rest)
         )
@@ -184,13 +181,13 @@ public enum NetworkModule {
         /// 이 세션에만 `URLCache`(디스크 32MB)가 있다. 원본에서 이미지 로더(Coil)가 맡던 캐시의 자리다.
         public let imageClient: URLSession
         public let auth: any AuthApi
-        /// 서버 운영 설정(택시 모드 등). 토큰 없는 클라이언트
+        /// 서버 운영 설정(강제 업데이트 기준 등). 토큰 없는 클라이언트
         public let config: any ConfigApi
         public let matching: any MatchingApi
         public let place: any PlaceApi
         public let chat: any ChatApi
-        public let dispatch: any DispatchApi
-        public let report: any ReportApi
         public let user: any UserApi
+        // 배차(`DispatchApi`)와 긴급 신고(`ReportApi`)는 **없다** — 기사·배차를 걷어내면서 두
+        // 인터페이스를 지웠다. 채팅 메시지 신고는 `chat` 안에 있다(다른 기능이다).
     }
 }
