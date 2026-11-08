@@ -1,21 +1,40 @@
 import Foundation
 import MoyeotaDomain
 
-// 방 상세의 멤버는 이제 닉네임·프로필 이미지·탑승 횟수까지 서버가 준다(PartyDetailResult.MemberInfo).
-// 다만 별점과 인증 배지는 여전히 서버에 값이 없어 0.0 / "" 로 채운다 — 지어내지 않는다.
+/// 서버 `PartyStatus` 이름 → 도메인 `RideStatus`. 서버가 보낼 수 있는 값은 **이 네 개뿐**이다.
+///
+/// `MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE` 분기는 지웠다 — 기사·배차를 걷어내면서 서버 enum 에서
+/// 그 세 값이 **삭제됐다**(Backend #297~#302). 되살리면 짝이 될 `RideStatus` 가 없다.
+///
+/// **`default` 는 건드리지 말 것.** 모르는 문자열을 `RideStatus.recruiting` 으로 떨어뜨리는 이 한 줄이
+/// 지금은 **옛 서버와 앱 사이의 유일한 안전장치**다: 아직 배포되지 않은 서버가 `MATCHING` 을 보내도
+/// 방 상세 파싱이 살아 있어야 21 대기 화면이 열린다. 지우거나 `fatalError(...)` 로 바꾸면 그 순간
+/// 롤아웃 중인 사용자의 방 화면이 통째로 죽는다.
 public func partyStatusToRideStatus(status: String) -> RideStatus {
     switch status {
     case "ACTIVE": return .recruiting
     case "COMPLETED": return .matched
-    case "MATCHING": return .dispatching
-    // 기사 배정 완료 = 배차 확정. 아직 탑승 전이라 배차 단계로 본다.
-    case "DRIVER_ASSIGNED": return .dispatching
-    case "IN_RIDE": return .ongoing
     case "FINISHED": return .completed
-    // 정상 종료(FINISHED)와 갈라 둔다 — 기사 매칭 3분 타임아웃도 여기로 떨어지는데,
-    // 25b 가 「기사님을 찾지 못했어요」를 띄우려면 완료와 구분돼야 한다.
+    // 정상 종료(FINISHED)와 갈라 둔다 — 아무도 출발지에 오지 않아 서버가 자동 정리한 방이 여기로
+    // 떨어지는데, 「탄 적 없이 닫힌 방」을 완료와 같은 값으로 접으면 둘을 구분할 수 없다.
     case "CANCELED": return .canceled
     default: return .recruiting
+    }
+}
+
+/// 서버 `RoomType` 이름 → 도메인 `RoomType`. **이름이 한쪽만 다른 게 이 함수의 존재 이유다**:
+/// 서버 enum 은 `REALTIME`·`RESERVED` 인데 도메인은 `realtime`·`reservation` 이라, 서버 문자열을
+/// 이름 그대로 읽으면(Kotlin `enumValueOf`, Swift 라면 raw value) 예약 방이 **조용히 실시간 방으로** 읽힌다.
+///
+/// `"RESERVATION"` 도 함께 받는 건 서버가 나중에 enum 이름을 도메인 쪽에 맞출 수 있기 때문이다 —
+/// 그때 이 함수를 안 고쳐도 맞게 돈다. 지금 실제로 오는 값은 `RESERVED` 다.
+///
+/// **모르는 값·누락은 `RoomType.realtime` 이다.** `partyStatusToRideStatus` 의 `default` 와 같은 성격의
+/// 안전장치이고, 방향을 고른 근거(틀렸을 때의 비대칭한 대가)는 `RoomType` 주석의 표에 있다.
+func toRoomType(roomType: String?) -> RoomType {
+    switch roomType {
+    case "RESERVED", "RESERVATION": return .reservation
+    default: return .realtime
     }
 }
 
@@ -80,6 +99,9 @@ extension PartyDetailResponse.MemberInfo {
     ///
     /// 요약 없는 멤버(전 필드 null)에서는 publicId 가 null 이라 `User.isMe` 가 false 이므로 이 폴백도
     /// false 로 떨어진다 — 누군지 모르는 멤버를 방장으로 세우지 않는다.
+    ///
+    /// 멤버는 이제 닉네임·프로필 이미지·탑승 횟수까지 서버가 준다(`PartyDetailResult.MemberInfo`).
+    /// 다만 별점과 인증 배지는 여전히 서버에 값이 없어 0.0 / "" 로 채운다 — 지어내지 않는다.
     fileprivate func toUser(currentUuid: String?) -> User {
         let isMe = publicId != nil && publicId == currentUuid
         return User(
@@ -93,7 +115,12 @@ extension PartyDetailResponse.MemberInfo {
             imageUrl: imageUrl,
             isMe: isMe,
             // null = 「서버가 말하지 않았다」. false 와 갈라 두는 이유는 위 표에 있다.
-            isHost: host ?? isMe
+            isHost: host ?? isMe,
+            // 같은 「말하지 않았다」인데 **반대로** 떨어뜨린다 — 나에게도 false 다. isHost 처럼 isMe 로
+            // 폴백하면 「출발」 버튼이 열리고, 서버는 409 NOT_ARRIVED 로 막는다(누를 수 없는 버튼).
+            // false 쪽 오답은 멱등한 「출발지 도착했어요」가 한 번 더 보이는 것뿐이다
+            // (`User.hasArrived` 의 표).
+            hasArrived: arrived ?? false
         )
     }
 }
@@ -144,9 +171,15 @@ extension PartyDetailResponse {
             estimatedFare: estimateFare,
             estimatedMinutes: estimateTime,
             routePolyline: route,
-            driverId: taxiDriverId
             // 응답의 departureRadius/destinationRadius 는 **옮기지 않는다** — 서버 고정값이고
             // 아무 조회·판정도 읽지 않는다(`PartyDetailResponse.departureRadius` 주석).
+            departureAt: departureAt,
+            // 서버가 confirmed 를 말하지 않았으면(옛 배포·누락) **서버와 같은 식으로 셈한다** —
+            // 서버 `Party.isConfirmed()` 도 `isReservation() || departureAt != null` 이고, 예약 방은
+            // 만들 때 출발 시각을 정하므로 departureAt 이 늘 있다(두 식이 같은 답을 낸다).
+            // 그냥 false 로 접으면 확정된 방에 「약속 시간 정하기」를 다시 띄워 409 ALREADY_CONFIRMED 를 만든다.
+            isConfirmed: confirmed ?? (departureAt != nil),
+            roomType: toRoomType(roomType: roomType)
         )
     }
 }
@@ -200,6 +233,25 @@ extension PartySseEvent {
                 hostPublicId: payload.hostPublicId?.takeIfNotBlank(),
                 version: payload.version
             )
+        case .recruitingClosed(let payload):
+            return .recruitingClosed(
+                // 상태 문자열을 **그대로** 올린다 — 도메인 계약이 String 이다(RideStatus 가 아니다).
+                // 두 신호의 status 는 지금 늘 "COMPLETED" 이고, 화면은 「모집이 끝났다」·「확정됐다」는
+                // 사실로 쓴다. 단계 판정의 단일 창구는 여전히 snapshot/상세의 RideStatus 다.
+                status: payload.status,
+                version: payload.version
+            )
+        case .confirmed(let payload):
+            return .confirmed(
+                status: payload.status,
+                // 빈 문자열은 null 로 접는다 — 화면이 「약속 시간을 모른다」를 한 가지 모양으로만 보게 한다
+                // (member-left 의 publicId 와 같은 정책). null 이면 상세를 다시 읽어야 한다.
+                departureAt: payload.departureAt?.takeIfNotBlank(),
+                version: payload.version
+            )
+        // publicId 가 없는 프레임은 여기까지 오지 않는다 — 수신기가 버린다(`PartySseEvent.memberArrived` 주석).
+        case .memberArrived(let publicId, let version):
+            return .memberArrived(publicId: publicId, version: version)
         case .closed:
             return .closed
         case .disconnected:
@@ -230,8 +282,12 @@ extension OpenPartyResponse {
             estimatedFare: estimateFare,
             estimatedMinutes: estimateTime,
             routePolyline: route,
-            driverId: taxiDriverId
             // 반경은 상세 매퍼와 같은 이유로 옮기지 않는다(`PartyDetailResponse.departureRadius` 주석).
+            departureAt: departureAt,
+            // 생성 응답에는 confirmed 가 **없다** — 상세의 누락 경로와 같은 식으로 셈한다(서버 `isConfirmed()`).
+            // 실시간 방을 막 만든 직후라 실제로는 늘 false 다.
+            isConfirmed: departureAt != nil,
+            roomType: toRoomType(roomType: roomType)
         )
     }
 }
@@ -252,12 +308,6 @@ extension NewParty {
             destination: destination,
             capacity: capacity
         )
-    }
-}
-
-extension DriverSummaryResponse {
-    public func toAssignedDriver() -> AssignedDriver {
-        AssignedDriver(seats: seats, plateNumber: plateNumber, vehicleType: type)
     }
 }
 
@@ -370,6 +420,76 @@ func partyFinishException(
     // 응답 자체를 못 받았다(연결 거부·타임아웃·DNS) 또는 그 밖의 실패. 서버가 말해 준 사유가 없으므로
     // code 는 null 이고, 화면은 일반 문구로 안내한다.
     return PartyFinishException(code: nil, serverMessage: nil, cause: failure)
+}
+
+/// 약속 확정·도착·출발 실패 → 액션마다 다른 예외. **셋을 한 함수로 합치지 않는 이유**는 예외를 셋으로
+/// 나눈 이유와 같다(`PartyConfirmException` 주석의 표): 같은 서버 코드가 액션에 따라 다른 문장을
+/// 요구하므로, 「어느 버튼이었나」를 타입이 들고 있어야 한다.
+///
+/// 세 함수의 모양은 `partyFinishException` 과 같다 — `error` 는 이미 읽어 둔 본문(`readApiError`)이고
+/// (**본문은 한 번만 읽는다**), 응답을 못 받은 실패(code = null)와 모르는 코드는 둘 다 어느 사유로도
+/// 읽히지 않아 화면이 일반 문구를 쓴다. `isNetwork` 같은 구분은 두지 않는다: 이 셋은 그 두 경우의 **대응이
+/// 같다**(다시 시도). 쓰지 않을 구분을 노출하면 나중에 네트워크 실패에 「더 가까이 가 주세요」가 붙는다.
+func partyConfirmException(
+    failure: any Error,
+    error: ApiErrorDto?
+) -> PartyConfirmException {
+    if let failure = failure as? PartyConfirmException { return failure }
+
+    if let http = failure as? HttpException {
+        return PartyConfirmException(
+            code: error?.code,
+            serverMessage: error?.message,
+            httpStatus: http.code(),
+            cause: failure
+        )
+    }
+
+    return PartyConfirmException(code: nil, serverMessage: nil, cause: failure)
+}
+
+/// 출발지 도착 실패 → `PartyArriveException`. `partyConfirmException` 과 같은 모양·같은 이유다.
+func partyArriveException(
+    failure: any Error,
+    error: ApiErrorDto?
+) -> PartyArriveException {
+    if let failure = failure as? PartyArriveException { return failure }
+
+    if let http = failure as? HttpException {
+        return PartyArriveException(
+            code: error?.code,
+            serverMessage: error?.message,
+            httpStatus: http.code(),
+            cause: failure
+        )
+    }
+
+    return PartyArriveException(code: nil, serverMessage: nil, cause: failure)
+}
+
+/// 출발(방 종료) 실패 → `PartyDepartException`. `partyConfirmException` 과 같은 모양이다.
+///
+/// **성공을 실패로 보이게 하는 되돌림은 없다.** 나가기처럼 403 을 성공으로 접지 않는 이유는 이 액션의
+/// 「이미 됐다」가 409 `PARTY_CLOSED` 로 오는데 그 코드가 **다른 멤버가 먼저 눌렀다**와 **만료로
+/// 취소됐다**를 함께 뜻하기 때문이다 — 둘 다 방이 끝난 건 같지만 「탔다/못 탔다」가 갈려서,
+/// 데이터 계층이 성공으로 접으면 화면이 「출발했어요」를 취소된 방에도 말한다.
+/// 종료 처리는 SSE `closed` 와 상세 재조회가 맡는다.
+func partyDepartException(
+    failure: any Error,
+    error: ApiErrorDto?
+) -> PartyDepartException {
+    if let failure = failure as? PartyDepartException { return failure }
+
+    if let http = failure as? HttpException {
+        return PartyDepartException(
+            code: error?.code,
+            serverMessage: error?.message,
+            httpStatus: http.code(),
+            cause: failure
+        )
+    }
+
+    return PartyDepartException(code: nil, serverMessage: nil, cause: failure)
 }
 
 /// 실시간 매칭 후보 조회 실패 → `RealtimeMatchException`. `partyFinishException` 과 같은 경계다.

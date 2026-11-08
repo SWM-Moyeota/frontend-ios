@@ -102,7 +102,7 @@ import Testing
         #expect(ChatReportReason.etc.requiresDescription)
         #expect(!ChatReportReason.abuse.requiresDescription)
         #expect(ChatReportReason.MIN_MESSAGE_ID == 1)
-        #expect(AppConfig.Default == AppConfig(taxiEnabled: false, minVersionCode: nil, recommendedVersionCode: nil))
+        #expect(AppConfig.Default == AppConfig(minVersionCode: nil, recommendedVersionCode: nil))
     }
 
     @Test("UserSession 의 기본 구현은 authState 를 읽는다")

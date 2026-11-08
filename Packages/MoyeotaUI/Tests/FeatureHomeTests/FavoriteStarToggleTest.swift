@@ -107,9 +107,27 @@ import Testing
         #expect(await repository.loadCalls == loadsBefore + 1, "실패했는데 목록을 다시 받지 않았다")
     }
 
-    /// 원본은 OkHttp `IOException("Canceled")` 을 `catch (e: Exception)` 로 받아 문구를 세운다. 조용히 끝내면
-    /// ★ 를 눌렀는데 지워지지도 않고 아무 말도 없는 화면이 된다.
-    @Test("빼기가 살아 있는 태스크의 URLError(.cancelled) 로 끝나면 실패 문구를 세우고 목록을 다시 받는다")
+    /// 못 박는 것: **담기와 빼기가 같은 비행기모드에서 같은 말을 한다.**
+    /// 화면마다 다른 말을 하면 사용자가 원인을 자기 조작에서 찾는다.
+    @Test("빼기의 네트워크 실패도 담기와 같은 문구를 쓴다")
+    func removeNetworkFailureUsesSharedMessage() async {
+        let repository = FakePlaceRepository(
+            favorites: [favorite(19, "판교역")],
+            singleDeleteError: FavoritePlaceException(code: nil, serverMessage: nil, isNetwork: true)
+        )
+        let viewModel = DestinationViewModel(repository: repository)
+        await viewModel.initialLoad?.value
+
+        await viewModel.removeFavorite(id: 19)?.value
+
+        #expect(viewModel.uiState.favoriteActionMessage == FavoriteNetworkFailureMessage)
+    }
+
+    // ─── 원본에 없는 iOS 전용 확인 ───
+
+    /// 원본은 OkHttp `IOException("Canceled")` 을 `favoritePlaceCall` 이 `isNetwork` 인 `FavoritePlaceException` 으로
+    /// 감싸 네트워크 문구를 세운다. 조용히 끝내면 ★ 를 눌렀는데 지워지지도 않고 아무 말도 없는 화면이 된다.
+    @Test("빼기가 살아 있는 태스크의 URLError(.cancelled) 로 끝나면 네트워크 문구를 세우고 목록을 다시 받는다")
     func removeLiveUrlCancelIsFailure() async {
         let repository = FakePlaceRepository(favorites: [favorite(19, "판교역")], singleDeleteError: URLError(.cancelled))
         let viewModel = DestinationViewModel(repository: repository)
@@ -118,7 +136,7 @@ import Testing
 
         await viewModel.removeFavorite(id: 19)?.value
 
-        #expect(viewModel.uiState.favoriteActionMessage == "자주 가는 곳에서 빼지 못했어요")
+        #expect(viewModel.uiState.favoriteActionMessage == FavoriteNetworkFailureMessage)
         #expect(await repository.loadCalls == loadsBefore + 1)
         #expect(!viewModel.uiState.favoriteActionLoading)
     }

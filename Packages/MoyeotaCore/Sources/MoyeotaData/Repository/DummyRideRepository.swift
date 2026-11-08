@@ -107,8 +107,62 @@ public final class DummyRideRepository: RideRepository {
 
     public func finishParty(partyId: Int64) async throws {}
 
-    public func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver {
-        AssignedDriver(seats: 4, plateNumber: "12가 3456", vehicleType: "쏘나타")
+    // 약속 확정·도착·출발도 성공한 척만 한다. 더미는 방 상태를 들고 있지 않아 **다음 호출에 아무
+    // 영향이 없다** — 확정한 뒤 getPartyDetail 을 읽어도 isConfirmed 는 여전히 false 다.
+    // 그걸 흉내 내려면 더미가 방의 생애를 갖게 되는데, 그러면 「서버 없이 화면이 열리는가」만 보려는
+    // 이 저장소가 두 번째 서버 구현이 된다(실패 경로는 흉내 낼 수 없으니 반쪽짜리다).
+    // 확정/도착/출발이 실제로 어떤 모양인지는 FakeMatchingApi 를 쓰는 RemoteRideRepositoryTest 가 본다.
+    public func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+
+    public func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
+
+    public func departParty(partyId: Int64) async throws {}
+
+    /// 예약 생성도 **성공한 척만 한다.** 돌려주는 방이 실시간 생성(`createParty`)과 다른 점은 둘이고
+    /// 둘 다 서버가 실제로 그렇게 주는 값이다: `RoomType.reservation` 이고 처음부터 확정이다.
+    /// 요금·경로를 지어내지 않는 것도 서버와 같다 — 예약 방은 서버가 경로를 추정하지 않는다.
+    public func createReservation(request: NewReservation) async throws -> Ride {
+        Ride(
+            id: "dummy-reservation",
+            origin: request.departure,
+            destination: request.destination,
+            departureLabel: "",
+            capacity: request.capacity,
+            members: [me],
+            farePerPerson: 0,
+            totalFare: 0,
+            status: .recruiting,
+            originLat: request.departureLat,
+            originLng: request.departureLng,
+            destinationLat: request.destinationLat,
+            destinationLng: request.destinationLng,
+            departureAt: request.departureAt,
+            isConfirmed: true,
+            roomType: .reservation
+        )
+    }
+
+    // 예약 조회 셋은 **빈 목록이 정답이다.** 더미에는 예약 방이 없고, 지어내면 프리뷰에서
+    // 「11월 13일 08:00 출발」 같은 **실재하지 않는 약속**을 그려 준다 — 실시간 후보
+    // (findRealtimeCandidates)를 빈 목록으로 둔 것과 같은 근거다. 서버 없이 화면이 열리는지만 본다.
+    public func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+
+    public func getReservationsSoon(
+        swLat: Double,
+        swLng: Double,
+        neLat: Double,
+        neLng: Double
+    ) async throws -> [Ride] {
+        []
+    }
+
+    public func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] {
+        []
     }
 
     /// 직선거리 기준으로 요금·시간을 지어낸다(서울 택시 기본요금 4,800원 + km 당 1,300원,
@@ -165,11 +219,6 @@ public final class DummyRideRepository: RideRepository {
         }
         out.unicodeScalars.append(UnicodeScalar(UInt8(v + 63)))
     }
-
-    // 신고도 성공한 척만 한다 — 프리뷰/오프라인에서 UI 흐름(다이얼→복귀 다이얼로그) 확인용.
-    public func reportEmergency(partyId: Int64?) async throws -> Int64 { 1 }
-
-    public func confirmEmergencyCall(called: Bool) async throws {}
 }
 
 /// Kotlin `Double.roundToInt()` — 정확히 .5 는 양의 무한대 쪽으로 올리고, 32비트 `Int` 범위를 넘으면

@@ -15,16 +15,16 @@ import UIKit
 
     @Test("접힘 요약 행은 제목 27.8 + 부제 24 다")
     func peekRowHeight() {
-        let filled = height(PeekSummaryRow(count: 3, myPartyHidden: false, onRaise: {}))
-        let empty = height(PeekSummaryRow(count: 0, myPartyHidden: false, onRaise: {}))
+        let filled = height(PeekSummaryRow(mode: .realtime, count: 3, dateLabel: nil, myPartyHidden: false, statusText: nil, onRaise: {}))
+        let empty = height(PeekSummaryRow(mode: .realtime, count: 0, dateLabel: nil, myPartyHidden: false, statusText: nil, onRaise: {}))
         #expect(abs(filled - 51.8) < 0.4)
         #expect(abs(empty - 51.8) < 0.4)
     }
 
     @Test("목록 헤더 행은 25.1 이다")
     func listHeaderHeight() {
-        let half = height(ListHeaderRow(count: 3, mapShown: true, onToggleMap: {}))
-        let full = height(ListHeaderRow(count: 3, mapShown: false, onToggleMap: {}))
+        let half = height(ListHeaderRow(mode: .realtime, count: 3, dateLabel: nil, destinationSent: false, mapShown: true, onToggleMap: {}))
+        let full = height(ListHeaderRow(mode: .realtime, count: 3, dateLabel: nil, destinationSent: false, mapShown: false, onToggleMap: {}))
         #expect(abs(half - 25.1) < 0.4)
         #expect(abs(full - 25.1) < 0.4)
     }

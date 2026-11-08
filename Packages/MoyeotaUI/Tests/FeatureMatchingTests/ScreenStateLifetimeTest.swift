@@ -84,12 +84,12 @@ private final class CoveredScreen {
 
     @Test("21 은 그만 찾기 확인창을 연 채 가렸다 돌아오면 닫혀 있다")
     func waitingForgetsDialog() async {
-        let closed = CoveredScreen(MatchWaitingScreen(ride: lifetimeRide))
+        let closed = CoveredScreen(MatchWaitingScreen(ride: lifetimeRide, now: lifetimeNow))
         await closed.settle()
         let bright = closed.brightness()
         closed.close()
 
-        let screen = CoveredScreen(MatchWaitingScreen(ride: lifetimeRide).seeded(cancelConfirming: true))
+        let screen = CoveredScreen(MatchWaitingScreen(ride: lifetimeRide, now: lifetimeNow).seeded(cancelConfirming: true))
         defer { screen.close() }
         await screen.settle()
         #expect(screen.brightness() < bright - 0.2, "확인창이 어둡기를 깔아야 시험이 된다")
@@ -104,3 +104,6 @@ private let lifetimeRide = Ride(
     id: "1", origin: "센텀시티역", destination: "서면역", departureLabel: "지금 출발",
     capacity: 3, members: [], farePerPerson: 3600, totalFare: 10800, status: .recruiting
 )
+
+/// 약속 단계 판정의 고정 시각. 모집 중인 방이라 단계에 영향이 없지만, 화면이 시계를 읽지 않으므로 넘겨야 한다.
+private let lifetimeNow = Date(timeIntervalSince1970: 1_793_944_800) // 2026-11-06T06:00:00Z

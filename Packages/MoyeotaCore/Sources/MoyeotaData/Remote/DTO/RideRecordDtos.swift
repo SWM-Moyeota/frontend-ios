@@ -16,8 +16,8 @@ public let RIDE_RECORD_PAGE_SIZE = 20
 /// **대체할 수 없다.** 그 공백은 서버에 `GET /matching/rooms/me` 가 생겨야 메워진다.
 ///
 /// 탈퇴 경고를 이걸로 미리 막으려 해도 안 된다 — 409 `USER110` 의 판정식은 서버
-/// `existsOngoingByMemberId`(ACTIVE·COMPLETED·MATCHING·DRIVER_ASSIGNED·IN_RIDE)인데 이 응답은
-/// 그중 아무것도 주지 않는다. 「막을 방이 없다」고 잘못 판정해 그대로 409 를 맞고, 사용자는
+/// `existsOngoingByMemberId`(진행 중 상태 = ACTIVE·COMPLETED. 기사·배차 상태 셋은 서버 enum 에서
+/// 삭제됐다)인데 이 응답은 그중 아무것도 주지 않는다. 「막을 방이 없다」고 잘못 판정해 그대로 409 를 맞고, 사용자는
 /// 앱이 확인했다고 믿는다 — 지금보다 나빠진다.
 public struct RideRecordPageResponse: Decodable, Equatable, Sendable {
     public var rides: [RideRecordResponse]
@@ -56,7 +56,7 @@ public struct RideRecordPageResponse: Decodable, Equatable, Sendable {
 /// **`status` 필드가 없다** — 기록은 전부 하차 완료라 상태 개념이 없다. 방 상세
 /// (`PartyDetailResponse`)를 베껴 `status` 를 넣으면 디코더가 모르는 키를 흘리는 탓에
 /// 조용히 기본값이 되어 화면이 **모든 기록에 같은 상태 칩**을 그린다. `capacity`·좌표·`route`·
-/// `taxiDriverId`·`version` 도 같은 이유로 여기 없다.
+/// `version` 도 같은 이유로 여기 없다.
 ///
 /// `pickupTime`·`totalFare`·`farePerPerson` 이 **셋 다 null 일 수 있다**: 1차 모드(기사 없이
 /// 방장이 합승 종료, 서버 `RideRecord.withoutDriver`)로 끝난 방이 그렇다. 요금은 기사가 입력할 때만

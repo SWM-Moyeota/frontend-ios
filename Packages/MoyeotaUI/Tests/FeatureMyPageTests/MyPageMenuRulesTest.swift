@@ -55,7 +55,7 @@ import Testing
 
         #expect(groups.group(MyPageGroupLabel.INFO) == nil, "안내 카드가 빈 채로 남았다")
         // 주소와 무관한 세 그룹은 그대로 있어야 한다 — 로그아웃·탈퇴가 사라지면 갇힌다.
-        #expect(groups.rowTexts(MyPageGroupLabel.RIDES) == ["지난 탑승 기록"])
+        #expect(groups.rowTexts(MyPageGroupLabel.RIDES) == ["지난 탑승 기록", "노쇼 기록"])
         #expect(groups.rowTexts(MyPageGroupLabel.SETTINGS) == ["알림 설정"])
         #expect(groups.rowTexts(MyPageGroupLabel.ACCOUNT) == ["로그아웃", "탈퇴하기"])
     }
@@ -134,7 +134,10 @@ import Testing
         for row in myPageGroups(links: allLinks).flatMap(\.rows) {
             let leavesApp = switch row.action {
             case .notificationSettings, .openWeb, .sendMail: true
-            case .rideHistory, .logout, .deleteAccount: false
+            case .rideHistory,
+                 .noShowRecords,
+                 .logout,
+                 .deleteAccount: false
             }
             let expected: MyPageRowMark = leavesApp ? .external : .chevron
             #expect(row.mark == expected, "\(row.text)")
@@ -220,14 +223,47 @@ import Testing
     /// 브라우저가 열릴 줄 알고 누른다 — 이 화면의 기호 규칙이 거짓이 된다.
     @Test("지난 탑승 기록 행이 마이페이지에 있다")
     func rideHistoryRowExists() throws {
-        let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
+        let row = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)?.rows.first)
 
-        #expect(rows.map(\.text) == ["지난 탑승 기록"])
-        let row = try #require(rows.first)
-        #expect(rows.count == 1)
+        #expect(row.text == "지난 탑승 기록")
         #expect(row.action == .rideHistory)
         #expect(row.mark == .chevron)
         #expect(!row.danger, "기록 보기는 되돌릴 수 없는 동작이 아니다")
+    }
+
+    // ─────────────────────────── 노쇼 기록 (2026-11-06) ───────────────────────────
+
+    /// 38 로 들어가는 입구가 **있어야** 한다. 이 행이 없으면 노쇼로 찍힌 사용자가 **이의를 낼 길이
+    /// 앱 안에 하나도 없다** — 제재는 방 만들기·합류를 403 `NO_SHOW_RESTRICTED` 로 막기만 하고,
+    /// 그 403 을 받는 화면들은 기록도 이의 경로도 모른다.
+    ///
+    /// 「지난 탑승 기록」 **다음**이어야 한다: 같은 「탑승」 카드 안에서 평소에 보는 것이 위고,
+    /// 사고가 났을 때 보는 것이 아래다(계정 카드가 로그아웃 → 탈퇴 순인 것과 같은 기준).
+    @Test("노쇼 기록 행이 지난 탑승 기록 다음에 있다")
+    func noShowRowFollowsRideHistory() throws {
+        let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
+
+        #expect(rows.map(\.text) == ["지난 탑승 기록", "노쇼 기록"])
+        try #require(rows.count == 2)
+        #expect(rows[1].action == .noShowRecords)
+        // › (앱 안)이어야 한다. ↗ 로 달면 사용자는 브라우저가 열릴 줄 알고 누른다.
+        #expect(rows[1].mark == .chevron)
+        #expect(!rows[1].danger, "기록 보기는 되돌릴 수 없는 동작이 아니다")
+    }
+
+    /// **행 이름이 제재를 단정하지 않는다.** 「이용 제한」·「제재 내역」으로 적으면 제한이 걸린 적
+    /// 없는 사용자(절대다수)가 자기 계정에 제재가 있다고 읽는다. 이 행이 여는 화면은 기록 목록이고,
+    /// 지금 제한 여부는 **배너**가 서버 `restrictedUntil` 로만 말한다.
+    @Test("노쇼 기록 행 이름이 제재를 단정하지 않는다")
+    func noShowRowNameDoesNotAssertSanction() throws {
+        let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
+        try #require(rows.count >= 2)
+        let text = rows[1].text
+
+        #expect(text == "노쇼 기록")
+        for forbidden in ["제재", "이용 제한", "정지"] {
+            #expect(!text.contains(forbidden), "제재를 단정하는 행 이름이다: \(text)")
+        }
     }
 
     /// 행 이름이 「내 탑승」이 아니라 **「지난」 탑승 기록**이어야 한다.
@@ -238,9 +274,7 @@ import Testing
     /// 사라졌다고 읽는다.
     @Test("행 이름이 진행 중인 방까지 보여 줄 것처럼 읽히지 않는다")
     func rideRowNameSaysPast() throws {
-        let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
-        #expect(rows.count == 1)
-        let text = try #require(rows.first).text
+        let text = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)?.rows.first).text
 
         #expect(text.hasPrefix("지난"), "\(text)")
         #expect(!text.contains("예정"), "「예정」은 서버에 없는 개념이다: \(text)")

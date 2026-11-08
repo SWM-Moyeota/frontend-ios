@@ -62,10 +62,19 @@ private final class FakeRepository: RideRepository, @unchecked Sendable {
     func findRealtimeCandidates(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> [MatchCandidate] { throw StubError() }
     func createParty(request: NewParty) async throws -> Ride { throw StubError() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw StubError() }
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw StubError() }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw StubError() }
-    func confirmEmergencyCall(called: Bool) async throws { throw StubError() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw StubError() }
+
+    // 예약 방 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다.
+    func createReservation(request: NewReservation) async throws -> Ride { throw StubError() }
+    func getReservations(from: String, to: String) async throws -> [Ride] { throw StubError() }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw StubError() }
+    func searchReservations(departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?) async throws -> [ReservationSearchResult] { throw StubError() }
+
+    // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
+    // leave/finish 처럼 호출을 세면 된다.
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw StubError() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw StubError() }
+    func departParty(partyId: Int64) async throws { throw StubError() }
 }
 
 private let blockingSleep: @Sendable (Duration) async throws -> Void = { _ in try await Task.sleep(for: .seconds(3600)) }
@@ -180,13 +189,16 @@ final class MatchCompletionAnalyticsTest {
         #expect(completions.isEmpty)
     }
 
-    @Test("정원 판정은 status 로만 한다 — MATCHED 이상이고 닫힌 방은 아니다")
+    /// 예전에는 `DISPATCHING`·`ONGOING` 도 참이었다(정원이 찬 뒤의 단계라서) — 서버가 그 두
+    /// status 를 보낼 수 없게 되면서 참인 값이 하나로 줄었다.
+    ///
+    /// **거짓인 쪽을 열거형 전체로 훑는다.** 퍼널이 거짓을 말하는 길은 「아직 안 찬 방·닫힌 방을
+    /// 매칭 완료로 센다」 하나이고, 단계가 늘면 그 새 값이 기본적으로 거짓이어야 한다.
+    @Test("isMatchFull 은 정원이 찬 status 하나만 참이다")
     func fullStatusRule() {
-        #expect(!isMatchFull(status: .recruiting))
         #expect(isMatchFull(status: .matched))
-        #expect(isMatchFull(status: .dispatching))
-        #expect(isMatchFull(status: .ongoing))
-        #expect(!isMatchFull(status: .completed))
-        #expect(!isMatchFull(status: .canceled))
+        for status in RideStatus.allCases where status != .matched {
+            #expect(!isMatchFull(status: status), "\(status) 가 매칭 완료로 셈된다")
+        }
     }
 }

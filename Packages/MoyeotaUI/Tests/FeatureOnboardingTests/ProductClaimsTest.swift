@@ -27,6 +27,17 @@ struct ProductClaimsTest {
         OnboardingMeetingCopy,
     ]
 
+    /// `Packages/MoyeotaCore/Sources/MoyeotaDomain/Repository`.
+    ///
+    /// 작업 디렉터리에 기대지 않고 이 파일의 `#filePath` 에서 거슬러 찾는다(`AuthCopySource.sourcesRoot`
+    /// 와 같은 방식). 시뮬레이터 프로세스도 맥의 파일 시스템을 그대로 읽는다.
+    private static let domainRepositoryDir = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent() // FeatureOnboardingTests
+        .deletingLastPathComponent() // Tests
+        .deletingLastPathComponent() // MoyeotaUI
+        .deletingLastPathComponent() // Packages
+        .appendingPathComponent("MoyeotaCore/Sources/MoyeotaDomain/Repository")
+
     /// 읽지 못했으면 테스트를 실패시킨다 — 검사가 조용히 사라지면 안 된다.
     private func value<V>(
         _ lookup: AuthCopySource.Lookup<V>,
@@ -77,9 +88,10 @@ struct ProductClaimsTest {
         }
     }
 
-    /// **위치 공유 기능이 없다.** `docs/BACKEND-GAP-CLEANUP.md` §1 이 `RideRepository`의
-    /// `reportMyLocation`·`getMemberLocations` 와 보호자 공유 카드를 모두 지웠다. 지금 도메인에
-    /// 남은 위치 조회는 `DispatchRepository.getDriverLocation`(기사 위치, 택시 모드) 하나다.
+    /// **위치 공유 기능이 없다.** `docs/BACKEND-GAP-CLEANUP.md` §1 이 `RideRepository` 의
+    /// `reportMyLocation`·`getMemberLocations` 와 보호자 공유 카드를 모두 지웠고, 한동안 남아 있던
+    /// `DispatchRepository.getDriverLocation`(기사 위치)도 기사·배차와 함께 사라졌다 —
+    /// **이제 도메인에 남의 위치를 읽는 길이 0개다.**
     ///
     /// 12 매너 서약의 「운행 중 내 위치를 동승자와 공유하는 데 동의해요」 항목도 같은 이유로 지웠다 —
     /// 없는 기능에 동의를 받고 그 동의마저 서버에 보내지 않고 있었다.
@@ -89,6 +101,38 @@ struct ProductClaimsTest {
         for forbidden in ForbiddenClaims.locationSharing {
             #expect(!copy.contains(forbidden), "없는 위치 공유를 약속한다: \(forbidden)")
         }
+    }
+
+    /// 위 테스트의 **근거를 실행 가능하게** 만든다 — 「위치 공유 기능이 없다」가 주석이 아니라 단정이다.
+    ///
+    /// 예전에는 그 근거가 「남은 위치 조회는 기사 위치 하나뿐」이라는 **문장**이었고, 그 하나가 사라진
+    /// 지금은 0개다. 0은 지킬 수 있는 수라서 못 박는다: 누가 위치 조회를 되살리면 **문구를 고치기
+    /// 전에** 여기서 걸리고, 그때 위 금지어 목록을 함께 손보게 된다(기능이 생기면 테스트를 먼저
+    /// 고치라는 이 파일의 규칙이 그 자리에서 눈에 띈다).
+    ///
+    /// 보는 것은 `MoyeotaDomain/Repository` 의 **함수 이름**뿐이다. 내 위치를 읽는 GPS 코드
+    /// (`PresentationCore/location`)와 좌표를 **보내는** 길(방 생성·경로 미리보기·역지오코딩)은
+    /// 대상이 아니다 — 금지하는 것은 **남의 위치를 받아 오는 계약**이다.
+    @Test("도메인에 남의 위치를 읽는 계약이 없다")
+    func noLocationReadContractInDomain() throws {
+        let directory = Self.domainRepositoryDir
+        let repositories = try #require(
+            try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil),
+            "domain/repository 를 읽지 못했다: \(directory.path)"
+        ).filter { $0.pathExtension == "swift" }
+        try #require(!repositories.isEmpty, "domain/repository 가 비었다 — 경로가 잘못됐다")
+
+        let declared = try NSRegularExpression(pattern: #"func\s+(\w*[Ll]ocation\w*)\s*\("#)
+        let offenders = try repositories.flatMap { file in
+            let text = try String(contentsOf: file, encoding: .utf8)
+            return declared.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+                Range(match.range(at: 1), in: text).map { "\(file.lastPathComponent): \(text[$0])()" }
+            }
+        }
+        #expect(
+            offenders == [],
+            "위치 조회 계약이 돌아왔다 — 가입 전 문구의 금지어 목록을 먼저 다시 검토해라: \(offenders)"
+        )
     }
 
     /// **평가·매너 점수가 없다.** 평가 API 자체가 서버에 없어 `User.rating` 은 항상 0.0 이다
@@ -114,14 +158,14 @@ struct ProductClaimsTest {
         }
     }
 
-    /// **동승 모드는 26 운행 중에 닿지 않아 27 긴급 신고로 들어갈 길이 없다**(`docs/MODE-ROUTES.md`).
-    /// 서버도 `POST /reports` 를 `isRidingMember` 가 아니면 403 `REPORT_NOT_ALLOWED` 로 막는다
-    /// (`ReportService.report`).
+    /// **긴급 신고 화면 자체가 없다.** 예전에는 「동승 모드에서는 26 운행 중에 닿지 않아 27 긴급
+    /// 신고로 들어갈 길이 없다」였고, 즉 모드를 바꾸면 닿는 화면이었다. 기사·배차를 걷어내면서
+    /// 26·27 이 **파일째 삭제됐다** — 어떤 설정에서도 닿을 수 없다. 금지가 그만큼 강해졌다.
     ///
     /// **메시지 신고는 2026-11-01 에 생겼다**(24 채팅방 롱프레스 →
     /// `POST /api/v1/chat-rooms/{id}/reports`, `ChatRepository.reportMessage`). 그래서 매너 서약은
     /// 「신고할 수 있어요」를 말해도 된다 — 여기서 계속 막는 것은 **112 로 이어지는 긴급 신고**와
-    /// 「신고가 바로 ~된다」는 **즉시성 주장**뿐이다. 둘은 여전히 가입 전 화면에서 닿을 수 없다.
+    /// 「신고가 바로 ~된다」는 **즉시성 주장**뿐이다.
     @Test("가입 전 문구는 긴급 신고를 약속하지 않는다")
     func noEmergencyReportClaim() {
         let copy = preSignupCopy()

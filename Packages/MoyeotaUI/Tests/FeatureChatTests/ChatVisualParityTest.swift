@@ -7,10 +7,6 @@ import UIKit
 
 // 원본에 없는 테스트. 원본 렌더(UI 트리·스크린샷)에서 잰 값과 관찰한 동작을 지킨다.
 
-private final class InsetWindow: UIWindow {
-    override var safeAreaInsets: UIEdgeInsets { UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0) }
-}
-
 @Suite struct BodyLargeLineHeightTest {
 
     @Test("줄 상자는 16 이하에서 24 이고 그 위로는 원본 UI 트리의 높이를 따른다", arguments: [
@@ -56,12 +52,8 @@ private final class InsetWindow: UIWindow {
     }
 
     @Test("말풍선 밖 글자 폭도 원본 렌더의 폭과 1.5pt 안쪽으로 맞는다", arguments: [
-        ("괜찮으세요?", CGFloat(26), Font.Weight.bold, CGFloat(134.1)),
-        ("판교역 신분당선까지 약 38분", 20, .bold, 244.6),
-        ("역삼직장인 · 선릉출근러", 18, .bold, 182.1),
+        ("역삼직장인 · 선릉출근러", CGFloat(18), Font.Weight.bold, CGFloat(182.1)),
         ("112와 실제로 통화하셨나요?", 18, .bold, 218.7),
-        ("3초간 길게 눌러 신고", 17, .bold, 149.0),
-        ("강남역 2호선 → 판교역 신분당선", 15, .bold, 209.9),
         ("역삼직장인 · 선릉출근러", 14, .bold, 140.6),
         ("신고하면 현재 위치와 운행 정보가 운영팀에 전달되고,", 14, .regular, 313.1),
         ("실제 통화 여부는 운영팀 대응에 사용돼요", 13, .regular, 225.1),
@@ -177,47 +169,5 @@ private final class InsetWindow: UIWindow {
         tracker.scrolled(to: ChatScrollMetrics(top: -2_000, bottom: 500))
         try? await Task.sleep(for: .milliseconds(400))
         #expect(tracker.shouldFollow(maxScroll: 2_060))
-    }
-}
-
-@MainActor
-@Suite(.serialized) struct CallConfirmDialogGeometryTest {
-
-    private func brightness(_ window: UIWindow, x: CGFloat, y: CGFloat) -> CGFloat {
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let context = CGContext(
-            data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )
-        guard let context else { return -1 }
-        context.translateBy(x: -x, y: -y)
-        window.layer.render(in: context)
-        return (CGFloat(pixel[0]) + CGFloat(pixel[1]) + CGFloat(pixel[2])) / (3 * 255)
-    }
-
-    @Test("27 통화 여부 다이얼로그는 폭 320 이고 시스템 바를 뺀 영역의 가운데에 놓인다")
-    func widthAndPosition() async {
-        let window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
-        window.rootViewController = UIHostingController(
-            rootView: CallConfirmDialog(saving: false, errorText: nil, onCalled: {}, onNotCalled: {}, onLater: {})
-                .ignoresSafeArea(.container)
-        )
-        window.isHidden = false
-        defer { window.isHidden = true }
-        for _ in 0..<12 {
-            window.layoutIfNeeded()
-            try? await Task.sleep(for: .milliseconds(25))
-        }
-        // 카드 왼쪽 안쪽 여백(22) 세로줄에서 흰 구간을 찾는다.
-        let white = (0..<874).filter { brightness(window, x: 52, y: CGFloat($0)) > 0.98 }
-        #expect(white.count > 100, "카드를 찾아야 시험이 된다")
-        let top = white.first ?? 0
-        let bottom = (white.last ?? 0) + 1
-        // (62 + (874 − 34)) / 2 = 451. 화면 가운데(437)가 아니다.
-        #expect(abs(CGFloat(top + bottom) / 2 - 451) < 1, "카드 \(top)…\(bottom)")
-
-        let xs = (0..<402).filter { brightness(window, x: CGFloat($0), y: CGFloat(top + 22)) > 0.98 }
-        let width = CGFloat((xs.last ?? 0) + 1 - (xs.first ?? 0))
-        #expect(abs(width - 320) < 1, "카드 폭 \(width)")
     }
 }

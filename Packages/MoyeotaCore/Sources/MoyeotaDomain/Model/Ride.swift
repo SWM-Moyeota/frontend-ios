@@ -1,21 +1,47 @@
-/// 방의 진행 단계.
+/// 방의 진행 단계. 서버 `PartyStatus` 의 네 값과 하나씩 짝이다 —
+/// `ACTIVE`→`recruiting` · `COMPLETED`→`matched` · `FINISHED`→`completed` · `CANCELED`→`canceled`.
 ///
-/// `canceled` 는 `completed` 와 갈라 둔다 — 서버는 **기사 매칭 3분 타임아웃**에도 방을 CANCELED 로
-/// 바꾸는데, 그걸 「완료」와 같은 값으로 접으면 앱이 「기사님을 찾지 못했어요」를 정상 종료와
-/// 구분할 수 없다. 정상 종료는 FINISHED 뿐이다.
+/// `canceled` 를 `completed` 와 갈라 두는 이유: 서버는 아무도 출발지에 도착하지 않은 방을 자동
+/// 정리할 때 CANCELED 로 닫는다. 그걸 「완료」와 같은 값으로 접으면 **탄 적 없이 닫힌 방**을
+/// 정상 종료와 구분할 수 없다. 정상 종료는 FINISHED 뿐이다.
 ///
-/// `dispatching` 은 서버의 MATCHING(기사 찾는 중)과 DRIVER_ASSIGNED(배정 완료)를 함께 담는다 —
-/// 둘의 구분은 `Ride.driverId` 유무로 한다(배정되면 taxiDriverId 가 채워진다).
+/// 택시 시절의 `DISPATCHING`·`ONGOING` 은 지웠다 — 기사·배차를 걷어내면서 서버가
+/// `MATCHING`·`DRIVER_ASSIGNED`·`IN_RIDE` 를 **보낼 수 없게** 됐다(서버 `PartyStatus` 에서 삭제).
+/// 모르는 문자열은 매퍼가 `recruiting` 으로 떨어뜨리므로 옛 값이 와도 파싱은 깨지지 않는다.
 public enum RideStatus: String, CaseIterable, Sendable {
     case recruiting = "RECRUITING"
     case matched = "MATCHED"
-    case dispatching = "DISPATCHING"
-    case ongoing = "ONGOING"
     case completed = "COMPLETED"
     case canceled = "CANCELED"
 
     /// Kotlin `enum.name` — 원본 상수 이름 그대로.
     public var name: String { rawValue }
+}
+
+/// 방의 종류. 서버 `RoomType` 과 짝이지만 **이름이 한쪽만 다르다** — 서버는 `REALTIME`·`RESERVED` 이고
+/// 여기는 `realtime`·`reservation` 이다. 그 간극을 메우는 곳은 매퍼 하나뿐이다
+/// (`PartyMappers.toRoomType` 이 `"RESERVED"` 를 `reservation` 으로 읽는다).
+/// **서버가 `"RESERVATION"` 을 보낸다고 가정하지 말 것** — 서버 enum 에 그 이름은 없다.
+/// 매퍼는 혹시 모를 개명까지 받아 두지만, 지금 실제로 오는 문자열은 `RESERVED` 다.
+///
+/// `RideStatus` 와 달리 **String raw value 를 두지 않는다.** 두면 `init(rawValue:)` 로 서버 문자열을
+/// 읽고 싶어지는데, 그게 바로 위의 함정이다 — `"RESERVED"` 가 nil 이 되어 예약 방이 실시간 방으로 떨어진다.
+///
+/// 모르는 문자열은 `realtime` 으로 떨어진다. 반대 방향으로 기울이면 안 되는 이유는 **틀렸을 때의 대가가
+/// 비대칭**이기 때문이다:
+///
+/// | 모르는 값을 무엇으로 읽나 | 실시간 방을 틀리게 읽으면 | 예약 방을 틀리게 읽으면 |
+/// |---|---|---|
+/// | `realtime` | — | 방장에게 「약속 시간 정하기」가 뜨고, 누르면 서버가 409 `NOT_REALTIME_PARTY` 로 막는다(복구됨) |
+/// | `reservation` | 「약속 시간 정하기」가 **사라져** 실시간 방을 끝낼 길이 없어진다(복구 불가) | — |
+public enum RoomType: Hashable, CaseIterable, Sendable {
+    /// 지금 모여서 타는 방. 약속 시간은 방장이 나중에 확정한다
+    /// (`RideRepository.confirmMeeting`) — 확정 전에는 `Ride.departureAt` 이 nil 이다.
+    case realtime
+
+    /// 만들 때 출발 시각을 정해 둔 예약 방(서버 `RESERVED`). **처음부터 확정 상태**라
+    /// (`Ride.isConfirmed` 가 늘 true) 약속 시간을 다시 정할 수 없다 — 서버가 409 `NOT_REALTIME_PARTY` 로 막는다.
+    case reservation
 }
 
 public struct Ride: Hashable, Sendable {
@@ -47,8 +73,33 @@ public struct Ride: Hashable, Sendable {
     public var estimatedMinutes: Int?
     /// Google Encoded Polyline (정밀도 1e5, lat→lng 순). 서버 route. 지도 경로 그리기에 쓴다.
     public var routePolyline: String?
-    /// 배정된 기사 id. 미배정이면 null. 서버 taxiDriverId.
-    public var driverId: Int64?
+    /// 약속 시간 — 서버 `PartyDetailResult.departureAt` 을 **ISO-8601 문자열 그대로** 들고 온다.
+    /// 실시간 방은 방장이 확정하기 전까지 nil 이고, 예약 방은 만들 때 정한 출발 시각이 처음부터 들어 있다.
+    ///
+    /// **파싱해서 보관하지 않는다** — `RideRecord.dropoffTime`·`ChatMessage.createdAt` 과 같은 관례다. 도메인에서
+    /// `Date` 로 바꾸면 ① data 와 domain 이 같은 파싱을 각자 들고 어긋날 수 있고 ② 「바뀌었나」를
+    /// `Ride` 끼리의 `==` 로 보는 주기 조회가 파싱 결과의 동등성에 묶인다. 사람이 읽을 모양
+    /// (「오후 6:30」)으로 바꾸는 일은 화면이 한다.
+    ///
+    /// 장소는 싣지 않는다 — 약속 장소는 **늘 방의 출발지**다(서버가 따로 담지 않는다).
+    public var departureAt: String?
+    /// 약속이 확정된 방인가(서버 `PartyDetailResult.confirmed`).
+    ///
+    /// 지금은 **`departureAt` 이 nil 이 아닌 것과 같은 뜻**이다 — 서버도 저장하지 않고
+    /// `isReservation() || departureAt != null` 로 **셈해서** 내려 준다. 그래도 서버 값을 따로 받는 이유는
+    /// 그 식이 **서버 것**이기 때문이다: 확정 취소 같은 게 생겨 서버가 판정을 바꾸면 앱이 베낀 식만 뒤처진다.
+    /// (서버가 말해 주지 않은 옛 배포에서만 매퍼가 같은 식으로 셈해 채운다 — `PartyMappers.toRide`.)
+    ///
+    /// 확정되면 방이 **닫히는 방식이 바뀐다**: 모집이 끝나고(ACTIVE→COMPLETED) 아무도 나갈 수 없으며
+    /// (409 `CANNOT_LEAVE_CONFIRMED_PARTY`), 「합승 완료」도 막힌다(409 `USE_DEPART_FOR_CONFIRMED_PARTY`).
+    /// 끝내는 길은 「출발」 하나뿐이다(`RideRepository.departParty`).
+    public var isConfirmed: Bool
+    /// 실시간 방인가 예약 방인가. 「약속 시간 정하기」는 **실시간 방에서만** 되고
+    /// (`RideRepository.confirmMeeting`), 예약 방은 처음부터 확정이다.
+    ///
+    /// 목록·추천 응답에는 이 값이 없어 기본값 `RoomType.realtime` 으로 남는다 — 그쪽 화면은 방을
+    /// 끝내는 동작을 띄우지 않으므로 읽는 쪽이 없다.
+    public var roomType: RoomType
 
     public init(
         id: String,
@@ -67,7 +118,9 @@ public struct Ride: Hashable, Sendable {
         estimatedFare: Int? = nil,
         estimatedMinutes: Int? = nil,
         routePolyline: String? = nil,
-        driverId: Int64? = nil
+        departureAt: String? = nil,
+        isConfirmed: Bool = false,
+        roomType: RoomType = .realtime
     ) {
         self.id = id
         self.origin = origin
@@ -85,7 +138,9 @@ public struct Ride: Hashable, Sendable {
         self.estimatedFare = estimatedFare
         self.estimatedMinutes = estimatedMinutes
         self.routePolyline = routePolyline
-        self.driverId = driverId
+        self.departureAt = departureAt
+        self.isConfirmed = isConfirmed
+        self.roomType = roomType
     }
 }
 
@@ -128,7 +183,7 @@ extension Ride {
 /// 쓰임은 **합류 응답 하나뿐**이다. 예전에는 폴링용 상태 조회(`/status`)도 같은 모양이었지만
 /// 그 엔드포인트는 사라졌다(Backend `04f6be7`). 그래서 지문 필드도, 상세와 비교하던 `isSameAs` 도 없다.
 public struct PartyStatus: Hashable, Sendable {
-    /// 합류 **직후**의 상태. 내가 마지막 자리를 채웠으면 COMPLETED(기사 모드면 MATCHING)로 온다.
+    /// 합류 **직후**의 상태. 내가 마지막 자리를 채웠으면 `RideStatus.matched` 로 온다.
     public var status: RideStatus
     public var currentMembers: Int
 

@@ -25,21 +25,6 @@ private final class InsetWindow: UIWindow {
 }
 
 @MainActor
-@Suite struct DispatchStatusOverflowTest {
-
-    @Test("25 내용이 화면보다 길어도 화면 높이를 넘지 않는다 - 넘으면 상단바가 상태바 밑으로 올라간다(iPhone SE)")
-    func staysWithinScreenHeight() {
-        let ride = Ride(
-            id: "1", origin: "강남역 2호선", destination: "판교역 신분당선", departureLabel: "", capacity: 3, members: [],
-            farePerPerson: 5300, totalFare: 15900, status: .dispatching, estimatedMinutes: 38
-        )
-        let screen = DispatchStatusScreen(ride: ride, onOpenChat: {})
-        let height = UIHostingController(rootView: screen).sizeThatFits(in: CGSize(width: 375, height: 667)).height
-        #expect(height <= 667)
-    }
-}
-
-@MainActor
 @Suite(.serialized) struct ConfirmDialogGeometryTest {
 
     private func brightness(_ window: UIWindow, x: CGFloat, y: CGFloat) -> CGFloat {
@@ -58,7 +43,7 @@ private final class InsetWindow: UIWindow {
     func widthAndPosition() async {
         let window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = UIHostingController(
-            rootView: MatchWaitingScreen(ride: geometryRide).seeded(cancelConfirming: true).ignoresSafeArea(.container)
+            rootView: MatchWaitingScreen(ride: geometryRide, now: geometryNow).seeded(cancelConfirming: true).ignoresSafeArea(.container)
         )
         window.isHidden = false
         defer { window.isHidden = true }
@@ -128,26 +113,6 @@ private final class InsetWindow: UIWindow {
         #expect(eleven > 25, "값 줄을 찾아야 시험이 된다: \(eleven)")
         #expect(abs(eleven - eightyEight) < 3, "11회 \(eleven) 대 88회 \(eightyEight)")
     }
-
-    @Test("25c 마지막 버튼은 홈 인디케이터 영역에 들어가지 않고 바로 위까지 내려온다")
-    func assignedLastButtonClearsHomeIndicator() async {
-        let window = await hosted(DriverAssignedScreen(ride: geometryRide, onOpenChat: {}))
-        defer { window.isHidden = true }
-        // 버튼 안쪽 세로줄에서 맨 아래 칠해진 칸. 그 아래로는 시트의 흰 바탕뿐이다.
-        let painted = (500..<874).filter { brightness(window, x: 60, y: CGFloat($0)) < 0.985 }
-        let bottom = CGFloat((painted.last ?? 0) + 1)
-        #expect(bottom <= 840, "버튼 아래 끝 \(bottom), 안전 영역 840")
-        #expect(bottom > 830, "버튼 아래 끝 \(bottom): 지도를 필요 이상 줄이면 안 된다")
-    }
-
-    @Test("25c 지도는 시트가 들어가는 선에서 최대이고 원본 220 을 넘지 않는다", arguments: [
-        (CGFloat(748), CGFloat(548), CGFloat(200)), // iPhone 17 근사
-        (CGFloat(830), CGFloat(548), CGFloat(220)), // 큰 화면은 원본 그대로
-        (CGFloat(500), CGFloat(548), CGFloat(0)),   // 작은 화면은 음수가 되지 않는다
-    ])
-    func mapHeight(available: CGFloat, sheetMinimum: CGFloat, expected: CGFloat) {
-        #expect(pickupMapHeight(available: available, sheetMinimum: sheetMinimum) == expected)
-    }
 }
 
 private func geometryUser(rideCount: Int) -> User {
@@ -158,3 +123,6 @@ private let geometryRide = Ride(
     id: "1", origin: "센텀시티역", destination: "서면역", departureLabel: "지금 출발",
     capacity: 3, members: [], farePerPerson: 3600, totalFare: 10800, status: .recruiting
 )
+
+/// 약속 단계 판정의 고정 시각. 모집 중인 방이라 단계에 영향이 없지만, 화면이 시계를 읽지 않으므로 넘겨야 한다.
+private let geometryNow = Date(timeIntervalSince1970: 1_793_944_800) // 2026-11-06T06:00:00Z

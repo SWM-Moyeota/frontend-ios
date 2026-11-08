@@ -355,6 +355,23 @@ private final class FakeLocationClient: LocationClient {
         #expect(client.settingsCount == 1)
     }
 
+    /// 21 처럼 자동 요청이 없는 화면은 `requested` 가 거짓인 채로 버튼을 받는다. 다른 화면에서 거부하고 왔으면
+    /// 시스템이 다이얼로그를 띄우지 않으므로, 그대로 요청하면 첫 탭이 아무 일도 하지 않는다.
+    @Test("자동 요청이 없는 화면도 거부된 뒤 버튼은 곧바로 설정으로 보낸다")
+    func deniedGoesToSettingsWithoutAutoRequest() {
+        let denied = FakeLocationClient(granted: false, canPrompt: false)
+        let deniedSut = controller(denied, auto: false)
+        deniedSut.state.onRequestPermission()
+        #expect(denied.settingsCount == 1)
+        #expect(denied.requestCount == 0)
+
+        let undecided = FakeLocationClient(granted: false, canPrompt: true)
+        let undecidedSut = controller(undecided, auto: false)
+        undecidedSut.state.onRequestPermission()
+        #expect(undecided.requestCount == 1)
+        #expect(undecided.settingsCount == 0)
+    }
+
     @Test("상태 값은 콜백을 빼고 비교한다")
     func stateEquality() {
         let a = MyLocationState(isGranted: true, coordinates: nil, onRequestPermission: {})

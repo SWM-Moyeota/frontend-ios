@@ -30,7 +30,7 @@ func backGestureDecision(
 ///
 /// `.toolbar(.hidden)` 은 기본 대리자가 pop 제스처를 막게 만든다. 그래서 `NavigationStack` 안의 `UINavigationController` 를
 /// 찾아 대리자를 이쪽으로 바꾼다. **`BackInterceptionCenter` 를 읽는 쪽은 앱에서 여기뿐이다** —
-/// 여기가 빠지면 `moyeotaBackHandler` 를 건 21·25·26 이 스와이프로 그냥 pop 돼 15·16 으로 떨어진다.
+/// 여기가 빠지면 `moyeotaBackHandler` 를 건 21 이 스와이프로 그냥 pop 돼 15·16 으로 떨어진다.
 ///
 /// `pathCount` 를 받는 이유: 화면이 쌓일 때 UIKit·SwiftUI 가 제스처 설정을 건드릴 수 있어 경로가 바뀔 때마다 다시 맞춘다.
 struct BackGestureBridge: UIViewControllerRepresentable {

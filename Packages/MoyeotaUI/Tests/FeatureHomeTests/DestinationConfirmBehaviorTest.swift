@@ -41,22 +41,25 @@ private func ride(_ id: String = "7") -> Ride {
     )
 }
 
-/// 이 화면이 부르는 세 호출만 쓴다. 나머지는 부르면 던진다.
+/// 이 화면이 부르는 네 호출만 쓴다. 나머지는 부르면 던진다.
 private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     typealias Coordinates = (Double, Double, Double, Double)
 
     private let lock = NSLock()
     private var createRequests: [NewParty] = []
+    private var reservationRequests: [NewReservation] = []
     private var previewCalls = 0
     private var candidateCalls = 0
 
     var createResult: @Sendable (NewParty) async throws -> Ride = { _ in ride() }
+    var reservationResult: @Sendable (NewReservation) async throws -> Ride = { _ in ride("8") }
     var previewResult: @Sendable (Double) async throws -> RouteEstimate = { _ in
         RouteEstimate(estimatedFare: 7900, estimatedMinutes: 12, encodedPath: "")
     }
     var candidatesResult: @Sendable () async throws -> [MatchCandidate] = { [] }
 
     var requests: [NewParty] { lock.withLock { createRequests } }
+    var reservations: [NewReservation] { lock.withLock { reservationRequests } }
     var previewCount: Int { lock.withLock { previewCalls } }
     var candidateCount: Int { lock.withLock { candidateCalls } }
 
@@ -95,9 +98,22 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw NetworkFailure() }
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
     func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
-    func getAssignedDriver(partyId: Int64) async throws -> AssignedDriver { throw NetworkFailure() }
-    func reportEmergency(partyId: Int64?) async throws -> Int64 { throw NetworkFailure() }
-    func confirmEmergencyCall(called: Bool) async throws { throw NetworkFailure() }
+    // 예약 방 — 이 화면은 생성만 부른다. 나머지(목록·검색)는 17 탐색의 몫이다.
+    func createReservation(request: NewReservation) async throws -> Ride {
+        lock.withLock { reservationRequests.append(request) }
+        return try await reservationResult(request)
+    }
+    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
+    func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
+    func searchReservations(
+        departureLat: Double,
+        departureLng: Double,
+        date: String,
+        destination: ReservationDestination?
+    ) async throws -> [ReservationSearchResult] { [] }
+    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw NetworkFailure() }
+    func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw NetworkFailure() }
+    func departParty(partyId: Int64) async throws { throw NetworkFailure() }
 }
 
 /// 역지오코딩만 쓴다.
@@ -166,6 +182,55 @@ private let c = LatLng(35.10, 129.03)
         await viewModel.createParty(origin: origin, destination: destination, conditions: MatchConditions(capacity: 0))?.value
 
         #expect(repository.requests.map(\.capacity) == [3, 1])
+    }
+
+    /// 출발 시각 하나가 엔드포인트를 고른다(`MatchConditions.departureAt`). 예약은 정원 하한이 2 라 1 은 2 로 접힌다.
+    @Test("출발 시각이 있으면 예약 방으로 보내고 정원은 2~3 으로 접는다")
+    func reservationBranch() async {
+        let repository = FakeRideRepository()
+        let viewModel = CreatePartyViewModel(repository: repository)
+
+        await viewModel.createParty(
+            origin: origin,
+            destination: destination,
+            conditions: MatchConditions(capacity: 1, departureAt: "2026-11-09T09:30:00Z")
+        )?.value
+
+        #expect(repository.requests.isEmpty)
+        #expect(
+            repository.reservations == [
+                NewReservation(
+                    departureLat: 35.23,
+                    departureLng: 129.08,
+                    destinationLat: 35.15,
+                    destinationLng: 129.05,
+                    departure: "부산대역",
+                    destination: "서면역",
+                    capacity: 2,
+                    departureAt: "2026-11-09T09:30:00Z"
+                ),
+            ]
+        )
+        #expect(viewModel.uiState == CreatePartyViewModel.UiState(createdParty: ride("8")))
+    }
+
+    /// 실시간 표에 갈래가 없는 코드가 실시간 표로 떨어지면 「잠시 후 다시 시도해 주세요」가 된다 — 「잠시」로는 풀리지 않는다.
+    @Test("예약 실패는 예약 쪽 문구로 안내한다")
+    func reservationFailureCopy() async {
+        let repository = FakeRideRepository()
+        repository.reservationResult = { _ in
+            throw PartyOpenException(code: PartyOpenException.NO_SHOW_RESTRICTED, serverMessage: nil, httpStatus: 403)
+        }
+        let viewModel = CreatePartyViewModel(repository: repository)
+        let conditions = MatchConditions(capacity: 3, departureAt: "2026-11-09T09:30:00Z")
+
+        await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
+        #expect(viewModel.uiState.errorMessage == "노쇼 제재 중에는 방을 만들 수 없어요. 제재가 끝나면 다시 만들 수 있어요")
+        #expect(!viewModel.uiState.needsActivePartyRefresh)
+
+        repository.reservationResult = { _ in throw NetworkFailure() }
+        await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
+        #expect(viewModel.uiState.errorMessage == "예약 방을 만들지 못했어요. 잠시 후 다시 시도해 주세요")
     }
 
     /// 원본 `Dispatchers.Main.immediate` 는 첫 줄이 곧바로 돈다. `Task` 는 다음 차례로 밀리므로 잠금을 호출 자리에서 건다.

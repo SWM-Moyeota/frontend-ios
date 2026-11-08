@@ -264,10 +264,8 @@ import Testing
         _ = try? await apis.matching.getParties()
         _ = try? await apis.place.getFavoritePlaces()
         _ = try? await apis.chat.getMyRooms()
-        _ = try? await apis.dispatch.getDriverLocation(partyId: 1)
-        _ = try? await apis.report.report(request: ReportRequestDto())
 
-        #expect(stub.requests.count == 6)
+        #expect(stub.requests.count == 4)
         for request in stub.requests {
             #expect(request.header("Authorization") == "Bearer live.access", "\(request.path)")
         }

@@ -3,9 +3,10 @@ import Testing
 
 /// 백스택·뒤로가기·탈퇴 안내에 대해 **`MainNavGraph` 가 내린 결정**을 못 박는다.
 ///
-/// 2026-10-28 결함 묶음이 출발점이다:
-/// - 26 운행 중이 `resetTo`(목적지 1개 스택)로 진입해, 뒤로가기가 그 한 장을 pop 해 **빈 화면**이 됐다.
-/// - 21·25·26 의 **시스템** 뒤로가기가 기본 pop 이라 화면이 정한 규칙을 전부 우회했다 — 21 에서 누르면 15 목적지 검색으로
+/// 2026-10-28 결함 묶음이 출발점이다(아래 첫 두 줄은 25 배차·26 운행이 있던 시절 이야기다 —
+/// 그 두 화면은 기사·배차와 함께 사라졌고, 남은 진행 화면은 21 매칭 대기 하나다):
+/// - 진행 화면이 `resetTo`(목적지 1개 스택)로 진입해, 뒤로가기가 그 한 장을 pop 해 **빈 화면**이 됐다.
+/// - 진행 화면의 **시스템** 뒤로가기가 기본 pop 이라 화면이 정한 규칙을 전부 우회했다 — 21 에서 누르면 15 목적지 검색으로
 ///   떨어지고, 거기서 방을 또 만들면 서버가 409.
 /// - 홈이 스택 바닥이 아니게 되면 하단탭이 「교체」가 아니라 「쌓기」가 됐다.
 /// - 홈 탭 복귀만 `saveState` 가 없어 지도 카메라·스크롤이 홈 경유에서만 초기화됐다.
@@ -59,12 +60,15 @@ import Testing
 
     // ─────────────── 2. 진행 화면의 뒤로가기 ───────────────
 
-    /// 21·25·26 은 뒤로가기를 **화면이 정한 규칙**으로 받아야 한다. 헤더 ← 만 배선하면 시스템
+    /// 진행 화면은 뒤로가기를 **화면이 정한 규칙**으로 받아야 한다. 헤더 ← 만 배선하면 시스템
     /// 뒤로가기가 기본 pop 으로 빠져나가 15·16 방 생성 플로우나 빈 화면으로 떨어진다.
-    @Test("진행 화면 셋은 시스템 뒤로가기를 직접 받는다")
+    ///
+    /// 예전에는 셋(21·25·26)을 함께 봤다. 25·26 이 사라져 남은 하나를 보지만 **묻는 것은 같다** —
+    /// 진행 화면이 늘어나면 이 목록에 더해라.
+    @Test("진행 화면은 시스템 뒤로가기를 직접 받는다")
     func progressScreensHandleBack() throws {
         let navGraph = try navGraph()
-        for route in ["matchWaiting", "dispatchStatus", "rideOngoing"] {
+        for route in ["matchWaiting"] {
             #expect(
                 try destinationBlock(navGraph, route: route).contains("moyeotaBackHandler"),
                 "\(route) 에 BackHandler 가 없다 — 시스템 뒤로가기가 화면 규칙을 우회한다"
@@ -72,17 +76,27 @@ import Testing
         }
     }
 
-    /// 26 은 **홈을 바닥에 남기고** 진입한다 — 목적지 1개 스택에서는 뒤로가기가 빈 화면을 만든다.
-    @Test("26 운행 중은 스택을 비우고 진입하지 않는다")
-    func rideOngoingKeepsHome() throws {
+    /// 진행 화면은 **홈을 바닥에 남기고** 진입한다 — 목적지 1개 스택에서는 뒤로가기가 그 한 장을
+    /// pop 해 화면 없는 빈 그래프를 만든다(04a onBack 이 가드를 둔 그 함정).
+    ///
+    /// 2026-10-28 에는 26 운행 중이 `resetTo` 로 진입해 실제로 그 빈 화면을 만들었다. 그 화면이
+    /// 사라진 뒤 **같은 규칙을 받는 자리는 `navigateToStage` 다** — 배너·채팅 헤더·앱 시작 복귀가
+    /// 모두 거기로 모여 21 로 들어간다. 그래서 묻는 대상을 그쪽으로 옮겼다: 21 을 `resetTo` 로
+    /// 열지 않고, `popUpTo(.home)`(`inclusive: false` 가 기본값이다)으로 홈을 남기는가.
+    @Test("진행 화면은 스택을 비우고 진입하지 않는다")
+    func progressScreenKeepsHome() throws {
         let navGraph = try navGraph()
         #expect(
-            !navGraph.contains("resetTo(.rideOngoing)"),
-            "resetTo(.rideOngoing) 이 돌아왔다 — 뒤로가기가 화면 없는 빈 그래프를 만든다"
+            !navGraph.contains("resetTo(.matchWaiting)"),
+            "resetTo(.matchWaiting) 가 생겼다 — 뒤로가기가 화면 없는 빈 그래프를 만든다"
         )
+        let start = try #require(navGraph.range(of: "func navigateToStage(route: Route) {"))
+        let rest = navGraph[start.upperBound...]
+        let end = try #require(rest.range(of: "func openActiveChatRoom"))
+        let stage = String(rest[..<end.lowerBound])
         #expect(
-            SourceTree.contains(#"navigate\(\.rideOngoing\)\s*\{\s*\$0\.popUpTo\(\.home\)"#, in: navGraph),
-            "25 → 26 이동이 홈을 바닥에 남기지 않는다"
+            SourceTree.contains(#"\$0\.popUpTo\(\.home(,\s*inclusive:\s*false)?\)"#, in: stage),
+            "navigateToStage 가 홈을 바닥에 남기지 않는다 — 진행 화면 한 장만 남는 스택이 된다"
         )
     }
 
@@ -92,7 +106,7 @@ import Testing
     /// (합승→채팅→합승)에서는 보존되는 지도 카메라·스크롤이 홈 경유에서만 초기화된다.
     ///
     /// 반대로 **무조건** 켜서도 안 된다 — `saveState = true` 인 pop 은 엔트리의 상태를 버리지 않으므로,
-    /// 21·25·26 에서 홈으로 나오는 길까지 켜면 이미 떠난 방의 뷰모델이 남는다. 그래서 「떠나는 화면이 탭인가」로 가른다.
+    /// 21·22·채팅방에서 홈으로 나오는 길까지 켜면 이미 떠난 방의 뷰모델이 남는다. 그래서 「떠나는 화면이 탭인가」로 가른다.
     @Test("홈 탭 복귀도 떠나는 탭의 상태를 보관한다")
     func homeTabReturnSavesLeavingTab() throws {
         let navGraph = try navGraph()

@@ -114,12 +114,6 @@ public enum AnalyticsEvent: Hashable, Sendable {
     /// 동승 모드의 「합승 완료」가 성공했다(방장이 방을 닫음).
     case partyFinished(memberCount: Int)
 
-    /// 택시 모드에서 기사가 운행을 끝낸 것을 26 운행 중이 감지했다 → 33 도착 완료.
-    case rideFinished
-
-    /// 27 긴급 신고의 3초 홀드가 끝나 신고가 나갔다.
-    case emergencyTriggered
-
     /// 37 회원 탈퇴가 204 를 받았다.
     case accountDeleted
 
@@ -136,8 +130,6 @@ public enum AnalyticsEvent: Hashable, Sendable {
         case .matchCompleted: "complete_match"
         case .matchCanceled: "cancel_match"
         case .partyFinished: "finish_party"
-        case .rideFinished: "finish_ride"
-        case .emergencyTriggered: "trigger_emergency"
         case .accountDeleted: "delete_account"
         }
     }
@@ -150,7 +142,7 @@ public enum AnalyticsEvent: Hashable, Sendable {
             ["screen": .string(screen)]
         case .signupCompleted(let gender, let ageBand):
             ["gender": .string(gender.name.lowercased()), "age_band": .string(ageBand)]
-        case .loginCompleted, .partyJoinClicked, .rideFinished, .emergencyTriggered, .accountDeleted:
+        case .loginCompleted, .partyJoinClicked, .accountDeleted:
             [:]
         case .partyCreateClicked(let capacity):
             ["capacity": .int(capacity)]

@@ -68,3 +68,14 @@ public struct FavoritePlace: Hashable, Sendable {
         self.sequence = sequence
     }
 }
+
+/// 자주 가는 곳의 서버 규칙. 앱이 먼저 막지는 않고, 거절 문구를 정확히 쓰는 데 쓴다.
+public enum FavoritePlacePolicy {
+    /// 한 사용자가 담을 수 있는 최대 개수. 넘기면 409 `FAVORITE_PLACE_LIMIT_EXCEEDED` 다
+    /// (`FavoritePlaceException.isLimitExceeded`).
+    ///
+    /// **앱에서 선제 차단하지 않는다** — 목록을 들고 있는 화면과 담는 화면이 달라서 화면이 아는 개수가
+    /// 낡을 수 있고, 그 수로 버튼을 잠그면 **담을 수 있는데 막히는** 쪽으로 틀린다. 서버 거절을 받아
+    /// 문구에 이 수를 넣는 데만 쓴다.
+    public static let MAX_COUNT = 10
+}

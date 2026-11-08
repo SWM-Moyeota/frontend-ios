@@ -43,7 +43,6 @@ import Testing
     func missingRequiredKeyThrows() {
         #expect(throws: DecodingError.self) { try decodeJSON(PartyDetailResponse.self, "{}") }
         #expect(throws: DecodingError.self) { try decodeJSON(OpenPartyResponse.self, "{}") }
-        #expect(throws: DecodingError.self) { try decodeJSON(ReportResponse.self, "{}") }
         #expect(throws: DecodingError.self) { try decodeJSON(PartyListResponse.self, #"{"list":[{}]}"#) }
     }
 
@@ -53,7 +52,7 @@ import Testing
         let body = try encodeJSON(FavoritePlaceRequestDto(placeName: "집", roadName: "A/B", latitude: 37.5, longitude: 127))
 
         #expect(body == #"{"latitude":37.5,"longitude":127,"placeName":"집","roadName":"A/B"}"#)
-        #expect(try encodeJSON(ReportRequestDto()) == "{}")
+        #expect(try encodeJSON(ChatReportRequestDto(chatMessageId: 2, reason: "SPAM")) == #"{"chatMessageId":2,"reason":"SPAM"}"#)
     }
 
     @Test("실시간 추천 요청의 좌표 키는 destLat destLng 다")

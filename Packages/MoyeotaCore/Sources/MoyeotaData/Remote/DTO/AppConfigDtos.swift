@@ -1,41 +1,32 @@
 /// `AppConfigResponse` — 서버가 필드를 늘려도 깨지지 않게 모르는 키는 무시한다.
 ///
-/// 빠진 값은 **동승 모드(false)** 로 본다. 서버 쪽 프로퍼티 기본값(`moyeota.taxi.enabled` 미설정 = true)과
-/// 일부러 다르다 — 응답에 키가 없다는 건 설정을 모른다는 뜻이고, 모를 땐 실배포 모드가 안전하다
-/// (`AppConfig.Default` 와 같은 이유). 서버 컨트롤러는 항상 이 키를 내려주므로
-/// 실제로는 거의 타지 않는 분기다.
+/// 서버는 아직 `taxiEnabled` 를 응답에 담지만(출시된 앱 호환용, 늘 `false`) 여기에 받지 않는다.
+/// 기사·배차가 사라져 갈릴 것이 없다 — 모르는 키라 그냥 흘린다.
 ///
-/// ### 업데이트 기준을 Android 와 다른 키로 읽는 이유
-/// 서버의 `minVersionCode`·`recommendedVersionCode` 는 **Android `versionCode` 수열**을 기준으로 한 값이다.
-/// iOS 빌드 번호는 그 수열과 아무 관계가 없으므로 이 키로 판정하면 Android 배포에 맞춰 올린 숫자에 iOS 사용자가
-/// 잠기거나, 반대로 막아야 할 iOS 빌드가 통과한다. 그래서 **두 키는 아예 읽지 않고**
-/// `iosMinVersionCode`·`iosRecommendedVersionCode` 만 받는다(`docs/IOS-DIFFERENCES.md`).
+/// 두 버전 기준은 두 플랫폼이 함께 쓰는 `YYMMDD*100+N` 수이고, iOS 는 이를 설치된 빌드 번호
+/// (`CFBundleVersion`)와 비교한다 — 그렇게 정한 근거는 `docs/IOS-DIFFERENCES.md`.
 public struct AppConfigResponse: Decodable, Equatable, Sendable {
-    public var taxiEnabled: Bool
-    /// iOS 강제 업데이트 기준. **키가 없으면 null 이고 아무도 막지 않는다.**
-    /// 안 와도 역직렬화가 깨지지 않고, 서버가 나중에 추가하면 그날부터 걸린다.
-    public var iosMinVersionCode: Int?
-    /// iOS 권장 업데이트 기준. 막지 않고 한 번 알리기만 한다. 위와 같은 이유로 null 기본값이다.
-    public var iosRecommendedVersionCode: Int?
+    /// 강제 업데이트 기준. **지금 서버는 주지 않는다**(2026-11-01 실측 — 응답은 `taxiEnabled` 하나).
+    /// 기본값이 null 이라 안 와도 역직렬화가 깨지지 않고, 서버가 나중에 추가하면 그날부터 걸린다.
+    public var minVersionCode: Int?
+    /// 권장 업데이트 기준. 막지 않고 한 번 알리기만 한다. 위와 같은 이유로 null 기본값이다.
+    public var recommendedVersionCode: Int?
 
     public init(
-        taxiEnabled: Bool = false,
-        iosMinVersionCode: Int? = nil,
-        iosRecommendedVersionCode: Int? = nil
+        minVersionCode: Int? = nil,
+        recommendedVersionCode: Int? = nil
     ) {
-        self.taxiEnabled = taxiEnabled
-        self.iosMinVersionCode = iosMinVersionCode
-        self.iosRecommendedVersionCode = iosRecommendedVersionCode
+        self.minVersionCode = minVersionCode
+        self.recommendedVersionCode = recommendedVersionCode
     }
 
     private enum CodingKeys: String, CodingKey {
-        case taxiEnabled, iosMinVersionCode, iosRecommendedVersionCode
+        case minVersionCode, recommendedVersionCode
     }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        taxiEnabled = try c.decodeOrDefault(.taxiEnabled, default: false)
-        iosMinVersionCode = try c.decodeIfPresent(Int.self, forKey: .iosMinVersionCode)
-        iosRecommendedVersionCode = try c.decodeIfPresent(Int.self, forKey: .iosRecommendedVersionCode)
+        minVersionCode = try c.decodeIfPresent(Int.self, forKey: .minVersionCode)
+        recommendedVersionCode = try c.decodeIfPresent(Int.self, forKey: .recommendedVersionCode)
     }
 }

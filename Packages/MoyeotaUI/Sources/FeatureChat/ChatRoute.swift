@@ -933,7 +933,7 @@ final class ChatRoomViewModel {
 
 /// 24 채팅 **탭** — 방 목록에서 고르면 같은 라우트 안에서 방으로 전환한다.
 ///
-/// 21·25·26 의 「채팅 열기」는 이 경로로 오지 않는다 — 탭으로 보내면 매칭 화면이 스택에서 빠진다.
+/// 21 의 「채팅 열기」는 이 경로로 오지 않는다 — 탭으로 보내면 매칭 화면이 스택에서 빠진다.
 /// 그쪽은 `ChatRoomDestinationRoute` 를 독립 목적지로 쌓아 뒤로가기가 원래 화면으로 돌아가게 한다.
 ///
 /// - `activeChatRoomId`: 진행 중인 방의 **채팅방 id**(`ActivePartyViewModel.chatRoomId`). 열린 채팅방이
@@ -945,7 +945,6 @@ public struct ChatRoute: View {
     private let activeChatRoomId: Int64?
     private let activePartyId: String?
     private let onOpenMatching: () -> Void
-    private let onOpenRideOngoing: () -> Void
     private let onLeaveChat: () -> Void
     private let onTabSelect: (MoyeotaTab) -> Void
     private let onNotParticipant: () -> Void
@@ -959,7 +958,6 @@ public struct ChatRoute: View {
         activeChatRoomId: Int64? = nil,
         activePartyId: String? = nil,
         onOpenMatching: @escaping () -> Void = {},
-        onOpenRideOngoing: @escaping () -> Void = {},
         onLeaveChat: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         onNotParticipant: @escaping () -> Void = {}
@@ -967,7 +965,6 @@ public struct ChatRoute: View {
         self.activeChatRoomId = activeChatRoomId
         self.activePartyId = activePartyId
         self.onOpenMatching = onOpenMatching
-        self.onOpenRideOngoing = onOpenRideOngoing
         self.onLeaveChat = onLeaveChat
         self.onTabSelect = onTabSelect
         self.onNotParticipant = onNotParticipant
@@ -982,7 +979,6 @@ public struct ChatRoute: View {
         activeChatRoomId: Int64? = nil,
         activePartyId: String? = nil,
         onOpenMatching: @escaping () -> Void = {},
-        onOpenRideOngoing: @escaping () -> Void = {},
         onLeaveChat: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         onNotParticipant: @escaping () -> Void = {}
@@ -990,7 +986,6 @@ public struct ChatRoute: View {
         self.activeChatRoomId = activeChatRoomId
         self.activePartyId = activePartyId
         self.onOpenMatching = onOpenMatching
-        self.onOpenRideOngoing = onOpenRideOngoing
         self.onLeaveChat = onLeaveChat
         self.onTabSelect = onTabSelect
         self.onNotParticipant = onNotParticipant
@@ -1009,7 +1004,6 @@ public struct ChatRoute: View {
                     onOpenMatching: room.isActiveParty(activeChatRoomId: activeChatRoomId, activePartyId: activePartyId)
                         ? onOpenMatching
                         : nil,
-                    onOpenRideOngoing: onOpenRideOngoing,
                     // 나간 방을 열어둔 채로 홈에 보내면, 채팅 탭에 돌아왔을 때 참여자가 아닌 방을 다시 연다.
                     onLeaveChat: {
                         state.openedRoom = nil
@@ -1096,7 +1090,6 @@ private struct ChatRoomRoute: View {
     var knownMuted: Bool?
     let onBack: () -> Void
     let onOpenMatching: (() -> Void)?
-    let onOpenRideOngoing: () -> Void
     let onLeaveChat: () -> Void
     let onTabSelect: (MoyeotaTab) -> Void
     /// 서버가 「참여자 아님」(403)을 답했다 — 호출자는 이 방 id 캐시를 버려야 한다
@@ -1179,7 +1172,6 @@ private struct ChatRoomRoute: View {
             onInputChange: { viewModel.onInputChange(text: $0) },
             onSend: { viewModel.send() },
             onBack: onBack,
-            onOpenRideOngoing: onOpenRideOngoing,
             onOpenMatching: onOpenMatching,
             onLeaveChat: { viewModel.leaveRoom() }, // 서버에서 빠진 뒤 14 홈으로
             onTabSelect: onTabSelect,
@@ -1243,7 +1235,7 @@ private struct NestedBackStateScaffold<Content: View>: View {
     }
 }
 
-/// 24 채팅방 — **독립 목적지**(`Routes.CHAT_ROOM`). 21·25·26 의 「채팅 열기」가 이걸 스택에 쌓는다.
+/// 24 채팅방 — **독립 목적지**(`Routes.CHAT_ROOM`). 21 의 「채팅 열기」가 이걸 스택에 쌓는다.
 ///
 /// 대화 자체는 탭 안의 방 화면과 **완전히 같은 것**을 쓴다(`ChatRoomRoute`) — 방 하나에 화면이 둘이면
 /// 폴링·읽음 처리·나가기 규칙이 두 벌이 된다. 여기서 더 하는 일은 하나뿐이다: 라우트 인자로 받은
@@ -1263,7 +1255,6 @@ public struct ChatRoomDestinationRoute: View {
     private let activePartyId: String?
     private let onBack: () -> Void
     private let onOpenMatching: () -> Void
-    private let onOpenRideOngoing: () -> Void
     private let onLeaveChat: () -> Void
     private let onTabSelect: (MoyeotaTab) -> Void
     private let onNotParticipant: () -> Void
@@ -1283,7 +1274,6 @@ public struct ChatRoomDestinationRoute: View {
         activePartyId: String? = nil,
         onBack: @escaping () -> Void = {},
         onOpenMatching: @escaping () -> Void = {},
-        onOpenRideOngoing: @escaping () -> Void = {},
         onLeaveChat: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         onNotParticipant: @escaping () -> Void = {}
@@ -1294,7 +1284,6 @@ public struct ChatRoomDestinationRoute: View {
         self.activePartyId = activePartyId
         self.onBack = onBack
         self.onOpenMatching = onOpenMatching
-        self.onOpenRideOngoing = onOpenRideOngoing
         self.onLeaveChat = onLeaveChat
         self.onTabSelect = onTabSelect
         self.onNotParticipant = onNotParticipant
@@ -1316,7 +1305,6 @@ public struct ChatRoomDestinationRoute: View {
                     onOpenMatching: current.isActiveParty(activeChatRoomId: activeChatRoomId, activePartyId: activePartyId)
                         ? onOpenMatching
                         : nil,
-                    onOpenRideOngoing: onOpenRideOngoing,
                     onLeaveChat: onLeaveChat,
                     onTabSelect: onTabSelect,
                     onNotParticipant: onNotParticipant,

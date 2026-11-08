@@ -122,12 +122,21 @@ public struct LocalDate: Hashable, Comparable, Sendable, CustomStringConvertible
         return era * 146_097 + dayOfEra - 719_468
     }
 
+    /// Java `getDayOfWeek()`. 1970-01-01 이 목요일이라 에포크 일수에서 바로 셈한다(Java 와 같은 식).
+    public var dayOfWeek: DayOfWeek {
+        let dayOfWeek0 = ((toEpochDay() + 3) % 7 + 7) % 7
+        return DayOfWeek(rawValue: dayOfWeek0 + 1)!
+    }
+
     /// Java `atStartOfDay(zone).toInstant()`. 원본은 UTC 자정만 쓴다(`toBirthDateInstant`).
     public func atStartOfDay(_ zone: TimeZone) -> Date {
-        let localSeconds = toEpochDay() * 86_400
-        let guess = Date(timeIntervalSince1970: TimeInterval(localSeconds))
-        let adjusted = Date(timeIntervalSince1970: TimeInterval(localSeconds - zone.secondsFromGMT(for: guess)))
-        return Date(timeIntervalSince1970: TimeInterval(localSeconds - zone.secondsFromGMT(for: adjusted)))
+        Self.instant(localSeconds: toEpochDay() * 86_400, zone)
+    }
+
+    /// Java `atTime(time).atZone(zone).toInstant()` — 그 시간대의 이 날짜·벽시계 시각을 순간으로 올린다.
+    /// 예약 출발 시각(한국 달력의 날짜 + 고른 시각)을 서버가 받는 `Instant` 로 바꾸는 자리다.
+    public func atTime(_ time: LocalTime, _ zone: TimeZone) -> Date {
+        Self.instant(localSeconds: toEpochDay() * 86_400 + time.toSecondOfDay(), zone)
     }
 
     // MARK: 더하기·빼기
@@ -195,6 +204,14 @@ public struct LocalDate: Hashable, Comparable, Sendable, CustomStringConvertible
     }
 
     // MARK: 내부
+
+    /// 벽시계 초(시간대 없는 에포크 초) → 순간. 오프셋은 두 번 셈한다 — 처음 셈은 벽시계 값을 UTC 로
+    /// 보고 고른 오프셋이라, 오프셋이 바뀌는 날(서머타임)에는 그 결과 시각의 오프셋으로 한 번 더 맞춘다.
+    private static func instant(localSeconds: Int, _ zone: TimeZone) -> Date {
+        let guess = Date(timeIntervalSince1970: TimeInterval(localSeconds))
+        let adjusted = Date(timeIntervalSince1970: TimeInterval(localSeconds - zone.secondsFromGMT(for: guess)))
+        return Date(timeIntervalSince1970: TimeInterval(localSeconds - zone.secondsFromGMT(for: adjusted)))
+    }
 
     private static func isLeap(_ year: Int) -> Bool {
         year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)

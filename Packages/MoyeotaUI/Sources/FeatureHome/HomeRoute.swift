@@ -184,15 +184,17 @@ public final class HomeViewModel {
     /// 삭제 요청을 보내고 실패를 값으로 돌려준다(성공이면 nil).
     ///
     /// 태스크 취소만 그대로 던진다. **취소는 실패가 아니라 화면을 떠난 것**이고, 통째로 삼키면 그 뒤 재조회가
-    /// 이미 취소된 태스크에서 돈다. 살아 있는 태스크의 `URLError(.cancelled)` 는 원본 `IOException` 이라 실패로 돌려준다. 코루틴은 취소되면 재개 자리에서 예외를 던지지만 Swift 는 끝난 호출의 결과를
-    /// 그대로 돌려주므로, 취소와 응답이 엇갈린 경우에도 원본처럼 재조회가 나가지 않게 여기서 끊는다.
+    /// 이미 취소된 태스크에서 돈다. 살아 있는 태스크의 `URLError(.cancelled)` 는 원본에서 `favoritePlaceCall` 이
+    /// `isNetwork` 로 감싸는 `IOException` 이라 같은 값으로 바꿔 실패로 돌려준다(선택은 남는다 — 404 가 아니다).
+    /// 코루틴은 취소되면 재개 자리에서 예외를 던지지만 Swift 는 끝난 호출의 결과를 그대로 돌려주므로,
+    /// 취소와 응답이 엇갈린 경우에도 원본처럼 재조회가 나가지 않게 여기서 끊는다.
     private static func attemptDelete(_ request: @Sendable () async throws -> Void) async throws -> (any Error)? {
         var failure: (any Error)?
         do {
             try await request()
         } catch {
-            if Task.isCancelled { throw error }
-            failure = error
+            guard let live = favoriteFailureOnLiveTask(error: error) else { throw error }
+            failure = live
         }
         try Task.checkCancellation()
         return failure
@@ -213,6 +215,10 @@ public final class HomeViewModel {
     private static func deleteFailureMessage(_ error: any Error) -> String {
         if (error as? FavoritePlaceException)?.isNotFound == true {
             return "이미 지워졌거나 없는 곳이에요. 목록을 다시 불러왔어요"
+        }
+        // 15 의 담기·빼기와 같은 문구를 쓴다 — 같은 비행기모드에서 화면마다 다른 말을 하지 않는다
+        if (error as? FavoritePlaceException)?.isNetwork == true {
+            return FavoriteNetworkFailureMessage
         }
         return "즐겨찾기를 지우지 못했어요"
     }

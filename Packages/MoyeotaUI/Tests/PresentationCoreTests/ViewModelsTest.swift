@@ -109,13 +109,12 @@ private final class Recorder: @unchecked Sendable {
 @Suite struct AppConfigViewModelTest {
     @Test("서버 값을 받으면 그 값을 따른다")
     func loadsServerConfig() async {
-        let repository = FakeConfigRepository([.success(AppConfig(taxiEnabled: true, minVersionCode: 7))])
+        let repository = FakeConfigRepository([.success(AppConfig(minVersionCode: 7))])
         let sut = AppConfigViewModel(repository: repository)
 
         await sut.loading?.value
 
         #expect(sut.resolved)
-        #expect(sut.serverConfig.taxiEnabled)
         #expect(sut.config.minVersionCode == 7)
     }
 
@@ -135,7 +134,7 @@ private final class Recorder: @unchecked Sendable {
 
     @Test("재시도 중에 성공하면 거기서 멈춘다")
     func stopsOnSuccess() async {
-        let repository = FakeConfigRepository([.failure(Failure()), .success(AppConfig(taxiEnabled: true))])
+        let repository = FakeConfigRepository([.failure(Failure()), .success(AppConfig())])
         let recorder = Recorder()
         let sut = AppConfigViewModel(repository: repository, sleep: { recorder.append($0) })
 
@@ -147,7 +146,7 @@ private final class Recorder: @unchecked Sendable {
 
     @Test("이미 읽는 중이면 겹쳐 띄우지 않는다")
     func noOverlap() async {
-        let repository = FakeConfigRepository([.success(AppConfig(taxiEnabled: false))])
+        let repository = FakeConfigRepository([.success(AppConfig())])
         let sut = AppConfigViewModel(repository: repository)
         sut.load()
         sut.load()
@@ -159,7 +158,7 @@ private final class Recorder: @unchecked Sendable {
 
     @Test("복귀 재조회는 못 받았을 때만 한다")
     func loadIfUnresolved() async {
-        let repository = FakeConfigRepository([.success(AppConfig(taxiEnabled: false))])
+        let repository = FakeConfigRepository([.success(AppConfig())])
         let sut = AppConfigViewModel(repository: repository)
         await sut.loading?.value
 
@@ -167,7 +166,7 @@ private final class Recorder: @unchecked Sendable {
         await sut.loading?.value
         #expect(await repository.calls == 1)
 
-        let failing = FakeConfigRepository([.failure(Failure()), .failure(Failure()), .failure(Failure()), .failure(Failure()), .success(AppConfig(taxiEnabled: true))])
+        let failing = FakeConfigRepository([.failure(Failure()), .failure(Failure()), .failure(Failure()), .failure(Failure()), .success(AppConfig())])
         let retried = AppConfigViewModel(repository: failing, sleep: { _ in })
         await retried.loading?.value
         #expect(!retried.resolved)
@@ -178,10 +177,10 @@ private final class Recorder: @unchecked Sendable {
     }
 
     /// 원본 `runCatching` 은 OkHttp `IOException("Canceled")` 도 실패로 받아 다시 시도한다.
-    /// 조용히 끝내면 재시도 없이 기본값(동승 모드)에 머문다.
+    /// 조용히 끝내면 재시도 없이 기본값에 머문다.
     @Test("살아 있는 태스크의 URLError(.cancelled) 는 실패라 다시 시도한다")
     func liveUrlCancelRetries() async {
-        let repository = ThrowingConfigRepository(errors: [URLError(.cancelled)], then: AppConfig(taxiEnabled: true))
+        let repository = ThrowingConfigRepository(errors: [URLError(.cancelled)], then: AppConfig())
         let recorder = Recorder()
         let sut = AppConfigViewModel(repository: repository, sleep: { recorder.append($0) })
 
@@ -194,7 +193,7 @@ private final class Recorder: @unchecked Sendable {
 
     @Test("태스크가 정말 취소되면 무슨 오류로 끝나든 다시 시도하지 않는다")
     func cancelledTaskDoesNotRetry() async {
-        let repository = ThrowingConfigRepository(errors: [URLError(.cancelled)], then: AppConfig(taxiEnabled: true))
+        let repository = ThrowingConfigRepository(errors: [URLError(.cancelled)], then: AppConfig())
         let recorder = Recorder()
         let sut = AppConfigViewModel(repository: repository, sleep: { recorder.append($0) })
 
@@ -203,25 +202,6 @@ private final class Recorder: @unchecked Sendable {
 
         #expect(recorder.recorded.isEmpty)
         #expect(!sut.resolved)
-    }
-
-    /// `AppConfig(taxiEnabled:)` 로 새로 만들면 게이트 값이 사라져 업데이트 게이트가 영영 안 걸린다.
-    @Test("디버그 강제값은 택시 모드 하나만 뒤집는다")
-    func overrideKeepsVersionGate() async {
-        let server = AppConfig(taxiEnabled: false, minVersionCode: 9, recommendedVersionCode: 11)
-        let sut = AppConfigViewModel(repository: FakeConfigRepository([.success(server)]))
-        await sut.loading?.value
-
-        sut.setDebugOverride(taxiEnabled: true)
-
-        #expect(sut.config.taxiEnabled)
-        #expect(sut.config.minVersionCode == 9)
-        #expect(sut.config.recommendedVersionCode == 11)
-        #expect(sut.serverConfig == server, "서버 값 표시는 강제값을 타지 않는다")
-        #expect(sut.debugOverride == true)
-
-        sut.setDebugOverride(taxiEnabled: nil)
-        #expect(!sut.config.taxiEnabled)
     }
 }
 
@@ -458,10 +438,10 @@ private actor FakeChatRepository: ChatRepository {
     func reportMessage(chatRoomId: Int64, chatMessageId: Int64, reason: ChatReportReason, description: String?) async throws { throw Failure() }
 }
 
-private func ride(id: String = "7", status: RideStatus = .recruiting, driverId: Int64? = nil) -> Ride {
+private func ride(id: String = "7", status: RideStatus = .recruiting) -> Ride {
     Ride(
         id: id, origin: "성결대", destination: "안양역", departureLabel: "지금 출발",
-        capacity: 4, members: [], farePerPerson: 2_000, totalFare: 8_000, status: status, driverId: driverId
+        capacity: 4, members: [], farePerPerson: 2_000, totalFare: 8_000, status: status
     )
 }
 
@@ -724,19 +704,15 @@ private func chatRoom(id: Int64, partyId: Int64, status: ChatRoomStatus = .activ
         #expect(recorder.recorded.count == 1)
     }
 
-    @Test("단계와 문구는 status 와 기사 유무로 갈린다")
+    @Test("단계와 문구는 status 로 갈린다")
     func stageLabels() {
         #expect(ride(status: .recruiting).activeStage == .waiting)
         #expect(ride(status: .recruiting).activeStageLabel == "같이 탈 사람 찾는 중")
         #expect(ride(status: .matched).activeStage == .waiting)
         #expect(ride(status: .matched).activeStageLabel == "같이 탈 사람이 모였어요")
-        #expect(ride(status: .dispatching).activeStage == .driverSearch)
-        #expect(ride(status: .dispatching).activeStageLabel == "기사님 찾는 중")
-        #expect(ride(status: .dispatching, driverId: 1).activeStage == .driverComing)
-        #expect(ride(status: .dispatching, driverId: 1).activeStageLabel == "택시 오는 중")
-        #expect(ride(status: .ongoing).activeStage == .ongoing)
-        #expect(ride(status: .ongoing).activeStageLabel == "운행 중")
         #expect(ride(status: .completed).activeStage == ActiveStage.none)
+        #expect(ride(status: .completed).activeStageLabel == "진행 중 탑승")
+        #expect(ride(status: .canceled).activeStage == ActiveStage.none)
         #expect(ride(status: .canceled).activeStageLabel == "진행 중 탑승")
     }
 }

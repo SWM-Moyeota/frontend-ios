@@ -42,6 +42,14 @@ enum MyPageAction: Equatable, Sendable {
     /// 없다」가 이유여서 행 자체를 두지 않았다(`docs/BACKEND-GAP-CLEANUP.md` §1).
     case rideHistory
 
+    /// 38 노쇼 기록·이의 신청 (앱 안). `GET /api/v1/matching/no-shows`.
+    ///
+    /// 2026-11-06 에 생긴 행이다. PR #82 로 앱이 노쇼를 **만들** 수 있게 되면서(출발을 누르면
+    /// 도착하지 않은 사람이 전부 노쇼로 찍힌다) 받는 쪽이 필요해졌다 — 그전까지 제재당한
+    /// 사용자는 403 `NO_SHOW_RESTRICTED` 로 막히는 것만 보고 **이유도 기한도 알 수 없었고,
+    /// 잘못 찍혀도 다툴 길이 없었다.**
+    case noShowRecords
+
     /// 확인 다이얼로그 → 세션 정리 → 04a 로그인 (앱 안).
     case logout
 
@@ -124,6 +132,14 @@ func myPageGroups(links: SupportLinkTargets) -> [MyPageGroup] {
                 // 「내 탑승」은 진행 중인 방까지 있을 것처럼 읽힌다(그게 예전 34 삭제 사유의 일부였다:
                 // 「예정」 탭 + 35 와의 순환 링크). 진행 중인 방은 홈·탐색 배너가 보여 준다.
                 MyPageRow(text: "지난 탑승 기록", action: .rideHistory, mark: .chevron),
+                // ★ **노쇼 횟수가 0 이어도 숨기지 않는다.** 숨기려면 「횟수 0 = 기록 없음」이어야
+                // 하는데 둘은 다른 수다: 무효가 된 노쇼와 약속 시간부터 30일이 지난 노쇼는 횟수에서
+                // 빠지지만 **목록에는 남고, 서버는 그 기록에도 이의를 받아 준다.** 즉 횟수로 행을
+                // 가리면 하필 **이의가 인정돼 횟수가 0이 된 사람**과 **오래돼 횟수에서 빠진 노쇼를
+                // 다투려는 사람**에게서 그 길을 빼앗는다. 게다가 횟수는 프로필 조회 값이라 그 조회가
+                // 실패하면(조용히 넘어간다 — `UserProfileViewModel`) 행이 사라질 수도 있다.
+                // 기록이 정말 없는 사람에게는 38 이 「노쇼로 기록된 적이 없어요」로 답한다.
+                MyPageRow(text: "노쇼 기록", action: .noShowRecords, mark: .chevron),
             ]
         ),
         MyPageGroup(
