@@ -138,8 +138,11 @@ Mixpanel·메타와 별개다. 구글 광고(App promotion2-iOS)는 iOS 설치�
 |---|---|
 | `Moyeota.xcodeproj` | `firebase-ios-sdk` 의 **`FirebaseAnalyticsCore`** 제품. IDFA 를 읽는 `GoogleAppMeasurementIdentitySupport` 가 빠진 쪽이다. import 할 필요 없이 링크만으로 켜진다 |
 | `Info.plist` | `FirebaseAutomaticScreenReportingEnabled = false`(화면 이름 자동 기록 끔), `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS = false`(리마케팅 신호 끔), `GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED = false`(IDFV 안 보냄), 구글 `SKAdNetworkItems`(cstr6suwn9) |
-| 시작 | `FirebaseRuntime.isConfigured` 의 `FirebaseApp.configure` 가 Analytics 도 함께 켠다. `GoogleService-Info.plist` 가 없으면 꺼진다(기존 규칙) |
+| `Moyeota/GoogleAdsAttribution.swift` | `AppDelegate.didFinishLaunching` 에서 `setAnalyticsCollectionEnabled(true)` 를 부른다. **이 호출이 없으면 링커가 Analytics 를 빼서 아무것도 안 보낸다**(Crashlytics 로그 "Firebase Analytics SDK not detected"로 확인). `GoogleService-Info.plist` 가 없으면 꺼진다(기존 규칙) |
 
+- 확인 방법(2026-11-12 시뮬레이터): Firebase 콘솔에서 받은 `GoogleService-Info.plist` 를 로컬에만 두고, **로컬 서명(`CODE_SIGN_IDENTITY=-`)으로** 빌드한다.
+  서명하지 않으면 키체인 오류(-34018)로 Installation ID 를 못 받는다. 앱 컨테이너의 `Library/Application Support/Google/Measurement/google-app-measurement.sql` 의
+  `events` 표에 `_f`(first_open)가 1, `queue` 가 0(전송 완료), `user_attributes` 의 `_npa`=1(광고 개인화 끔)이면 정상이다.
 - 보내는 것은 SDK 의 **자동 이벤트**(`first_open`·`session_start`·`user_engagement`·`app_update`·`os_update`)뿐이다.
   `Analytics.logEvent` 를 부르는 코드는 없고, `Analytics`(Mixpanel) 이벤트도 보내지 않는다. `setUserID` 도 부르지 않아 계정과 연결되지 않는다.
 - 구글 광고 쪽: Firebase 프로젝트 `moyeota-b1654` → 통합 → Google Ads(CID 838-912-7984) 연결, 구글 광고에서 iOS `first_open` 을
