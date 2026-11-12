@@ -28,6 +28,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         application.registerForRemoteNotifications()
         // Meta 광고 설치 측정. 키가 없으면 꺼진다 (MetaAdsAttribution).
         MetaAdsAttribution.start(application, launchOptions: launchOptions)
+        // 구글 광고 iOS 설치 측정. Firebase 가 없으면 꺼진다 (GoogleAdsAttribution).
+        GoogleAdsAttribution.start()
         return true
     }
 
