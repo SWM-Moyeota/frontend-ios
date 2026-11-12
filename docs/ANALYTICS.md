@@ -129,6 +129,24 @@ Mixpanel 과 별개다. 메타 광고관리자는 iOS 14+ 앱 설치 캠페인�
 - **App Store 개인정보 라벨에 메타로 가는 앱 사용 데이터(제품 상호작용·기기 ID, 목적: 개발자 광고/마케팅)를 적어야 한다.**
   SDK 자체 개인정보 매니페스트는 패키지에 들어 있어 Xcode 가 합친다.
 
+## 구글 광고 설치 측정 (Google 애널리틱스 for Firebase, 1.0.4~)
+
+Mixpanel·메타와 별개다. 구글 광고(App promotion2-iOS)는 iOS 설치를 직접 볼 수 없어서, 앱이 Firebase 로 「첫 실행」을
+알려 주지 않으면 설치가 0 으로 찍히고 입찰도 학습하지 못한다. Android 는 Google Play 가 설치를 세므로 해당 없다.
+
+| 자리 | 내용 |
+|---|---|
+| `Moyeota.xcodeproj` | `firebase-ios-sdk` 의 **`FirebaseAnalyticsCore`** 제품. IDFA 를 읽는 `GoogleAppMeasurementIdentitySupport` 가 빠진 쪽이다. import 할 필요 없이 링크만으로 켜진다 |
+| `Info.plist` | `FirebaseAutomaticScreenReportingEnabled = false`(화면 이름 자동 기록 끔), `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS = false`(리마케팅 신호 끔), `GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED = false`(IDFV 안 보냄), 구글 `SKAdNetworkItems`(cstr6suwn9) |
+| 시작 | `FirebaseRuntime.isConfigured` 의 `FirebaseApp.configure` 가 Analytics 도 함께 켠다. `GoogleService-Info.plist` 가 없으면 꺼진다(기존 규칙) |
+
+- 보내는 것은 SDK 의 **자동 이벤트**(`first_open`·`session_start`·`user_engagement`·`app_update`·`os_update`)뿐이다.
+  `Analytics.logEvent` 를 부르는 코드는 없고, `Analytics`(Mixpanel) 이벤트도 보내지 않는다. `setUserID` 도 부르지 않아 계정과 연결되지 않는다.
+- 구글 광고 쪽: Firebase 프로젝트 `moyeota-b1654` → 통합 → Google Ads(CID 838-912-7984) 연결, 구글 광고에서 iOS `first_open` 을
+  전환으로 가져와 iOS 캠페인 목표로 쓴다.
+- **App Store 개인정보 라벨에 구글로 가는 데이터(제품 상호작용, 기기 ID, 목적: 개발자 광고/마케팅·분석, 이용자와 연결 안 됨)를 적어야 한다.**
+  처리방침은 legal-site 2026-11-12 개정(제9조 제5항).
+
 ## Mixpanel 에서 볼 것
 
 특강에서 짚은 지표를 Mixpanel 보고서로 옮기면 이렇다. 대시보드 하나에 네 장을 모아 둔다.
