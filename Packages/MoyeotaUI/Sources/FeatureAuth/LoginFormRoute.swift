@@ -58,7 +58,8 @@ public struct LoginFormRoute: View {
     private let onBack: () -> Void
     private let onLoggedIn: () -> Void
     private let onSignUp: () -> Void
-    private let onSocialLogin: (() -> Void)?
+    private let repository: any AuthRepository
+    private let onSocialSignup: ((SocialSignup) -> Void)?
     private let onFindId: () -> Void
     private let onResetPassword: () -> Void
     private let prefillLoginId: String?
@@ -71,7 +72,8 @@ public struct LoginFormRoute: View {
         onBack: @escaping () -> Void = {},
         onLoggedIn: @escaping () -> Void = {},
         onSignUp: @escaping () -> Void = {},
-        onSocialLogin: (() -> Void)? = nil,
+        // nil 이면 Google 버튼을 숨긴다. 처음 온 Google 계정이면 이 콜백으로 가입(프로필·문자 인증)에 넘긴다
+        onSocialSignup: ((SocialSignup) -> Void)? = nil,
         onFindId: @escaping () -> Void = {},
         onResetPassword: @escaping () -> Void = {},
         prefillLoginId: String? = nil,
@@ -80,7 +82,8 @@ public struct LoginFormRoute: View {
         self.onBack = onBack
         self.onLoggedIn = onLoggedIn
         self.onSignUp = onSignUp
-        self.onSocialLogin = onSocialLogin
+        self.repository = repository
+        self.onSocialSignup = onSocialSignup
         self.onFindId = onFindId
         self.onResetPassword = onResetPassword
         self.prefillLoginId = prefillLoginId
@@ -89,8 +92,19 @@ public struct LoginFormRoute: View {
     }
 
     public var body: some View {
+        if let onSocialSignup {
+            // 시작 화면과 같은 Google 로그인 - 이 화면에서 바로 계정 선택 창을 띄운다(Android 와 같은 동작)
+            GoogleLoginHost(repository: repository, onSignup: onSocialSignup, onLoggedIn: onLoggedIn) { start in
+                form(onSocialLogin: start)
+            }
+        } else {
+            form(onSocialLogin: nil)
+        }
+    }
+
+    private func form(onSocialLogin: (() -> Void)?) -> some View {
         let state = viewModel.uiState
-        LoginFormScreen(
+        return LoginFormScreen(
             onBack: onBack,
             onSubmit: { loginId, password in viewModel.login(loginId: loginId, password: password) },
             onSignUp: onSignUp,

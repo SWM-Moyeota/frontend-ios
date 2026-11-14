@@ -779,7 +779,12 @@ private struct MainNavContent: View {
                     reverifyPhoneRequest = 0
                     navController.navigate(.profileSetup)
                 },
-                onSocialLogin: { navController.navigate(.login) },
+                onSocialSignup: { signup in
+                    signupDraft = SignupDraft()
+                    signupDraft.socialSignup = signup
+                    reverifyPhoneRequest = 0
+                    navController.navigate(.profileSetup)
+                },
                 onFindId: { navController.navigate(.findId) },
                 onResetPassword: {
                     // 직접 들어가는 재설정은 빈 아이디 칸에서 시작한다 — 지난번에 찾은 아이디를 끌고 가지 않는다
