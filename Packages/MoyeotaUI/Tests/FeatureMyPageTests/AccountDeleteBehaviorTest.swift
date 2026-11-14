@@ -27,7 +27,7 @@ private actor Gate {
 }
 
 /// 탈퇴만 받는 페이크. 나머지는 이 화면에서 불리면 테스트가 터져야 한다.
-private final class AccountDeleteFakeAuthRepository: AuthRepository, @unchecked Sendable {
+private final class AccountDeleteFakeAuthRepository: AuthRepository, SocialAuthRepository, @unchecked Sendable {
     private struct Unrelated: Error {}
 
     let authState: StateFlow<AuthState> = MutableStateFlow(.authenticated(userUuid: "user-uuid"))
@@ -36,6 +36,8 @@ private final class AccountDeleteFakeAuthRepository: AuthRepository, @unchecked 
     private let failure: (any Error)?
     private let gate: Gate?
     private var _passwords: [String] = []
+    private var _socialDeletions = 0
+    var socialDeletions: Int { lock.withLock { _socialDeletions } }
 
     init(failure: (any Error)? = nil, gate: Gate? = nil) {
         self.failure = failure
@@ -49,6 +51,17 @@ private final class AccountDeleteFakeAuthRepository: AuthRepository, @unchecked 
         if let gate { await gate.wait() }
         if let failure { throw failure }
     }
+
+    func deleteSocialAccount() async throws {
+        lock.withLock { _socialDeletions += 1 }
+        if let failure { throw failure }
+    }
+    func loginGoogle(idToken: String) async throws -> SocialLoginResult { throw unrelated() }
+    func registerSocial(_ registration: SocialRegistration) async throws { throw unrelated() }
+    func loginMethods() async throws -> LoginMethods { throw unrelated() }
+    func sendLinkCode() async throws { throw unrelated() }
+    func verifyLinkCode(_ code: String) async throws -> String { throw unrelated() }
+    func linkGoogle(idToken: String, verificationToken: String) async throws { throw unrelated() }
 
     func updateProfile(nickname: String?, imageKey: String?) async throws { throw unrelated() }
     func resetProfileImage() async throws { throw unrelated() }
@@ -82,6 +95,30 @@ private final class SignalLog {
 
 @MainActor
 @Suite struct AccountDeleteBehaviorTest {
+
+    @Test("소셜 전용 회원은 비밀번호 없이 전용 탈퇴를 호출하고 성공 후에만 완료를 알린다")
+    func socialDeletion() async {
+        let repository = AccountDeleteFakeAuthRepository()
+        let viewModel = AccountDeleteViewModel(repository: repository)
+        let log = SignalLog()
+        viewModel.delete(hasPassword: false, onSubmitting: { log.events.append("submitting") }, onDeleted: { log.events.append("deleted") })
+        await viewModel.deleteJob?.value
+        #expect(repository.socialDeletions == 1)
+        #expect(repository.passwords.isEmpty)
+        #expect(log.events == ["submitting", "deleted"])
+    }
+
+    @Test("소셜 전용 탈퇴 실패는 완료를 알리지 않고 재시도를 허용한다")
+    func socialDeletionFailure() async {
+        let repository = AccountDeleteFakeAuthRepository(failure: AuthException(error: .network))
+        let viewModel = AccountDeleteViewModel(repository: repository)
+        let log = SignalLog()
+        viewModel.delete(hasPassword: false, onDeleted: { log.events.append("deleted") }, onKept: { log.events.append("kept") })
+        await viewModel.deleteJob?.value
+        #expect(log.events == ["kept"])
+        #expect(!viewModel.uiState.submitting)
+        #expect(viewModel.uiState.bannerError != nil)
+    }
 
     private func delete(_ viewModel: AccountDeleteViewModel, log: SignalLog) {
         viewModel.delete(

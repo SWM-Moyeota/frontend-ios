@@ -86,6 +86,7 @@ final class NicknameCheckViewModel {
 public struct ProfileSetupRoute: View {
     private let onBack: () -> Void
     private let onNext: (SignupDraft) -> Void
+    private let socialSignup: SocialSignup?
     private let onGoToLogin: () -> Void
     private let reverifyPhoneRequest: Int
 
@@ -102,10 +103,12 @@ public struct ProfileSetupRoute: View {
         onBack: @escaping () -> Void = {},
         onNext: @escaping (SignupDraft) -> Void = { _ in },
         onGoToLogin: @escaping () -> Void = {},
-        reverifyPhoneRequest: Int = 0
+        reverifyPhoneRequest: Int = 0,
+        socialSignup: SocialSignup? = nil
     ) {
         self.onBack = onBack
         self.onNext = onNext
+        self.socialSignup = socialSignup
         self.onGoToLogin = onGoToLogin
         self.reverifyPhoneRequest = reverifyPhoneRequest
         _viewModel = HostedViewModel(wrappedValue: NicknameCheckViewModel(repository: repository))
@@ -115,7 +118,8 @@ public struct ProfileSetupRoute: View {
     public var body: some View {
         ProfileSetupScreen(
             onBack: onBack,
-            onNext: onNext,
+            onNext: { draft in var draft = draft; draft.socialSignup = socialSignup; onNext(draft) },
+            socialSignup: socialSignup,
             nicknameCheck: viewModel.state,
             onNicknameChange: { viewModel.onNicknameChanged(raw: $0) },
             phoneVerify: phoneViewModel.state,

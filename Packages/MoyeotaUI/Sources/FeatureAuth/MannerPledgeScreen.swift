@@ -18,6 +18,7 @@ public struct MannerPledgeScreen: View {
     private let errorMessage: String?
     private let onEditNickname: (() -> Void)?
     private let onReverifyPhone: (() -> Void)?
+    private let onRestartSocial: (() -> Void)?
 
     // 전체 항목 동의 필수 → 하나라도 미체크면 CTA 비활성.
     // 개수를 `mannerPledgeItems` 에서 끌어온다 — 항목을 늘렸을 때 체크 배열이 짧아 터지는 일이 없도록.
@@ -38,7 +39,8 @@ public struct MannerPledgeScreen: View {
         submitting: Bool = false,
         errorMessage: String? = nil,
         onEditNickname: (() -> Void)? = nil,
-        onReverifyPhone: (() -> Void)? = nil
+        onReverifyPhone: (() -> Void)? = nil,
+        onRestartSocial: (() -> Void)? = nil
     ) {
         self.onBack = onBack
         self.onComplete = onComplete
@@ -46,6 +48,7 @@ public struct MannerPledgeScreen: View {
         self.errorMessage = errorMessage
         self.onEditNickname = onEditNickname
         self.onReverifyPhone = onReverifyPhone
+        self.onRestartSocial = onRestartSocial
     }
 
     public var body: some View {
@@ -121,6 +124,7 @@ public struct MannerPledgeScreen: View {
     }
 
     private var recovery: (label: String, action: () -> Void)? {
+        if let onRestartSocial { return ("소셜 로그인 다시 하기", onRestartSocial) }
         if let onEditNickname { return ("닉네임 바꾸기", onEditNickname) }
         if let onReverifyPhone { return ("휴대폰 인증 다시 하기", onReverifyPhone) }
         return nil

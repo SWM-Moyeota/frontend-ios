@@ -23,6 +23,7 @@ public struct LoginFormScreen: View {
     private let onBack: () -> Void
     private let onSubmit: (_ loginId: String, _ password: String) -> Void
     private let onSignUp: () -> Void
+    private let onSocialLogin: (() -> Void)?
     private let onFindId: () -> Void
     private let onResetPassword: () -> Void
     private let prefillLoginId: String?
@@ -41,6 +42,7 @@ public struct LoginFormScreen: View {
         onBack: @escaping () -> Void = {},
         onSubmit: @escaping (_ loginId: String, _ password: String) -> Void = { _, _ in },
         onSignUp: @escaping () -> Void = {},
+        onSocialLogin: (() -> Void)? = nil,
         onFindId: @escaping () -> Void = {},
         onResetPassword: @escaping () -> Void = {},
         prefillLoginId: String? = nil,
@@ -51,6 +53,7 @@ public struct LoginFormScreen: View {
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onSignUp = onSignUp
+        self.onSocialLogin = onSocialLogin
         self.onFindId = onFindId
         self.onResetPassword = onResetPassword
         self.prefillLoginId = prefillLoginId
@@ -128,6 +131,15 @@ public struct LoginFormScreen: View {
                         loading: submitting
                     )
 
+                    if let onSocialLogin {
+                        // Google 로 가입한 회원은 아이디가 없다 - 시작 화면과 같은 버튼을 여기에도 둔다
+                        Spacer().frame(height: 12)
+                        SecondaryButton(
+                            text: "Google로 계속하기",
+                            onClick: onSocialLogin,
+                            leadingImage: Image("GoogleLogo", bundle: .main)
+                        )
+                    }
                     // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
                     // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).
                     Spacer().frame(height: 18)

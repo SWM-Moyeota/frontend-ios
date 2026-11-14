@@ -37,6 +37,7 @@ import SwiftUI
 /// - Parameter bannerError: 버튼 위 배너. 진행 중 합승·네트워크·세션 만료처럼 이 화면에서 못 고치는 실패.
 /// - Parameter guideUrl: 계정 삭제 안내 페이지. nil 이면 「자세히 보기」 줄을 그리지 않는다.
 public struct AccountDeleteScreen: View {
+    private let hasPassword: Bool
     private let password: String
     private let submitting: Bool
     private let passwordError: String?
@@ -51,6 +52,7 @@ public struct AccountDeleteScreen: View {
 
     public init(
         password: String,
+        hasPassword: Bool = true,
         submitting: Bool = false,
         passwordError: String? = nil,
         bannerError: String? = nil,
@@ -60,6 +62,7 @@ public struct AccountDeleteScreen: View {
         onBack: @escaping () -> Void = {}
     ) {
         self.password = password
+        self.hasPassword = hasPassword
         self.submitting = submitting
         self.passwordError = passwordError
         self.bannerError = bannerError
@@ -70,7 +73,7 @@ public struct AccountDeleteScreen: View {
     }
 
     public var body: some View {
-        let canSubmit = canSubmitAccountDeletion(password: password, submitting: submitting)
+        let canSubmit = !submitting && (!hasPassword || canSubmitAccountDeletion(password: password, submitting: submitting))
 
         ZStack {
             VStack(spacing: 0) {
@@ -127,7 +130,7 @@ public struct AccountDeleteScreen: View {
                         }
 
                         Spacer().frame(height: 24)
-                        MoyeotaTextField(
+                        if hasPassword { MoyeotaTextField(
                             value: password,
                             onValueChange: onPasswordChange,
                             label: "비밀번호",
@@ -151,6 +154,7 @@ public struct AccountDeleteScreen: View {
                             .buttonStyle(NoIndicationStyle())
                         }
 
+                        }
                         // 이 화면에서 고칠 수 없는 실패(진행 중 합승·네트워크)는 버튼 위 배너로 둔다 — 입력란을
                         // 빨갛게 만들면 사용자가 비밀번호를 계속 다시 친다.
                         if let bannerError {

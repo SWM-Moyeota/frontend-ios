@@ -14,6 +14,7 @@
 		A10000000000000000000005 /* Mixpanel in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000015 /* Mixpanel */; };
 		A10000000000000000000006 /* FacebookCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000016 /* FacebookCore */; };
 		A10000000000000000000007 /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000017 /* FirebaseAnalyticsCore */; };
+		B20000000000000000000001 = {isa = PBXBuildFile; productRef = B20000000000000000000002; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +50,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B20000000000000000000001 /* GoogleSignIn */,
 				A10000000000000000000001 /* AppNavigation in Frameworks */,
 				A10000000000000000000002 /* MoyeotaData in Frameworks */,
 				A10000000000000000000003 /* FirebaseMessaging in Frameworks */,
@@ -111,6 +113,7 @@
 			);
 			name = Moyeota;
 			packageProductDependencies = (
+				B20000000000000000000002 /* GoogleSignIn */,
 				A10000000000000000000011 /* AppNavigation */,
 				A10000000000000000000012 /* MoyeotaData */,
 				A10000000000000000000013 /* FirebaseMessaging */,
@@ -143,6 +146,7 @@
 			mainGroup = A10000000000000000000061;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				B20000000000000000000003 /* GoogleSignIn-iOS */,
 				A10000000000000000000092 /* XCLocalSwiftPackageReference "Packages/MoyeotaCore" */,
 				A10000000000000000000093 /* XCLocalSwiftPackageReference "Packages/MoyeotaUI" */,
 				A10000000000000000000094 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
@@ -363,6 +367,7 @@
 				version = 18.1.1;
 			};
 		};
+		B20000000000000000000003 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/google/GoogleSignIn-iOS"; requirement = {kind = exactVersion; version = 10.1.0; }; };
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -399,6 +404,7 @@
 			package = A10000000000000000000094 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAnalyticsCore;
 		};
+		B20000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = B20000000000000000000003; productName = GoogleSignIn; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A10000000000000000000091 /* Project object */;
