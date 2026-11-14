@@ -216,7 +216,7 @@ public struct MyPageScreen: View {
                             )
                     },
                     text: {
-                        Text("다시 이용하려면 아이디로 로그인해야 해요")
+                        Text("다시 이용하려면 로그인해야 해요")
                             .moyeotaText(MaterialTextStyle.bodyMedium(), color: MoyeotaColor.TextMute)
                     },
                     confirmButton: {

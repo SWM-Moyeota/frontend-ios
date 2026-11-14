@@ -123,7 +123,8 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(abs(cardWidth(window, y: rows.top + 40) - 320) < 1)
     }
 
-    @Test("35 확인창은 내용이 상한보다 짧아 내용 폭이다")
+    // 본문이 「다시 이용하려면 로그인해야 해요」로 짧아져 내용 폭이 머티리얼 대화상자의 최소 폭(280) 아래로 내려간다.
+    @Test("35 확인창은 내용이 짧아 최소 폭 280 이다")
     func logoutConfirm() async {
         let window = await hosted(MyPageScreen().seeded(logoutConfirming: true))
         defer { window.isHidden = true }
@@ -131,7 +132,7 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(rows.bottom - rows.top > 100, "카드를 찾아야 시험이 된다")
         #expect(abs(CGFloat(rows.top + rows.bottom) / 2 - 451) < 1, "\(rows)")
         let width = cardWidth(window, y: rows.top + 40)
-        #expect(width > 280 && width < 319, "\(width)")
+        #expect(abs(width - 280) < 1, "\(width)")
     }
 
     @Test("37 본문은 원본과 같은 자리에서 꺾인다")

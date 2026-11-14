@@ -160,18 +160,14 @@ public struct LoginScreen: View {
             // 하단 고정이면 남는 높이를 스크롤 영역이 흡수한다.
             VStack(spacing: 0) {
                 if let onGoogle {
-                    // 로고는 앱 번들의 자산(Moyeota/Assets.xcassets/GoogleLogo)이다. 글자가 이미 Google 을 말하므로 로고는 읽지 않게 한다.
-                    Button(action: onGoogle) {
-                        HStack(spacing: 10) {
-                            Image("GoogleLogo", bundle: .main)
-                                .resizable()
-                                .frame(width: 18, height: 18)
-                                .accessibilityHidden(true)
-                            Text("Google로 계속하기")
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.bottom, 8)
+                    // Android 시작 화면과 같은 테두리 알약(SecondaryButton) + 왼쪽 Google 로고.
+                    // 로고는 앱 번들의 자산(Moyeota/Assets.xcassets/GoogleLogo)이다.
+                    SecondaryButton(
+                        text: "Google로 계속하기",
+                        onClick: onGoogle,
+                        leadingImage: Image("GoogleLogo", bundle: .main)
+                    )
+                    Spacer().frame(height: 12)
                 }
                 PrimaryCtaButton(
                     text: "일반 회원가입",

@@ -137,18 +137,30 @@ public struct SecondaryButton: View {
     private let text: String
     private let onClick: () -> Void
     private let enabled: Bool
+    /// 글자 왼쪽에 놓는 18pt 로고(예: Google 로그인). 원본 색을 그대로 보여 주고 스크린리더는 읽지 않는다.
+    private let leadingImage: Image?
 
-    public init(text: String, onClick: @escaping () -> Void, enabled: Bool = true) {
+    public init(text: String, onClick: @escaping () -> Void, enabled: Bool = true, leadingImage: Image? = nil) {
         self.text = text
         self.onClick = onClick
         self.enabled = enabled
+        self.leadingImage = leadingImage
     }
 
     public var body: some View {
         Button(action: onClick) {
-            Text(text)
-                .moyeotaText(MoyeotaType.ButtonLg.hangulTrimmed)
-                .padding(.horizontal, 24)
+            HStack(spacing: 10) {
+                if let leadingImage {
+                    leadingImage
+                        .resizable()
+                        .renderingMode(.original)
+                        .frame(width: 18, height: 18)
+                        .accessibilityHidden(true)
+                }
+                Text(text)
+                    .moyeotaText(MoyeotaType.ButtonLg.hangulTrimmed)
+            }
+            .padding(.horizontal, 24)
         }
         .buttonStyle(
             CtaButtonStyle(
