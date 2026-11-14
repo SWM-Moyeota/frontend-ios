@@ -65,5 +65,5 @@ UI 테스트는 `Packages/MoyeotaUI`에서 `MoyeotaUI-Package` 스킴으로 iPho
 
 - Core 전체: 896개, 51개 suite 통과.
 - FeatureAuth 177개/20 suite, FeatureMyPage 195개/18 suite 통과.
-- AppNavigation 101개 중 2개 실패(`BackHandlerStackTest`의 「덮여 있는 동안 켜져도 등록되지 않고 돌아오면 등록된다」, `MainNavGraphRuntimeTest`의 「복귀는 한 번뿐이다 …」). 이 보완 이전 커밋(4b4954e)을 같은 시뮬레이터에서 돌려도 같은 두 건이 똑같이 실패해 이번 변경으로 생긴 것이 아니다. 원인은 조사하지 않았다.
+- AppNavigation 101개/6 suite 통과(`-parallel-testing-enabled NO`, CI와 `scripts/check.sh`가 쓰는 직렬 실행). 처음에는 이 옵션 없이 돌려 `BackHandlerStackTest`의 「덮여 있는 동안 켜져도 등록되지 않고 돌아오면 등록된다」와 `MainNavGraphRuntimeTest`의 「복귀는 한 번뿐이다 …」 2건이 실패했다. 같은 조건에서는 `develop`도 똑같이 실패하고, 직렬로 돌리면 통과한다. 창을 띄우는 런타임 테스트라 병렬 실행에서 서로 간섭하는 것으로 보이며 이번 변경과 무관하다.
 - 시뮬레이터 화면 확인, 앱 타깃 빌드, 실제 계정 인증은 이번에 하지 않았다.
