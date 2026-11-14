@@ -11,8 +11,7 @@ public enum Routes {
 
     /// 04b 아이디 찾기 · 04c 비밀번호 재설정 (신규, 2026-11) — 백엔드 #314 · #331.
     ///
-    /// **원본(Android)에 아직 없는 목적지다** — 서버 API 가 올라온 뒤 iOS 가 먼저 붙였다
-    /// (`docs/IOS-DIFFERENCES.md`). 둘 다 04a 위에 쌓이고, 끝나면 04a 로 되돌아간다.
+    /// iOS 가 먼저 붙였고 원본이 따라왔다(Android frontend #100). 둘 다 04a 위에 쌓이고, 끝나면 04a 로 되돌아간다.
     public static let FIND_ID = "auth/find-id"                       // 04b 신규 (아이디 찾기)
     public static let PASSWORD_RESET = "auth/password-reset"         // 04c 신규 (비밀번호 재설정)
 
