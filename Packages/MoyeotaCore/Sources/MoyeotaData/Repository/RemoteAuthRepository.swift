@@ -244,6 +244,84 @@ public final class RemoteAuthRepository: AuthRepository {
         }.exists
     }
 
+    /// 번호 정규화는 가입 인증과 같다 — 발송과 확인이 **같은 형태**를 보내야 서버가 같은 번호로 본다.
+    public func sendFindLoginIdCode(phoneNumber: String) async throws {
+        try await authCall {
+            try await api.sendFindLoginIdCode(
+                request: SmsSendRequestDto(phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber))
+            )
+        }
+    }
+
+    /// 빈 아이디를 끊는 이유는 `verifyPhoneCode` 의 빈 토큰과 같다 — 통과시키면 화면이
+    /// 「회원님의 아이디는 예요」처럼 빈 값을 결과로 그린다.
+    public func findLoginId(phoneNumber: String, code: String) async throws -> String {
+        let response = try await authCall {
+            try await api.findLoginId(
+                request: SmsVerifyRequestDto(
+                    phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber),
+                    code: code.trim()
+                )
+            )
+        }
+        guard !response.loginId.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "아이디 찾기 응답에 loginId 가 없습니다.")
+        }
+        return response.loginId
+    }
+
+    /// 접수번호가 비면 끊는다 — 확인 단계가 빈 `requestId` 로 400 만 받게 되고, 사용자는 문자를 받고도
+    /// 인증을 끝낼 수 없다. 시간 값은 서버가 0 이하를 줘도 화면이 즉시 만료로 그리지 않게 정책 상수로 메운다.
+    public func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket {
+        let response = try await authCall {
+            try await api.sendPasswordResetCode(
+                request: PasswordResetSendRequestDto(
+                    loginId: loginId.trim(),
+                    phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber)
+                )
+            )
+        }
+        guard !response.requestId.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "재설정 접수 응답에 requestId 가 없습니다.")
+        }
+        return PasswordResetTicket(
+            requestId: response.requestId,
+            expiresInSeconds: response.expiresIn > 0 ? Int(response.expiresIn) : AuthPolicy.SMS_CODE_TTL_SECONDS,
+            resendAfterSeconds: response.resendAfter > 0
+                ? Int(response.resendAfter) : AuthPolicy.SMS_RESEND_COOLDOWN_SECONDS
+        )
+    }
+
+    public func verifyPasswordResetCode(requestId: String, code: String) async throws -> String {
+        let response = try await authCall {
+            try await api.verifyPasswordResetCode(
+                request: PasswordResetVerifyRequestDto(requestId: requestId, code: code.trim())
+            )
+        }
+        guard !response.resetToken.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "재설정 인증 응답에 resetToken 이 없습니다.")
+        }
+        return response.resetToken
+    }
+
+    /// 비밀번호는 **다듬지 않는다** — 로그인이 입력값을 그대로 보내므로 여기서 공백을 깎으면
+    /// 사용자가 정한 비밀번호와 저장된 비밀번호가 달라진다.
+    public func confirmPasswordReset(
+        resetToken: String,
+        newPassword: String,
+        newPasswordConfirm: String
+    ) async throws {
+        try await authCall {
+            try await api.confirmPasswordReset(
+                request: PasswordResetConfirmRequestDto(
+                    resetToken: resetToken,
+                    newPassword: newPassword,
+                    newPasswordConfirm: newPasswordConfirm
+                )
+            )
+        }
+    }
+
     /// 204 라 돌려받을 값이 없다. 실패는 전부 `AuthException` 으로 좁혀 올린다.
     public func updateProfile(nickname: String?, imageKey: String?) async throws {
         try await authCall {

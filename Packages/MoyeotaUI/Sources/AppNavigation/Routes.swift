@@ -9,6 +9,13 @@ public enum Routes {
     public static let LOGIN = "auth/login"                           // 04 S01
     public static let LOGIN_FORM = "auth/login-form"                 // 04a 신규 (아이디 로그인)
 
+    /// 04b 아이디 찾기 · 04c 비밀번호 재설정 (신규, 2026-11) — 백엔드 #314 · #331.
+    ///
+    /// **원본(Android)에 아직 없는 목적지다** — 서버 API 가 올라온 뒤 iOS 가 먼저 붙였다
+    /// (`docs/IOS-DIFFERENCES.md`). 둘 다 04a 위에 쌓이고, 끝나면 04a 로 되돌아간다.
+    public static let FIND_ID = "auth/find-id"                       // 04b 신규 (아이디 찾기)
+    public static let PASSWORD_RESET = "auth/password-reset"         // 04c 신규 (비밀번호 재설정)
+
     // B' · 부가 인증 05~09 — **가입 그래프에 등록하지 않는다**
     //
     // 서버 가입(POST /api/v1/users)에는 계정 유형 개념이 없고(loginId·password·name·birthDate·
@@ -93,7 +100,7 @@ public enum Routes {
 /// 함정(원본 `CHAT_ROOM_ID_ARG` 주석)이 없어지고, 목적지를 빠뜨리면 그래프의 `switch` 가 컴파일되지 않는다.
 public enum Route: Hashable, Sendable {
     case onboardingSaving, onboardingTrust, onboardingSafety
-    case login, loginForm
+    case login, loginForm, findId, passwordReset
     case profileSetup, mannerPledge, signupComplete
     case home, destination, destinationConfirm
     case explore, joinConfirm
@@ -111,6 +118,8 @@ public enum Route: Hashable, Sendable {
         case .onboardingSafety: Routes.ONBOARDING_SAFETY
         case .login: Routes.LOGIN
         case .loginForm: Routes.LOGIN_FORM
+        case .findId: Routes.FIND_ID
+        case .passwordReset: Routes.PASSWORD_RESET
         case .profileSetup: Routes.PROFILE_SETUP
         case .mannerPledge: Routes.MANNER_PLEDGE
         case .signupComplete: Routes.SIGNUP_COMPLETE

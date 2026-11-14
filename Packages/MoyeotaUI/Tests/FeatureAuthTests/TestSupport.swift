@@ -121,6 +121,12 @@ class UnsupportedAuthRepository: AuthRepository, @unchecked Sendable {
     func logout() async throws { throw UnexpectedCall(reason: "로그아웃") }
     func deleteAccount(password: String) async throws { throw UnexpectedCall(reason: "탈퇴") }
     func getMyProfile() async throws -> UserProfileInfo { throw UnexpectedCall(reason: "내 정보") }
+
+    func sendFindLoginIdCode(phoneNumber: String) async throws { throw UnexpectedCall(reason: "아이디 찾기·비밀번호 재설정") }
+    func findLoginId(phoneNumber: String, code: String) async throws -> String { throw UnexpectedCall(reason: "아이디 찾기·비밀번호 재설정") }
+    func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket { throw UnexpectedCall(reason: "아이디 찾기·비밀번호 재설정") }
+    func verifyPasswordResetCode(requestId: String, code: String) async throws -> String { throw UnexpectedCall(reason: "아이디 찾기·비밀번호 재설정") }
+    func confirmPasswordReset(resetToken: String, newPassword: String, newPasswordConfirm: String) async throws { throw UnexpectedCall(reason: "아이디 찾기·비밀번호 재설정") }
 }
 
 /// 테스트가 열어 줄 때까지 호출을 붙잡아 둔다 — "요청이 날아간 상태"를 재현한다.
