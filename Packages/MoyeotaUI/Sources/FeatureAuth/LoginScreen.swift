@@ -159,7 +159,20 @@ public struct LoginScreen: View {
             // 본문이 짧아 고정 Spacer 로 CTA 위치를 잡으면 본문 아래에 빈 공간이 남는다.
             // 하단 고정이면 남는 높이를 스크롤 영역이 흡수한다.
             VStack(spacing: 0) {
-                if let onGoogle { Button("구글로 회원가입하기", action: onGoogle).buttonStyle(.bordered).padding(.bottom, 8) }
+                if let onGoogle {
+                    // 로고는 앱 번들의 자산(Moyeota/Assets.xcassets/GoogleLogo)이다. 글자가 이미 Google 을 말하므로 로고는 읽지 않게 한다.
+                    Button(action: onGoogle) {
+                        HStack(spacing: 10) {
+                            Image("GoogleLogo", bundle: .main)
+                                .resizable()
+                                .frame(width: 18, height: 18)
+                                .accessibilityHidden(true)
+                            Text("Google로 계속하기")
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .padding(.bottom, 8)
+                }
                 PrimaryCtaButton(
                     text: "일반 회원가입",
                     onClick: onEmailStart
