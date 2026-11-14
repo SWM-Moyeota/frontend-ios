@@ -53,6 +53,39 @@ func recoveryTransitionError(error: AuthError, verifying: Bool) -> AuthError {
     }
 }
 
+/// 재설정 요청 제한(429 `USER306`)을 화면이 어떻게 받을지. 서버는 사유 없이 남은 초만 준다.
+enum RecoveryRateLimit: Equatable, Sendable {
+    /// 곧 풀린다 — 재요청 버튼을 그 초만큼 카운트다운으로 잠근다.
+    case shortWait(seconds: Int, message: String)
+
+    /// 한참 걸린다(하루 문자 횟수·계정당 시간당 제한) — 초를 세는 건 의미가 없어 버튼을 잠그고 대략의 시간만 말한다.
+    case longWait(message: String)
+}
+
+/// 남은 시간으로 제한의 종류를 가른다.
+///
+/// 문자 쿨다운은 60초이고 IP 당 제한도 60초 창이라, **60초 이하면 「방금 요청했다」** 로 본다. 실제로 가장 흔한
+/// 경우는 04b 에서 아이디를 찾자마자 같은 번호로 04c 를 여는 것이다 — 두 기능이 같은 문자 대기 칸을 쓴다.
+/// 그보다 길면 하루 횟수(최대 24시간)나 계정당 제한(최대 1시간)이다.
+/// 서버가 값을 주지 않았으면 쿨다운 최대치로 보수적으로 잡는다.
+func recoveryRateLimit(retryAfterSeconds: Int?) -> RecoveryRateLimit {
+    guard let seconds = retryAfterSeconds else {
+        return .shortWait(
+            seconds: AuthPolicy.SMS_RESEND_COOLDOWN_SECONDS,
+            message: authErrorMessage(error: .passwordResetRateLimited)
+        )
+    }
+    if seconds <= AuthPolicy.SMS_RESEND_COOLDOWN_SECONDS {
+        return .shortWait(
+            seconds: seconds,
+            message: "방금 이 번호로 인증번호를 요청했어요. 버튼의 남은 시간이 끝나면 다시 받아 주세요"
+        )
+    }
+    let minutes = (seconds + 59) / 60
+    let wait = minutes < 60 ? "약 \(minutes)분" : "약 \((minutes + 59) / 60)시간"
+    return .longWait(message: "인증번호 요청이 너무 많았어요. \(wait) 뒤에 다시 시도해 주세요")
+}
+
 private let RECOVERY_TICK_INTERVAL_MS = 500
 
 @MainActor
@@ -164,12 +197,31 @@ final class RecoveryCodeViewModel {
                 let kind = failure.recoveryAuthError()
                 let failedAt = self.currentTimeMillis()
                 self.requestIssue = kind == .phoneNotRegistered ? .notRegistered : nil
-                self.updateState {
-                    $0.onRequestFailure(
-                        error: recoveryTransitionError(error: kind, verifying: false),
-                        message: recoveryErrorMessage(error: kind, fallback: failure.authUserMessage()),
-                        nowMillis: failedAt
-                    )
+                if kind == .passwordResetRateLimited {
+                    // 사유는 없어도 남은 시간은 온다 — 그 값으로 「곧 풀린다」와 「한참 걸린다」를 가른다.
+                    let retryAfter = (failure as? AuthException)?.retryAfterSeconds
+                    switch recoveryRateLimit(retryAfterSeconds: retryAfter) {
+                    case let .shortWait(seconds, message):
+                        self.updateState {
+                            var next = $0.onRequestFailure(error: .smsCooldown, message: message, nowMillis: failedAt)
+                            // 전이는 쿨다운 최대치(60초)로 잡는다 — 서버가 준 실제 남은 시간으로 고쳐 쓴다.
+                            next.resendAllowedAt = failedAt + Int64(seconds) * 1000
+                            return next
+                        }
+                    case let .longWait(message):
+                        // 하루 한도와 같은 전이: 버튼을 잠그고 카운트다운을 걸지 않는다. 번호를 고치면 풀린다.
+                        self.updateState {
+                            $0.onRequestFailure(error: .smsDailyLimitExceeded, message: message, nowMillis: failedAt)
+                        }
+                    }
+                } else {
+                    self.updateState {
+                        $0.onRequestFailure(
+                            error: recoveryTransitionError(error: kind, verifying: false),
+                            message: recoveryErrorMessage(error: kind, fallback: failure.authUserMessage()),
+                            nowMillis: failedAt
+                        )
+                    }
                 }
             }
             self?.startTicker()

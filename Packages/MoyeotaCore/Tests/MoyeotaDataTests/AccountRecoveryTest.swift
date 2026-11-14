@@ -242,6 +242,22 @@ import Testing
         }
     }
 
+    /// 사유는 없어도 남은 초는 온다 — 화면이 「곧 풀린다」와 「한참 걸린다」를 가르는 유일한 근거다.
+    @Test("429 의 Retry-After 를 초로 읽어 올린다")
+    func retryAfterHeader() {
+        func exception(_ header: [String: String]) -> AuthException {
+            HttpException(
+                Response<Void>.error(429, bytes: Data(#"{"code":"USER306","message":"m"}"#.utf8), headers: header)
+            ).toAuthException()
+        }
+
+        #expect(exception(["Retry-After": "42"]).retryAfterSeconds == 42)
+        #expect(exception(["retry-after": " 7 "]).retryAfterSeconds == 7, "헤더 이름은 대소문자를 가리지 않는다")
+        #expect(exception([:]).retryAfterSeconds == nil)
+        #expect(exception(["Retry-After": "0"]).retryAfterSeconds == nil)
+        #expect(exception(["Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"]).retryAfterSeconds == nil)
+    }
+
     /// IP 제한은 필터가 직접 본문을 쓴다(`PasswordResetRequestFilter`) — 컨트롤러를 거치지 않아도 같은 모양이다.
     @Test("재설정 요청 429 는 제한으로 올라온다")
     func resetSend429() async {

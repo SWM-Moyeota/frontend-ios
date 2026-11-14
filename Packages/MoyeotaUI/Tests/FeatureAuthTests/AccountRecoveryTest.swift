@@ -217,7 +217,41 @@ private final class FakeRecoveryRepository: UnsupportedAuthRepository, @unchecke
         #expect(!repository.calls.contains { $0.hasPrefix("reset-verify") })
     }
 
-    @Test("재설정 요청 제한은 재요청 버튼을 쿨다운으로 잠근다")
+    /// 04b 에서 아이디를 찾자마자 같은 번호로 04c 를 열면 문자 쿨다운에 걸린다 — 가장 흔한 429 다.
+    @Test("재설정 요청 제한은 서버가 준 남은 시간만큼만 버튼을 잠근다")
+    func resetSendRateLimitedUsesRetryAfter() async {
+        let repository = FakeRecoveryRepository()
+        repository.sendFailure = AuthException(error: .passwordResetRateLimited, retryAfterSeconds: 23)
+        let viewModel = make(.resetPassword, repository)
+
+        viewModel.requestCode(phoneDigits: PHONE, loginId: "moyeota")
+        await clock.settle()
+
+        #expect(viewModel.state.resendRemainingSeconds(nowMillis: viewModel.nowMillis) == 23)
+        #expect(viewModel.state.phoneMessage?.contains("방금") == true)
+        #expect(!viewModel.state.dailyLimitReached)
+
+        await clock.advance(by: .seconds(24))
+        #expect(viewModel.state.canRequestCode(phoneDigits: PHONE, nowMillis: viewModel.nowMillis))
+    }
+
+    /// 하루 횟수·계정당 제한은 몇 분~몇 시간이다 — 초를 세는 카운트다운을 걸면 「3600초 후 다시 받기」가 된다.
+    @Test("오래 걸리는 재설정 제한은 카운트다운 없이 버튼을 잠근다")
+    func resetSendRateLimitedLong() async {
+        let repository = FakeRecoveryRepository()
+        repository.sendFailure = AuthException(error: .passwordResetRateLimited, retryAfterSeconds: 1_500)
+        let viewModel = make(.resetPassword, repository)
+
+        viewModel.requestCode(phoneDigits: PHONE, loginId: "moyeota")
+        await clock.settle()
+
+        #expect(viewModel.state.dailyLimitReached)
+        #expect(viewModel.state.resendRemainingSeconds(nowMillis: viewModel.nowMillis) == 0)
+        #expect(viewModel.state.phoneMessage?.contains("약 25분") == true)
+        #expect(!viewModel.state.canRequestCode(phoneDigits: PHONE, nowMillis: viewModel.nowMillis))
+    }
+
+    @Test("남은 시간을 모르는 재설정 제한은 재요청 버튼을 쿨다운으로 잠근다")
     func resetSendRateLimited() async {
         let repository = FakeRecoveryRepository()
         repository.sendFailure = AuthException(error: .passwordResetRateLimited)
@@ -348,6 +382,30 @@ private final class FakeRecoveryRepository: UnsupportedAuthRepository, @unchecke
 }
 
 @Suite struct RecoveryTransitionTest {
+    @Test("재설정 제한은 남은 시간으로 갈린다")
+    func rateLimitBySeconds() {
+        #expect(
+            recoveryRateLimit(retryAfterSeconds: nil)
+                == .shortWait(seconds: 60, message: authErrorMessage(error: .passwordResetRateLimited))
+        )
+        if case let .shortWait(seconds, _) = recoveryRateLimit(retryAfterSeconds: 60) {
+            #expect(seconds == 60)
+        } else {
+            Issue.record("60초는 곧 풀리는 쪽이다")
+        }
+        #expect(
+            recoveryRateLimit(retryAfterSeconds: 61) == .longWait(message: "인증번호 요청이 너무 많았어요. 약 2분 뒤에 다시 시도해 주세요")
+        )
+        #expect(
+            recoveryRateLimit(retryAfterSeconds: 3_600)
+                == .longWait(message: "인증번호 요청이 너무 많았어요. 약 1시간 뒤에 다시 시도해 주세요")
+        )
+        #expect(
+            recoveryRateLimit(retryAfterSeconds: 80_000)
+                == .longWait(message: "인증번호 요청이 너무 많았어요. 약 23시간 뒤에 다시 시도해 주세요")
+        )
+    }
+
     @Test("재설정 실패 코드는 화면 대응이 같은 전이로 옮긴다")
     func transitionMapping() {
         #expect(recoveryTransitionError(error: .passwordResetRateLimited, verifying: false) == .smsCooldown)

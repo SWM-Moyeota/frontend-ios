@@ -231,11 +231,23 @@ public struct AuthException: Throwable {
     /// 서버가 준 원문 message. 없으면 null.
     public let serverMessage: String?
     public let cause: (any Error)?
+    /// 서버가 `Retry-After` 로 알려 준 「다시 시도할 수 있을 때까지의 초」. 주지 않았으면 null.
+    ///
+    /// 지금 이 값을 주는 건 비밀번호 재설정의 429 `USER306` 뿐이다. 네 가지 제한(문자 쿨다운 60초 ·
+    /// 하루 문자 횟수 · 계정당 시간당 · IP 당 분당)이 한 코드로 오는데, **사유는 없어도 남은 시간은 온다** —
+    /// 화면은 이 값으로 「곧 풀린다」와 「한참 걸린다」를 가른다.
+    public let retryAfterSeconds: Int?
 
-    public init(error: AuthError, serverMessage: String? = nil, cause: (any Error)? = nil) {
+    public init(
+        error: AuthError,
+        serverMessage: String? = nil,
+        cause: (any Error)? = nil,
+        retryAfterSeconds: Int? = nil
+    ) {
         self.error = error
         self.serverMessage = serverMessage
         self.cause = cause
+        self.retryAfterSeconds = retryAfterSeconds
     }
 
     public var message: String? { serverMessage ?? error.name }

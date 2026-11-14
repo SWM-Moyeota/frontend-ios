@@ -144,7 +144,11 @@ extension Error {
                 default: error = .unknown
                 }
             }
-            return AuthException(error: error, serverMessage: body?.message, cause: http)
+            // 초 단위 정수만 읽는다(서버가 그렇게 준다). 날짜 형식이나 0 이하는 「모른다」로 둔다.
+            let retryAfter = http.retryAfterHeader()
+                .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+                .flatMap { $0 > 0 ? $0 : nil }
+            return AuthException(error: error, serverMessage: body?.message, cause: http, retryAfterSeconds: retryAfter)
         }
 
         // 응답 자체를 못 받은 경우(연결 거부·타임아웃·DNS). 사용자에게는 재시도를 안내한다.
