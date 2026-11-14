@@ -99,7 +99,7 @@ struct ExploreRefreshTest {
     /// 접힘·반펼침은 예전 자리 그대로 — 네이버 줌 컨트롤과 같은 세로선, 시트 윗변 16 위.
     @Test("접힘과 반펼침에서는 지도 위 시트 윗변 16 위에 선다")
     func peekAndHalfStayAboveSheet() {
-        for (state, sheet) in [(ExploreSheetState.peek, CGFloat(96)), (.half, 300)] {
+        for (state, sheet) in [(ExploreSheetState.hidden, CGFloat(28)), (.peek, 96), (.half, 300)] {
             let placement = refreshButtonPlacement(sheetState: state, containerHeight: 600, sheetHeight: sheet, bottomCtaTop: 60)
             #expect(placement == RefreshButtonPlacement(spot: .aboveSheet, end: RefreshButtonEndInset, bottom: sheet + 16), "\(state)")
         }

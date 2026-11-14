@@ -9,10 +9,16 @@ let ExploreSheetStateKey = "explore.sheetState"
 let ExplorePartyListScrollKey = "explore.partyList"
 let ExploreReservationListScrollKey = "explore.reservationList"
 
-/// 바텀시트 3단계 — 17 지도(peek) / 18 지도+리스트(half) / 19 리스트(full)
+/// 바텀시트 단계 — 손잡이만(hidden) / 17 지도(peek) / 18 지도+리스트(half) / 19 리스트(full).
+///
+/// `hidden` 은 14 홈과 같은 「손잡이 줄만 남기기」다(2026-11 오너 UX 피드백) — 접힘에서도 요약 한 줄이 지도
+/// 아래를 덮어서 지도를 다 볼 방법이 없었다. 손잡이 줄을 누르면 접힘으로 돌아온다.
 public enum ExploreSheetState: CaseIterable, Hashable, Sendable {
-    case peek, half, full
+    case hidden, peek, half, full
 }
+
+/// 손잡이만 남았을 때 그 줄을 누르는 동작의 VoiceOver 이름
+private let HIDDEN_HANDLE_LABEL = "동승 목록 펼치기"
 
 /// 지도에 그릴 기기 실위치 1건.
 ///
@@ -194,6 +200,7 @@ private let ListLoadingFallbackHeight: CGFloat = 120
 /// 앵커 = 시트 높이. HALF 는 지도 300 을 남기고, FULL 은 지도를 다 덮는다
 func exploreSheetAnchor(_ state: ExploreSheetState, containerHeight: CGFloat) -> CGFloat {
     switch state {
+    case .hidden: PeekHandleZone
     case .peek: PeekSheetHeight
     case .half: max(containerHeight - HalfMapHeight, PeekSheetHeight)
     case .full: containerHeight
@@ -396,7 +403,7 @@ public struct ExploreScreen: View {
         .onChange(of: sheetState) { _, state in
             tabSavedState?.set(ExploreSheetStateKey, state)
             // 원본은 접힘에서 목록이 컴포지션에서 빠져 스크롤 위치가 사라진다. 탭 이동으로는 사라지면 안 되므로 여기서만 지운다.
-            if state == .peek {
+            if state == .peek || state == .hidden {
                 tabSavedState?.remove(ExplorePartyListScrollKey)
                 tabSavedState?.remove(ExploreReservationListScrollKey)
             }
@@ -606,8 +613,8 @@ private struct ExploreSheet: View {
             sheetState: sheetState,
             containerHeight: containerHeight,
             sheetHeight: sheetHeight,
-            // CTA 는 접힘에서는 없다. 있으면 아래 여백 + 버튼 높이가 그 윗변이다
-            bottomCtaTop: sheetState == .peek ? nil : SheetCtaPadding + ctaHeight
+            // CTA 는 접힘·손잡이만에서는 없다. 있으면 아래 여백 + 버튼 높이가 그 윗변이다
+            bottomCtaTop: sheetState == .peek || sheetState == .hidden ? nil : SheetCtaPadding + ctaHeight
         )
         // 버튼이 목록 위에 떠 있으면 목록 끝에 그만큼 여백을 둔다 — 끝까지 내린 마지막 줄의 「합류」가 버튼 밑에 깔리지 않게
         let listBottomPadding: CGFloat = refresh != nil && placement.spot == .overList ? RefreshButtonListClearance : 0
@@ -674,7 +681,15 @@ private struct ExploreSheet: View {
                 SheetHandle()
                     .frame(maxWidth: .infinity)
                     .frame(height: PeekHandleZone)
-                if sheetState == .peek {
+                    .contentShape(Rectangle())
+                    // 손잡이만 남았을 때 그 줄을 누르면 접힘으로 돌아온다(14 홈과 같은 처리)
+                    .modifier(HiddenHandleAction(active: sheetState == .hidden, label: HIDDEN_HANDLE_LABEL) {
+                        sheetState = .peek
+                    })
+                if sheetState == .hidden {
+                    // 손잡이만 — 요약 줄도 그리지 않는다
+                    EmptyView()
+                } else if sheetState == .peek {
                     PeekSummaryRow(
                         mode: mode,
                         count: shownCount,
@@ -706,7 +721,7 @@ private struct ExploreSheet: View {
             .contentShape(Rectangle())
             .gesture(dragGesture)
 
-            if sheetState != .peek {
+            if sheetState == .half || sheetState == .full {
                 Spacer(minLength: 0).frame(height: ListHeaderGap)
                 if sheetState == .full {
                     HorizontalDivider(color: MoyeotaColor.Hairline)
@@ -785,7 +800,7 @@ private struct ExploreSheet: View {
         DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .updating($dragging) { _, state, _ in state = true }
             .onChanged { value in
-                drag.track(y: value.location.y, resting: restingHeight, range: anchor(.peek)...anchor(.full))
+                drag.track(y: value.location.y, resting: restingHeight, range: anchor(.hidden)...anchor(.full))
             }
             .onEnded { value in
                 settleDrag(velocity: value.velocity.height)

@@ -490,12 +490,21 @@ private struct SheetTrack: Equatable {
 }
 
 /// 손잡이만 남았을 때만 손잡이 줄에 「누르면 펼친다」를 싣는다.
-private struct HiddenHandleAction: ViewModifier {
+/// 손잡이만 남은 시트의 손잡이 줄을 **누르면** 펼치는 동작 — 끌 수 없는 사용자(VoiceOver·스위치 제어)를 위한 길이다.
+/// 14 홈(`MapSheetScaffold`)과 17 둘러보기 시트가 함께 쓴다. `active` 가 거짓이면 아무것도 싣지 않는다
+/// (손잡이가 「누를 수 없는 버튼」으로 읽히지 않게).
+public struct HiddenHandleAction: ViewModifier {
     let active: Bool
     let label: String
     let action: () -> Void
 
-    func body(content: Content) -> some View {
+    public init(active: Bool, label: String, action: @escaping () -> Void) {
+        self.active = active
+        self.label = label
+        self.action = action
+    }
+
+    public func body(content: Content) -> some View {
         if active {
             content
                 // 탭은 위 드래그(8pt 이상 움직임)와 겹치지 않는다 — 움직이면 탭이 실패하고 드래그가 이어 받는다

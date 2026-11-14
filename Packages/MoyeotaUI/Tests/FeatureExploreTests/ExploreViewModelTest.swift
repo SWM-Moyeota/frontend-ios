@@ -480,14 +480,18 @@ struct ExploreViewModelTest {
         let anchors: (ExploreSheetState) -> CGFloat = { state in
             exploreSheetAnchor(state, containerHeight: 700)
         }
-        // 앵커: peek 96 · half 400 · full 700
+        // 앵커: hidden 28 · peek 96 · half 400 · full 700
         #expect(settleTarget(fromPx: 500, velocity: 0, anchorPx: anchors) == .half)
         #expect(settleTarget(fromPx: 600, velocity: 0, anchorPx: anchors) == .full)
         #expect(settleTarget(fromPx: 500, velocity: 401, anchorPx: anchors) == .half)
         #expect(settleTarget(fromPx: 500, velocity: -401, anchorPx: anchors) == .full)
         #expect(settleTarget(fromPx: 400, velocity: 401, anchorPx: anchors) == .peek)
-        #expect(settleTarget(fromPx: 96, velocity: 401, anchorPx: anchors) == .peek)
         #expect(settleTarget(fromPx: 700, velocity: -401, anchorPx: anchors) == .full)
+        // 접힘에서 더 내리면 손잡이만 남는다(14 홈과 같다). 손잡이만에서 올려 던지면 접힘으로 돌아온다
+        #expect(settleTarget(fromPx: 96, velocity: 401, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 50, velocity: 0, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 28, velocity: 401, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 28, velocity: -401, anchorPx: anchors) == .peek)
     }
 
     @Test("지도 범위가 없을 때의 기준 범위는 기본 카메라 또는 내 위치 주변이다")
