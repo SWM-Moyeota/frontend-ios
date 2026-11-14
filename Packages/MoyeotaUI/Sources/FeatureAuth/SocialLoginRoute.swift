@@ -2,6 +2,17 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
+/// 소셜 로그인 실패 문구. Apple 경로의 `socialRejected`(`USER401`)에만 이메일 공유 안내를 덧붙인다.
+///
+/// 서버는 이메일을 공유하지 않은 **신규** Apple 계정을 `USER401` 로 거절한다. 일반 문구만 보이면
+/// 같은 실패를 반복하게 된다. 다만 같은 코드에 토큰 위조·만료도 들어 있어 원인을 단정하지 않는다.
+/// Google 경로와 그 밖의 오류는 공통 문구 그대로다.
+func socialLoginFailureMessage(error: any Error, provider: SocialProvider) -> String {
+    let message = error.authUserMessage()
+    guard provider == .apple, (error as? AuthException)?.error == .socialRejected else { return message }
+    return "\(message). Apple 로그인에서 이메일 공유가 필요할 수 있어요"
+}
+
 public struct SocialLoginRoute: View {
     let repository: any AuthRepository
     let onLoggedIn: () -> Void
@@ -56,7 +67,7 @@ public struct SocialLoginRoute: View {
                 case .signupRequired(let signup): onSignup(signup)
                 case .loggedIn: onLoggedIn()
                 }
-            } catch is CancellationError {} catch { message = error.authUserMessage() }
+            } catch is CancellationError {} catch { message = socialLoginFailureMessage(error: error, provider: provider) }
         }
     }
 }

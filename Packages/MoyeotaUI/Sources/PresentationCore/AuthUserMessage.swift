@@ -103,6 +103,8 @@ public func authErrorMessage(error: AuthError, serverMessage: String? = nil) -> 
     case .passwordResetRateLimited: return "요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요"
 
     case .socialRejected: return "소셜 인증을 확인하지 못했어요. 로그인을 다시 시도해 주세요"
+    // 사용자 입력·계정 문제가 아니라 일시 장애다 — 「다시 로그인」이 아니라 「잠시 후」를 말한다.
+    case .socialUnavailable: return "지금은 로그인을 진행할 수 없어요. 잠시 후 다시 시도해 주세요"
     case .socialSignupExpired: return "가입 인증 시간이 지났어요. 처음 화면에서 소셜 로그인을 다시 해 주세요"
     case .socialAlreadyRegistered: return "이미 가입된 계정이에요. 소셜 로그인부터 다시 진행해 주세요"
     case .socialLinkConflict: return "이미 다른 계정에 연결되었거나 다른 소셜 계정이 연결되어 있어요"

@@ -42,6 +42,22 @@ public struct LoginMethods: Codable, Equatable, Sendable {
     public let hasPassword: Bool
     public let methods: [Method]
 }
+extension LoginMethods {
+    /// 모르는 provider 항목은 건너뛴다. 서버가 수단을 늘려도 `hasPassword`와 아는 수단은 읽혀야
+    /// 로그인 수단 화면과 탈퇴 화면(같은 응답의 `hasPassword`를 쓴다)이 열린다.
+    /// 그 밖의 형식 오류(`status` 누락 등)는 그대로 실패시킨다.
+    public init(from decoder: any Decoder) throws {
+        struct RawMethod: Decodable {
+            let provider: String
+            let status: String
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasPassword = try container.decode(Bool.self, forKey: .hasPassword)
+        methods = try container.decode([RawMethod].self, forKey: .methods).compactMap { raw in
+            SocialProvider(rawValue: raw.provider).map { Method(provider: $0, status: raw.status) }
+        }
+    }
+}
 public struct SocialRegistration: Encodable, Sendable {
     public let signupToken: String
     public let verificationToken: String

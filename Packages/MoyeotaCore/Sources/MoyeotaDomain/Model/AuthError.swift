@@ -4,6 +4,11 @@ import Foundation
 /// ViewModel 은 이 값으로 한국어 안내 문구를 고른다.
 public enum AuthError: String, CaseIterable, Sendable {
     case socialRejected, socialSignupExpired, socialAlreadyRegistered, socialLinkConflict, socialVerificationExpired, socialChallengeInvalid
+    /// 503 `USER404` — 소셜 공급자나 인증 저장소가 일시적으로 응답하지 않는다.
+    ///
+    /// `socialRejected`(401 `USER401`)와 합치지 않는다 — 그쪽은 「다시 로그인」이 답이지만 여기는
+    /// 사용자가 고칠 것이 없고 기다리는 수밖에 없다.
+    case socialUnavailable
     /// 401 LOGIN_FAILED — 아이디나 비밀번호가 다르다.
     case loginFailed = "LOGIN_FAILED"
 

@@ -97,7 +97,8 @@ extension Error {
             case "USER401": error = .socialRejected
             case "USER402": error = .socialSignupExpired
             case "USER403": error = .socialAlreadyRegistered
-            case "USER404": error = .socialRejected
+            // 503 — 공급자·인증 저장소의 일시 장애다. 인증이 거절된 것(USER401)이 아니므로 합치지 않는다.
+            case "USER404": error = .socialUnavailable
             case "USER405": error = .socialLinkConflict
             case "USER406": error = .socialVerificationExpired
             case "USER407": error = .socialChallengeInvalid
