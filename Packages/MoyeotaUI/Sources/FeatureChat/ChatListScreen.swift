@@ -52,15 +52,17 @@ public struct ChatListScreen: View {
         VStack(spacing: 0) {
             StatusBarSpacer()
             MoyeotaTabHeader(title: "채팅")
+            // 스크롤 밖 머리 아래에 둔다 — 아래쪽 행에서 메뉴를 썼어도 보이고, VoiceOver 가 바로 읽는다
+            if let notice {
+                NoticeBanner(kind: .error, text: notice)
+                    .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    .padding(.vertical, MoyeotaSpacing.Xs)
+                    .task(id: notice) { AccessibilityNotification.Announcement(notice).post() }
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer().frame(height: MoyeotaSpacing.Xs)
-                    if let notice {
-                        NoticeBanner(kind: .error, text: notice)
-                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
-                            .padding(.vertical, MoyeotaSpacing.Xs)
-                    }
                     if rooms.isEmpty {
                         Text("아직 참여 중인 채팅방이 없어요. 동승에 합류하면 채팅방이 열려요")
                             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
@@ -82,6 +84,11 @@ public struct ChatListScreen: View {
                                         Label("나가기", systemImage: "rectangle.portrait.and.arrow.right")
                                     }
                                 }
+                                // VoiceOver 는 길게 누르기 대신 동작 목록으로 같은 두 항목을 고른다(원본 `onLongClickLabel` 자리)
+                                .accessibilityAction(named: chatMuteActionLabel(muted: item.room.membership.notificationMuted)) {
+                                    onToggleMuted(item)
+                                }
+                                .accessibilityAction(named: "나가기") { onLeave(item) }
                             if index != rooms.count - 1 {
                                 // 글 시작선(여백 16 + 아바타 48 + 간격 12)에 맞춘다 — 아바타 열은 끊김 없이 이어진다
                                 HorizontalDivider(color: MoyeotaColor.Hairline)

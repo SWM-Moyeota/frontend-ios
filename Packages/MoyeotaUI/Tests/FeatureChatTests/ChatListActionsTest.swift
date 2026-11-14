@@ -134,19 +134,23 @@ import Testing
         #expect(chatMuteActionLabel(muted: true) == "알림 켜기")
     }
 
-    @Test("나가기 실패 문구 — 도착 뒤·끝난 방·그 밖")
-    func leaveFailureMessages() {
+    @Test("동승 나가기 중 방이 끝났으면 다시 판정하고 도착했으면 막는다 — 채팅방만 나가기는 다시 판정하지 않는다")
+    func leaveRetry() {
         let arrived = PartyLeaveException(code: "ARRIVED_MEMBER_CANNOT_LEAVE", serverMessage: nil, httpStatus: 409)
         let closed = PartyLeaveException(code: "PARTY_CLOSED", serverMessage: nil, httpStatus: 409)
         struct Unknown: Error {}
-        #expect(chatListLeaveFailureMessage(error: arrived) == "출발지에 도착했다고 누른 뒤에는 방에서 나갈 수 없어요")
-        #expect(chatListLeaveFailureMessage(error: closed) == "이미 끝난 방이에요. 목록을 새로 불러와 주세요")
-        #expect(chatListLeaveFailureMessage(error: Unknown()) == "나가지 못했어요. 잠시 뒤 다시 시도해 주세요")
+        #expect(chatListLeaveRetry(plan: leave(), error: closed) == .replan)
+        #expect(chatListLeaveRetry(plan: leave(), error: arrived) == .blocked)
+        #expect(chatListLeaveRetry(plan: leave(), error: Unknown()) == .none)
+        #expect(chatListLeaveRetry(plan: .chatOnly(chatRoomId: 7), error: closed) == .none)
     }
 
-    @Test("채팅방 참여자가 아니라는 답은 이미 나간 것이다")
+    @Test("채팅방 참여자가 아니거나 채팅방이 없다는 답은 이미 나간 것이다")
     func notParticipantMeansAlreadyOut() {
+        struct Unknown: Error {}
         #expect(isAlreadyOutOfChat(error: ChatException(code: "CHAT_NOT_PARTICIPANT", serverMessage: nil, httpStatus: 403)))
-        #expect(!isAlreadyOutOfChat(error: ChatException(code: "CHAT_ROOM_NOT_FOUND", serverMessage: nil, httpStatus: 404)))
+        #expect(isAlreadyOutOfChat(error: ChatException(code: "CHAT_ROOM_NOT_FOUND", serverMessage: nil, httpStatus: 404)))
+        #expect(!isAlreadyOutOfChat(error: ChatException(code: "CHAT_ROOM_CLOSED", serverMessage: nil, httpStatus: 409)))
+        #expect(!isAlreadyOutOfChat(error: Unknown()))
     }
 }

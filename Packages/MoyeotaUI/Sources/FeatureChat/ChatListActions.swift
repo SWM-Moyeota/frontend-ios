@@ -102,19 +102,35 @@ func chatLeaveDialog(plan: ChatLeavePlan) -> ChatLeaveDialogCopy {
 /// 길게 누르기 메뉴의 알림 항목 — 지금 상태의 **반대**를 적는다
 func chatMuteActionLabel(muted: Bool) -> String { muted ? "알림 켜기" : "알림 끄기" }
 
-/// 나가기 실패 → 사용자 문구. 서버 코드 문자열은 develop 기준이다(`ARRIVED_MEMBER_CANNOT_LEAVE`·`PARTY_CLOSED`).
-/// 판정과 요청 사이에 상태가 바뀐 경우라 목록을 다시 읽게 안내한다.
-func chatListLeaveFailureMessage(error: any Error) -> String {
+/// 나가기 실패 뒤 다시 할 일 — 판정과 요청 사이에 방 상태가 바뀐 경우다
+enum ChatLeaveRetry: Equatable {
+    /// 다시 할 것 없음 — 문구만 보여 준다
+    case none
+    /// 409 `PARTY_CLOSED` — 그사이 방이 끝났다. 다시 판정하면 「채팅방만 나가기」가 된다
+    case replan
+    /// 409 `ARRIVED_MEMBER_CANNOT_LEAVE` — 그사이 도착을 눌렀다. 막힌 이유를 확인창으로 보여 준다
+    case blocked
+}
+
+/// 동승 나가기(`.leaveParty`)의 실패만 다시 판정한다. 서버 코드 문자열은 develop 기준이다 —
+/// 도메인의 `PartyLeaveException` 에는 아직 이 두 코드의 뜻 플래그가 없다.
+func chatListLeaveRetry(plan: ChatLeavePlan, error: any Error) -> ChatLeaveRetry {
+    guard case .leaveParty = plan else { return .none }
     switch (error as? PartyLeaveException)?.code {
-    case "ARRIVED_MEMBER_CANNOT_LEAVE": ARRIVED_CANNOT_LEAVE
-    case "PARTY_CLOSED": "이미 끝난 방이에요. 목록을 새로 불러와 주세요"
-    default: "나가지 못했어요. 잠시 뒤 다시 시도해 주세요"
+    case "PARTY_CLOSED": return .replan
+    case "ARRIVED_MEMBER_CANNOT_LEAVE": return .blocked
+    default: return .none
     }
 }
 
-/// 채팅방 나가기의 403(참여자 아님)은 **이미 나간 것**이다 — 사용자가 할 일이 같아 성공으로 친다
+/// 동승 나가기 실패 문구. 다시 판정하는 두 코드(`chatListLeaveRetry`)는 여기까지 오지 않는다
+let LEAVE_PARTY_FAILED_MESSAGE = "나가지 못했어요. 잠시 뒤 다시 시도해 주세요"
+
+/// 채팅방 나가기가 **이미 나간 것**인가 — 403(참여자 아님)과 404(채팅방 없음). 사용자가 할 일이 같아 성공으로 친다.
+/// 404 를 빼면 채팅방 상세가 404 라 「채팅방만 나가기」로 판정된 방이 영영 목록에서 안 빠진다.
 func isAlreadyOutOfChat(error: any Error) -> Bool {
-    (error as? ChatException)?.isNotParticipant == true
+    guard let chat = error as? ChatException else { return false }
+    return chat.isNotParticipant || chat.isRoomNotFound
 }
 
 /// 목록 행 제목 오른쪽의 「알림 꺼짐」 표시 — 켜진 방은 아무것도 붙이지 않는다. VoiceOver 에도 읽힌다

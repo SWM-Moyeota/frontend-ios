@@ -209,8 +209,13 @@ final class ChatListViewModel {
 
     /// 메뉴의 「알림 끄기/켜기」 — 바로 바꿔 그리고, 실패하면 되돌린다
     func toggleMuted(item: ChatRoomListItem) {
-        planJob?.cancel()
-        action = nil
+        // iOS 는 기본 메뉴라 `openMenu` 를 거치지 않는다 — 원본이 길게 누를 때 하는 「앞 안내 지우기」를 여기서 한다
+        notice = nil
+        // 나가는 중이면 그 상태를 지우지 않는다 — 지우면 같은 방 「나가기」가 한 번 더 나갈 수 있다
+        if case .leaving = action {} else {
+            planJob?.cancel()
+            action = nil
+        }
         let roomId = item.room.room.id
         let target = !item.room.membership.notificationMuted
         setMutedInList(chatRoomId: roomId, muted: target)
@@ -220,7 +225,8 @@ final class ChatListViewModel {
                 try await repository.setNotificationMuted(chatRoomId: roomId, muted: target)
             } catch {
                 guard let failure = chatFailureOnLiveTask(error: error), let self else { return }
-                self.setMutedInList(chatRoomId: roomId, muted: !target)
+                // 그사이 다시 눌러 값이 바뀌었으면 되돌리지 않는다 — 앞 요청의 실패가 뒤 선택을 덮으면 안 된다
+                if self.isMutedInList(chatRoomId: roomId) == target { self.setMutedInList(chatRoomId: roomId, muted: !target) }
                 self.notice = failure.toChatMessage(fallback: "알림 설정을 바꾸지 못했어요")
             }
         }
@@ -277,10 +283,21 @@ final class ChatListViewModel {
                 guard let self else { return }
                 if case .leaving = self.action { self.action = nil }
                 guard let failure = chatFailureOnLiveTask(error: error) else { return }
-                if case .leaveParty = plan {
-                    self.notice = chatListLeaveFailureMessage(error: failure)
-                } else {
-                    self.notice = failure.toChatMessage(fallback: "채팅방에서 나가지 못했어요")
+                switch chatListLeaveRetry(plan: plan, error: failure) {
+                case .replan:
+                    // 판정과 요청 사이에 방이 끝났다 — 다시 판정해 「채팅방만 나가기」 확인창으로 넘긴다
+                    self.notice = "그사이 방이 끝났어요. 채팅방만 나갈지 다시 확인해 주세요"
+                    self.action = .menu(Menu(item: item, leaveTapped: true))
+                    self.resolvePlan(item: item)
+                case .blocked:
+                    // 그사이 도착을 눌렀다 — 막힌 이유를 확인창으로 보여 준다
+                    self.action = .confirm(item: item, plan: .blocked)
+                case .none:
+                    if case .leaveParty = plan {
+                        self.notice = LEAVE_PARTY_FAILED_MESSAGE
+                    } else {
+                        self.notice = failure.toChatMessage(fallback: "채팅방에서 나가지 못했어요")
+                    }
                 }
             }
         }
@@ -341,6 +358,11 @@ final class ChatListViewModel {
             rooms[index].room.membership.notificationMuted = muted
         }
         uiState = .success(rooms: rooms)
+    }
+
+    private func isMutedInList(chatRoomId: Int64) -> Bool? {
+        guard case .success(let rooms) = uiState else { return nil }
+        return rooms.first { $0.room.room.id == chatRoomId }?.room.membership.notificationMuted
     }
 
     private func removeFromList(chatRoomId: Int64) {
@@ -1301,12 +1323,26 @@ private struct ChatListRoute: View {
                 )
                 switch viewModel.action {
                 case .menu(let menu) where menu.leaveTapped:
-                    // 방 상태를 읽는 짧은 틈 — 다른 행을 누르지 못하게 막고 돌고 있음을 보인다
+                    // 방 상태를 읽는 틈 — 다른 행을 누르지 못하게 막고 돌고 있음을 보인다. 망이 나쁘면 오래 걸릴 수 있어
+                    // 바깥을 누르면 그만둔다(원본 카드의 「취소」 자리)
                     ZStack {
                         Color.clear.contentShape(Rectangle())
+                            .onTapGesture { viewModel.dismissAction() }
                         ProgressView()
                     }
+                    .accessibilityElement(children: .ignore)
                     .accessibilityLabel("방 상태를 확인하고 있어요")
+                    .accessibilityAddTraits(.isModal)
+                    .accessibilityAction(.escape) { viewModel.dismissAction() }
+                case .leaving:
+                    // 나가는 중 — 목록·하단탭을 막고 돌고 있음을 보인다(원본 `LeavingOverlay`). 요청을 끝까지 본다
+                    ZStack {
+                        MoyeotaColor.Scrim.ignoresSafeArea().contentShape(Rectangle())
+                        ProgressView()
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("나가는 중이에요")
+                    .accessibilityAddTraits(.isModal)
                 case .confirm(_, let plan):
                     let copy = chatLeaveDialog(plan: plan)
                     MoyeotaConfirmDialog(

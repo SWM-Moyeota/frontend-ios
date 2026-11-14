@@ -1094,15 +1094,20 @@ private struct MainNavContent: View {
                 },
                 // 목록 길게 누르기로 동승에서 나갔다 — 그 방이 진행 중인 방이면 기억을 지우고, 아니면(예약 방 등)
                 // 진행 중인 방을 다시 찾는다. 홈 배너와 「채팅 열기」가 나간 방을 붙들고 있지 않게 한다
+                // 방 id 는 숫자로 비교한다 — 문자열 표기가 달라도 같은 방이다(`needsDetailAfterRemember` 와 같은 이유)
                 onLeftParty: { partyId in
-                    if activePartyViewModel.ride?.id == String(partyId) {
+                    if activePartyViewModel.ride.flatMap({ Int64($0.id) }) == partyId {
                         activePartyViewModel.clearParty()
                     } else {
                         activePartyViewModel.refresh()
                     }
                 },
+                // 채팅방만 나간 방은 끝난 방이다 — 그 채팅방을 들고 있었다면 버리고, 끝난 방 기억도 다시 확인해 지운다
                 onLeftChatRoom: { chatRoomId in
-                    if chatRoomId == activePartyViewModel.chatRoomId { activePartyViewModel.forgetChatRoom() }
+                    if chatRoomId == activePartyViewModel.chatRoomId {
+                        activePartyViewModel.forgetChatRoom()
+                        activePartyViewModel.refresh()
+                    }
                 },
                 onTabSelect: navigateTab,
                 onNotParticipant: { activePartyViewModel.forgetChatRoom() }

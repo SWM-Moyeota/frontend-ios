@@ -113,11 +113,13 @@ final class FakeChatListRideRepository: RideRepository, @unchecked Sendable {
     private var _leftParties: [Int64] = []
     var detail: @Sendable () throws -> Ride = { throw TestFailure() }
     var leaveError: (any Error)?
+    var beforeLeave: @Sendable () -> Void = {}
 
     var leftParties: [Int64] { lock.withLock { _leftParties } }
 
     func getPartyDetail(partyId: Int64) async throws -> Ride { try detail() }
     func leaveParty(partyId: Int64) async throws {
+        beforeLeave()
         if let leaveError { throw leaveError }
         lock.withLock { _leftParties.append(partyId) }
     }
@@ -183,9 +185,13 @@ final class ChatListMenuTest {
     private func leave(_ viewModel: ChatListViewModel, _ target: ChatRoomListItem) async {
         viewModel.openMenu(item: target)
         viewModel.requestLeave()
-        _ = await eventually { self.isConfirm(viewModel) }
+        #expect(await eventually { self.isConfirm(viewModel) }, "확인창이 떠야 한다")
         viewModel.confirmLeave()
-        _ = await eventually { viewModel.action == nil }
+        #expect(await eventually { !self.isLeaving(viewModel) }, "나가기 요청이 끝나야 한다")
+    }
+
+    private func isLeaving(_ viewModel: ChatListViewModel) -> Bool {
+        if case .leaving = viewModel.action { true } else { false }
     }
 
     @Test("메뉴를 열면 방 상태를 미리 읽어 나가기가 바로 확인창으로 간다")
@@ -236,8 +242,13 @@ final class ChatListMenuTest {
         #expect(rides.leftParties == [42])
         #expect(chat.leftChatRooms.isEmpty)
         #expect(roomIds(viewModel) == [8])
-        #expect(left.count == 1)
-        #expect(recorder.seen.contains { if case .matchCanceled = $0 { true } else { false } })
+        guard left.count == 1, case .leaveParty(let plan) = left[0] else {
+            Issue.record("동승 나가기 결과가 한 번 나가야 한다: \(left)")
+            return
+        }
+        #expect(plan.partyId == 42)
+        #expect(recorder.seen.filter { if case .matchCanceled = $0 { true } else { false } }.count == 1)
+        #expect(viewModel.action == nil)
     }
 
     @Test("끝난 방은 채팅방만 나간다")
@@ -289,13 +300,77 @@ final class ChatListMenuTest {
     @Test("나가기가 실패하면 목록에 남기고 이유를 알린다")
     func failedLeaveKeepsRoom() async {
         rides.detail = { ride(.recruiting, me(), other()) }
-        rides.leaveError = PartyLeaveException(code: "PARTY_CLOSED", serverMessage: nil, httpStatus: 409)
+        rides.leaveError = TestFailure()
         let viewModel = await loaded()
 
         await leave(viewModel, item(7))
 
         #expect(roomIds(viewModel) == [8, 7])
-        #expect(viewModel.notice == "이미 끝난 방이에요. 목록을 새로 불러와 주세요")
+        #expect(viewModel.notice == LEAVE_PARTY_FAILED_MESSAGE)
+        #expect(viewModel.action == nil)
+    }
+
+    @Test("그사이 방이 끝났으면 다시 판정해 채팅방만 나가기 확인창으로 간다")
+    func closedMeanwhileReplansToChatOnly() async {
+        let finished = LockedFlag(false)
+        rides.detail = { ride(finished.value ? .completed : .recruiting, me(), other()) }
+        rides.leaveError = PartyLeaveException(code: "PARTY_CLOSED", serverMessage: nil, httpStatus: 409)
+        let viewModel = await loaded()
+        rides.beforeLeave = { finished.value = true }
+
+        await leave(viewModel, item(7))
+
+        #expect(await eventually { viewModel.action == .confirm(item: item(7), plan: .chatOnly(chatRoomId: 7)) })
+        #expect(viewModel.notice == "그사이 방이 끝났어요. 채팅방만 나갈지 다시 확인해 주세요")
+        #expect(chat.leftChatRooms.isEmpty)
+    }
+
+    @Test("그사이 도착을 눌렀으면 막힌 이유를 확인창으로 보여 준다")
+    func arrivedMeanwhileShowsBlocked() async {
+        rides.detail = { ride(.matched, me(), other(), other("c")) }
+        rides.leaveError = PartyLeaveException(code: "ARRIVED_MEMBER_CANNOT_LEAVE", serverMessage: nil, httpStatus: 409)
+        let viewModel = await loaded()
+
+        await leave(viewModel, item(7))
+
+        #expect(viewModel.action == .confirm(item: item(7), plan: .blocked))
+    }
+
+    @Test("채팅방이 없다는 답도 이미 나간 것으로 친다")
+    func roomNotFoundCountsAsLeft() async {
+        chat.getRoomError = ChatException(code: "CHAT_ROOM_NOT_FOUND", serverMessage: nil, httpStatus: 404)
+        chat.leaveError = ChatException(code: "CHAT_ROOM_NOT_FOUND", serverMessage: nil, httpStatus: 404)
+        let viewModel = await loaded()
+
+        await leave(viewModel, item(7))
+
+        #expect(roomIds(viewModel) == [8])
+        #expect(viewModel.notice == nil)
+    }
+
+    /// iOS 메뉴는 「나가기」를 누른 뒤에야 판정한다 — 그 판정이 실패하는 길이 iOS 에서 실제로 닿는 실패다
+    @Test("나가기를 누른 뒤 판정이 실패하면 메뉴를 닫고 알린다")
+    func planFailureAfterTapClosesAndNotifies() async {
+        let viewModel = await loaded()
+
+        viewModel.openMenu(item: item(7))
+        viewModel.requestLeave()
+
+        #expect(await eventually { viewModel.notice == "방 상태를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요" })
+        #expect(viewModel.action == nil)
+    }
+
+    @Test("알림을 바꾸면 앞서 떠 있던 실패 안내를 지운다")
+    func muteClearsOldNotice() async {
+        rides.detail = { ride(.recruiting, me(), other()) }
+        rides.leaveError = TestFailure()
+        let viewModel = await loaded()
+        await leave(viewModel, item(7))
+        #expect(viewModel.notice != nil)
+
+        viewModel.toggleMuted(item: item(8))
+
+        #expect(viewModel.notice == nil)
     }
 
     @Test("방 상태를 못 읽었으면 나가기를 누를 때 다시 읽는다")

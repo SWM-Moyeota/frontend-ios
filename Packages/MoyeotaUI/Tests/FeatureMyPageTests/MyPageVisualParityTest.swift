@@ -129,15 +129,8 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(abs(width - 280) < 1, "\(width)")
     }
 
-    @Test("37 본문은 원본과 같은 자리에서 꺾인다")
-    func deleteBodyBreak() {
-        let lines = MoyeotaType.BodySm.hangulTrimmed.softWrappedLines(
-            "탈퇴하면 계정과 저장한 정보가 사라지고 되돌릴 수 없어요",
-            width: 272
-        )
-        #expect(lines.wrapped)
-        #expect(lines.text == "탈퇴하면 계정과 저장한 정보가 사라지고 되돌릴 수\n없어요")
-    }
+    // 「37 본문은 원본과 같은 자리에서 꺾인다」는 뺐다 — 확인창 본문은 이제 그냥 `Text`(어절 단위)라
+    // `softWrappedLines` 가 나눈 줄은 화면에 그려지지 않는다. 폭은 위 `deleteConfirm` 이 그대로 잰다.
 }
 
 @MainActor
