@@ -46,6 +46,7 @@ let package = Package(
                 .product(name: "MoyeotaDomain", package: "MoyeotaCore"),
             ] + features.map { .target(name: $0) }
         ),
+        .testTarget(name: "MoyeotaDesignSystemTests", dependencies: ["MoyeotaDesignSystem"]),
         .testTarget(name: "PresentationCoreTests", dependencies: ["PresentationCore"]),
         .testTarget(
             name: "AppNavigationTests",

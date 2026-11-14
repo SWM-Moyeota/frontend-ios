@@ -502,6 +502,9 @@ public struct ProfileEditRoute: View {
         // 않는다 — 동작을 그대로 옮겼고, 최종 보고에 원본 결함으로 적었다.
         ProfileEditScreen(
             nickname: state.nickname,
+            // 읽기 전용 — 이 화면의 상태(뷰모델)에 담지 않는다. 바꿀 수 없는 값이라 「저장」 판정과
+            // 무관하고, 35 와 같은 조회 결과(`userName`)를 그대로 비춘다. nil 이면 행이 숨는다.
+            loginId: profileLoginIdOrNull(state: userName),
             currentNickname: state.currentNickname,
             check: state.check,
             images: state.images,
@@ -516,7 +519,7 @@ public struct ProfileEditRoute: View {
             onBack: onBack
         )
         .task(id: userName) {
-            if case .resolved(let name, let imageUrl, _, _) = userName {
+            if case .resolved(let name, let imageUrl, _, _, _) = userName {
                 viewModel.prefill(name: name, imageUrl: imageUrl)
             }
         }

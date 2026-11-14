@@ -54,10 +54,13 @@ import Testing
         #expect(selectedPlaceLabel(place("서면역", road: "  ")) == "선택: 서면역")
     }
 
+    /// 출발지 이름이 이미 「현재 위치」면 꼬리표를 달지 않는다(디자인 QA S15-2) — 같은 말이 한 줄에 두 번 나왔다.
     @Test("출발지 행 오른쪽 라벨")
     func originBadge() {
         #expect(originBadgeLabel(origin: nil, originIsDefault: true) == "검색")
-        #expect(originBadgeLabel(origin: "현재 위치", originIsDefault: true) == "현재 위치")
+        #expect(originBadgeLabel(origin: "현재 위치", originIsDefault: true) == nil)
+        #expect(originBadgeLabel(origin: " 현재 위치 ", originIsDefault: true) == nil)
+        #expect(originBadgeLabel(origin: "부산 금정구 부산대학로 63번길 2", originIsDefault: true) == "현재 위치")
         #expect(originBadgeLabel(origin: "서면역", originIsDefault: false) == "변경")
     }
 

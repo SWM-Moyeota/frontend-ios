@@ -411,7 +411,7 @@ private struct MainNavContent: View {
     // 16 에서 만든 방 — 21 매칭 대기가 이 방을 조회한다. 위 selectedPartyId 와 같은 이유로 남긴다
     @State private var createdPartyId: Int64?
 
-    // 16 도착지 확인을 **시간 정하기로 열까.** 17 탐색의 예약 탭에서 「＋ 새 동승 방 만들기」를 누른
+    // 16 도착지 확인을 **시간 정하기로 열까.** 17 탐색의 예약 탭에서 「새 동승 방 만들기」를 누른
     // 경우에만 참이다.
     //
     // 깃발을 쓰는 이유: 15 → 16 은 두 걸음이고 그 사이에 출발지·도착지가 정해진다. 경로 인자로
@@ -645,8 +645,10 @@ private struct MainNavContent: View {
 
             // 16 은 15 위에 뜨는 모달 — 스크림 탭·닫기로만 닫힌다. 쌓지 않고 얹어 15 가 스크림 뒤에 그대로 보인다.
             //
-            // 원본 대화상자 창처럼 **안전 영역 안에** 놓는다(모달의 `StatusBarSpacer` 는 0 이 된다). 안전 영역 밖의
-            // 두 줄에는 어둡기만 깔린다. 원본 대화상자는 시스템 뒤로가기로 닫히므로 스와이프도 같게 닫는다.
+            // 모달은 **화면 끝까지** 그린다(디자인 QA S16-1 — 모달 안의 `.ignoresSafeArea(.container)`, 원본은 대화상자 창의
+            // `decorFitsSystemWindows = false`). 그래서 모달의 `StatusBarSpacer`·`NavigationBarSpacer` 가 실제 인셋을 받아 두 바
+            // 자리를 흰색으로 칠한다. 원본은 그 창에서만 시스템 바 아이콘을 어둡게 바꾸지만(`DialogLightSystemBars`) 여기는 같은
+            // 창이고 앱이 라이트 모드 고정이라 상태바 글자가 이미 어둡다. 원본 대화상자는 시스템 뒤로가기로 닫히므로 스와이프도 같게 닫는다.
             if let overlay = projection.overlay {
                 ZStack {
                     Color.black.opacity(DIALOG_DIM_ALPHA)
@@ -871,7 +873,6 @@ private struct MainNavContent: View {
         case .home:
             HomeRoute(
                 viewModel: navController.retained(for: entry) { HomeViewModel(repository: placeRepository) },
-                userName: resolvedUserName,
                 activeRide: activePartyViewModel.ride,
                 onSearchClick: {
                     searchInitialQuery = ""
@@ -1079,8 +1080,8 @@ private struct MainNavContent: View {
         // G · 채팅 24
         case .chat:
             ChatRoute(
-                state: navController.retained(for: entry) { ChatTabState(repository: chatRepository) },
-                // 열린 방이 진행 중인 그 방이면 헤더에 「매칭 화면으로 →」가 뜨고 「나가기」가 사라진다.
+                state: navController.retained(for: entry) { ChatTabState(repository: chatRepository, rideRepository: rideRepository) },
+                // 열린 방이 진행 중인 그 방이면 헤더에 「매칭 화면으로」 줄이 뜨고 「나가기」가 사라진다.
                 // **판정의 1순위는 채팅방 id 다** — 이 경로의 방은 목록 응답(`GET /chat-rooms/me`)으로
                 // 만든 것이어서 partyId 가 0(모름)이고, 그걸로 비교하면 늘 "내 방이 아니다"가 됐다.
                 activeChatRoomId: activePartyViewModel.chatRoomId,
@@ -1090,6 +1091,23 @@ private struct MainNavContent: View {
                     // 나간 방 id 를 진행 화면이 들고 있으면 「채팅 열기」가 죽은 방으로 간다 — 캐시를 버린다
                     activePartyViewModel.forgetChatRoom()
                     navigateTab(.home)
+                },
+                // 목록 길게 누르기로 동승에서 나갔다 — 그 방이 진행 중인 방이면 기억을 지우고, 아니면(예약 방 등)
+                // 진행 중인 방을 다시 찾는다. 홈 배너와 「채팅 열기」가 나간 방을 붙들고 있지 않게 한다
+                // 방 id 는 숫자로 비교한다 — 문자열 표기가 달라도 같은 방이다(`needsDetailAfterRemember` 와 같은 이유)
+                onLeftParty: { partyId in
+                    if activePartyViewModel.ride.flatMap({ Int64($0.id) }) == partyId {
+                        activePartyViewModel.clearParty()
+                    } else {
+                        activePartyViewModel.refresh()
+                    }
+                },
+                // 채팅방만 나간 방은 끝난 방이다 — 그 채팅방을 들고 있었다면 버리고, 끝난 방 기억도 다시 확인해 지운다
+                onLeftChatRoom: { chatRoomId in
+                    if chatRoomId == activePartyViewModel.chatRoomId {
+                        activePartyViewModel.forgetChatRoom()
+                        activePartyViewModel.refresh()
+                    }
                 },
                 onTabSelect: navigateTab,
                 onNotParticipant: { activePartyViewModel.forgetChatRoom() }
@@ -1194,10 +1212,5 @@ private struct MainNavContent: View {
                 onSessionKept: { accountDeleteRequested = false }
             )
         }
-    }
-
-    private var resolvedUserName: String? {
-        if case .resolved(let name, _, _, _) = profileViewModel.userName { return name }
-        return nil
     }
 }

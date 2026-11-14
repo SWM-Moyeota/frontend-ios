@@ -370,7 +370,7 @@ import UIKit
         let nav = try graph.nav
         nav.navigateTab(.chat)
         await graph.settle(8)
-        let tab = nav.retained(for: nav.backStack[1]) { ChatTabState(repository: graph.chat) }
+        let tab = nav.retained(for: nav.backStack[1]) { ChatTabState(repository: graph.chat, rideRepository: graph.rides) }
         tab.openedRoom = ChatRoom(id: 5, partyId: 0, departure: "부산대", destination: "서면", createdAt: "", status: .active)
         await graph.waitUntil("방 5 구독") { graph.chat.observedRooms.contains(5) }
         nav.navigateTab(.home)
@@ -445,19 +445,27 @@ import UIKit
         await graph.close()
     }
 
-    @Test("16 의 상태바 여백은 원본 대화상자처럼 0 이다")
-    func dialogSpacerCollapses() async throws {
+    // 디자인 QA S16-1: 원본은 16 대화상자 창을 화면 끝까지 넓혔다(`decorFitsSystemWindows = false`). 예전엔 안전 영역 안에만
+    // 그려 상태바 여백이 0 이었고 두 바 자리에 딤이 띠처럼 남았다.
+    @Test("16 은 화면 끝까지 그려 상태바·홈 인디케이터 여백이 실제 인셋을 받는다")
+    func dialogDrawsEdgeToEdge() async throws {
         let graph = HostedGraph()
         await graph.waitForViewControllers(1)
         try graph.nav.navigate(.destination)
         await graph.waitForViewControllers(2)
         try graph.nav.navigate(.destinationConfirm)
         await graph.settle(20)
-        // 오버레이는 스택 바깥이다 — 스택 뷰를 뺀 자리에서 찾는다
+        // 오버레이는 스택 바깥이다 — 스택 뷰 아래의 여백(15 의 것)은 빼고 찾는다
         let stackView = try #require(graph.navigationController?.view)
-        let overlaySpacers = graph.insetSpacerFrames(in: graph.host.view)
-            .filter { !stackView.frame.isEmpty && $0.minY >= InsetWindow.insets.top - 0.5 && $0.maxY <= 874 - InsetWindow.insets.bottom + 0.5 }
-        #expect(overlaySpacers.contains { $0.height < 0.5 && abs($0.minY - InsetWindow.insets.top) < 0.5 })
+        let overlaySpacers = graph.insetSpacerFrames(in: graph.host.view, excluding: stackView)
+        #expect(
+            overlaySpacers.contains { $0.minY < 0.5 && abs($0.height - InsetWindow.insets.top) < 0.5 },
+            "상태바 여백 \(overlaySpacers)"
+        )
+        #expect(
+            overlaySpacers.contains { abs($0.maxY - 874) < 0.5 && abs($0.height - InsetWindow.insets.bottom) < 0.5 },
+            "홈 인디케이터 여백 \(overlaySpacers)"
+        )
         await graph.close()
     }
 

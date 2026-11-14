@@ -1,5 +1,5 @@
 /// GET /api/v1/local/users/info 의 200 응답.
-/// 백엔드 `MyProfileResponse(UUID uuid, String name, String imageUrl, int noShowCount, Instant restrictedUntil)`
+/// 백엔드 `MyProfileResponse(UUID uuid, String name, String imageUrl, int noShowCount, Instant restrictedUntil, String loginId)`
 /// 와 필드 1:1 (`user/local/dto/MyProfileResponse.java`).
 ///
 /// **서버 record 이름이 `UserResponse` 가 아니다.** `UserResponse` 는 **가입 응답**의 3필드 record
@@ -43,29 +43,41 @@
 /// nullable 로 받는 이유 — 「0 은 서버가 만들 수 없는 값이라 모른다와 구별해야 한다」 — 가 여기엔
 /// 없다: 노쇼 0회는 **정상이고 흔한 값**이며, 모른다와 0 의 화면 처리가 같다(횟수를 내세우지 않는다).
 /// 서버 record 가 원시 `int` 라 명시적 null 이 올 일도 없다.
+///
+/// ### `loginId` — 로그인 아이디(Backend PR #330, 2026-11)
+/// 아이디·비밀번호로 가입한 계정이면 그 **아이디**가, 로컬 로그인이 없는 계정(소셜 전용 등)이면
+/// **null** 이 온다. 36 프로필 수정이 「아이디」 행을 **읽기 전용**으로 보여 주는 데만 쓴다 —
+/// 아이디를 바꾸는 서버 경로는 없다.
+///
+/// nullable + 기본값 null 인 이유는 둘이다. ① **서버 계약이 null 을 허용한다**(로컬 로그인이 없는
+/// 계정). ② **PR #330 이전 배포에는 키가 없다** — 논-널로 선언하면 그 서버를 붙인 순간 내 정보 조회가
+/// 통째로 터져 로그인 직후 화면이 열리지 않는다(`imageUrl` 이 생길 때와 같은 판단).
 public struct UserProfileResponse: Decodable, Equatable, Sendable {
     public var uuid: String
     public var name: String?
     public var imageUrl: String?
     public var noShowCount: Int
     public var restrictedUntil: String?
+    public var loginId: String?
 
     public init(
         uuid: String = "",
         name: String? = nil,
         imageUrl: String? = nil,
         noShowCount: Int = 0,
-        restrictedUntil: String? = nil
+        restrictedUntil: String? = nil,
+        loginId: String? = nil
     ) {
         self.uuid = uuid
         self.name = name
         self.imageUrl = imageUrl
         self.noShowCount = noShowCount
         self.restrictedUntil = restrictedUntil
+        self.loginId = loginId
     }
 
     private enum CodingKeys: String, CodingKey {
-        case uuid, name, imageUrl, noShowCount, restrictedUntil
+        case uuid, name, imageUrl, noShowCount, restrictedUntil, loginId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -75,6 +87,7 @@ public struct UserProfileResponse: Decodable, Equatable, Sendable {
         imageUrl = try c.decodeIfPresent(String.self, forKey: .imageUrl)
         noShowCount = try c.decodeOrDefault(.noShowCount, default: 0)
         restrictedUntil = try c.decodeIfPresent(String.self, forKey: .restrictedUntil)
+        loginId = try c.decodeIfPresent(String.self, forKey: .loginId)
     }
 }
 

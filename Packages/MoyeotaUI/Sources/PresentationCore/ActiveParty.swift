@@ -207,7 +207,7 @@ public final class ActivePartyViewModel {
     /// 방 생성·합류 성공 직후. 기억을 심고, **홀더가 아직 그 방을 모를 때만** 상세를 읽는다.
     ///
     /// 조회를 아예 걷어내지 않은 이유(QA 119 D-2 의 두 선택지 중 뒤쪽을 고른 근거): `ride` 는 앱 전체가
-    /// 공유하는 **유일한 `Ride` 값**이다 — 14·17 배너, 24 채팅 헤더의 「매칭 화면으로 →」(`MainNavGraph`
+    /// 공유하는 **유일한 `Ride` 값**이다 — 14·17 배너, 24 채팅 헤더의 「매칭 화면으로」(`MainNavGraph`
     /// 가 `activeRide?.id` 로 가른다), `pollChatRoom` 의 게이트가 모두 이 값에 달려 있다. 21 이 읽는
     /// 상세는 21 자신의 상태로만 쓰이고 이 홀더로 흘러들지 않으므로, 여기서 조회를 지우면 홀더는 빈 채로
     /// 남는다. 그러면
@@ -410,64 +410,40 @@ public struct ActiveRideBanner: View {
     }
 
     public var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
-        let textType = inheritedBodyLargeType(13, .bold)
+        let shape = MoyeotaShape.Card
+        let labelType = MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed
         Button(action: onClick) {
             HStack(spacing: 0) {
                 Circle()
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: 8, height: 8)
-                Spacer().frame(width: 10)
+                Spacer().frame(width: 8)
                 Text(ride.activeStageLabel)
-                    .moyeotaText(textType, color: MoyeotaColor.InkPrimary)
+                    .moyeotaText(labelType, color: MoyeotaColor.InkPrimary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Spacer().frame(width: 8)
                 Text(ride.destination)
-                    .moyeotaText(textType.copy(fontWeight: .medium), color: MoyeotaColor.TextMute)
+                    .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Spacer().frame(width: 8)
+                // 「›」 글자 대신 그린 꺾쇠 — 글꼴마다 모양이 달라지는 글자를 아이콘으로 쓰지 않는다(G10)
                 Text("보기")
-                    .moyeotaText(textType, color: MoyeotaColor.Primary600)
+                    .moyeotaText(labelType, color: MoyeotaColor.Primary600)
                     .fixedSize(horizontal: true, vertical: false)
-                    .accessibilityLabel("보기 ›")
-                Spacer().frame(width: 3.5)
-                GlyphMark(.chevronRight, color: MoyeotaColor.Primary600, lineWidth: 1.2)
-                    .offset(y: 1.1)
+                ChevronIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.Primary600)
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             .frame(maxWidth: .infinity)
             .frame(height: 48)
             .background(MoyeotaColor.SurfaceCanvas, in: shape)
             .clipShape(shape)
         }
         .buttonStyle(PressOverlayStyle(shape: shape))
-        // 그림자도 토큰에서 뽑는다 — 예전 배너는 같은 값을 0x29085AF5 로 박아 두고 있었다
-        .moyeotaShadow(elevation: 8, shape: shape, spotColor: MoyeotaColor.Primary500.copy(alpha: 0.16))
-    }
-}
-
-/// 21 대기 화면의 「채팅 열기」. **채팅방이 실제로 있을 때만** 그린다(호출부가 nil 검사로 가른다).
-///
-/// 원본 호출부가 전부 `Modifier.fillMaxWidth()` 를 넘겨, 폭을 채우는 것을 이 뷰의 기본 모양으로 삼았다.
-public struct OpenChatButton: View {
-    private let onClick: () -> Void
-
-    public init(onClick: @escaping () -> Void) {
-        self.onClick = onClick
-    }
-
-    public var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .circular)
-        Button(action: onClick) {
-            Text("채팅 열기")
-                .moyeotaText(inheritedBodyLargeType(15, .bold), color: MoyeotaColor.Primary600)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(MoyeotaColor.Primary50, in: shape)
-        }
-        .buttonStyle(PressOverlayStyle(shape: shape))
+        // 지도 위에 뜨는 배너라 그림자를 남긴다(디자인 QA G4 예외) — 다만 파랗게 물든 빛번짐은 걷고
+        // 지도 위 알약들과 같은 회청색 MapOverlay 높이로 맞춘다
+        .mapOverlayShadow(shape)
     }
 }

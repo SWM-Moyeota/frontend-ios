@@ -168,18 +168,27 @@ public struct UserProfileInfo: Hashable, Sendable {
     /// 시계는 풀리지 않은 제한을 풀린 것으로 보여 주고, 그 상태에서 누른 버튼은 다시 403 이다 —
     /// 그래서 화면은 이 값으로 **안내만** 하고, 버튼을 열 근거로는 서버 응답을 쓴다.
     public var restrictedUntil: String?
+    /// 로그인 아이디(Backend PR #330). **로컬 로그인(아이디·비밀번호)이 없는 계정이면 nil** 이다
+    /// — 그때 36 프로필 수정은 「아이디」 행을 통째로 숨긴다.
+    ///
+    /// **표시 전용이다.** 아이디를 바꾸는 서버 경로가 없고, 이 값으로 인증·식별을 하지 않는다
+    /// (식별은 `uuid` 다). 공백뿐인 값은 매퍼가 nil 로 접어 온다 — 도메인의 「없음」은 nil 하나다.
+    /// 기본값 nil 은 PR #330 이전 서버(키 자체가 없다) 대비용이다.
+    public var loginId: String?
 
     public init(
         uuid: String,
         name: String?,
         imageUrl: String? = nil,
         noShowCount: Int = 0,
-        restrictedUntil: String? = nil
+        restrictedUntil: String? = nil,
+        loginId: String? = nil
     ) {
         self.uuid = uuid
         self.name = name
         self.imageUrl = imageUrl
         self.noShowCount = noShowCount
         self.restrictedUntil = restrictedUntil
+        self.loginId = loginId
     }
 }

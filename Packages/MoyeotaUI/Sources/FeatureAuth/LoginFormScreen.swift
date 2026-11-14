@@ -73,16 +73,16 @@ public struct LoginFormScreen: View {
                     Spacer().frame(height: 24)
                     Text("다시 만나 반가워요")
                         .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     Text("가입할 때 만든 아이디로 로그인해요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
                     if let noticeMessage {
                         Spacer().frame(height: 20)
                         NoticeBanner(kind: .info, text: noticeMessage)
                     }
 
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 32)
                     MoyeotaTextField(
                         value: loginId,
                         onValueChange: { new in loginId = loginIdInput(raw: new) },
@@ -102,16 +102,14 @@ public struct LoginFormScreen: View {
                         visualTransformation: passwordVisible ? .None : PasswordVisualTransformation(),
                         enabled: !submitting
                     ) {
-                        Button {
-                            passwordVisible.toggle()
-                        } label: {
-                            Text(passwordVisible ? "숨기기" : "보기")
-                                .moyeotaText(
-                                    MoyeotaType.CaptionMd.copy(fontWeight: .bold).hangulTrimmed,
-                                    color: MoyeotaColor.TextMute
-                                )
-                        }
-                        .buttonStyle(NoIndicationButtonStyle())
+                        // 글자만 눌리던 토글을 48 터치 + 눌림 표시로(디자인 QA G12). 글자 끝은 필드 안쪽 여백에 맞춘다
+                        TextLinkButton(
+                            text: passwordVisible ? "숨기기" : "보기",
+                            onClick: { passwordVisible.toggle() },
+                            color: MoyeotaColor.TextMute,
+                            style: .ButtonSm
+                        )
+                        .offset(x: 8)
                     }
 
                     // 실패 사유는 화면을 갈아엎지 않고 입력 바로 아래에 남긴다 — 고칠 곳이 위에 있기 때문
@@ -120,7 +118,7 @@ public struct LoginFormScreen: View {
                         NoticeBanner(kind: .error, text: errorMessage)
                     }
 
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 32)
                     PrimaryCtaButton(
                         text: "로그인",
                         onClick: { onSubmit(loginId.trim(), password) },
@@ -130,33 +128,27 @@ public struct LoginFormScreen: View {
 
                     // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
                     // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).
-                    Spacer().frame(height: 18)
+                    // 다듬기(디자인 QA G12) 뒤의 원본처럼 두 링크도 48 터치 `TextLinkButton` 이라 위아래 간격 없이 붙는다.
+                    Spacer().frame(height: 4)
                     HStack(alignment: .center, spacing: 0) {
-                        recoveryLink("아이디 찾기", action: onFindId)
+                        TextLinkButton(text: "아이디 찾기", onClick: onFindId, color: MoyeotaColor.TextMute, enabled: !submitting)
                         Rectangle()
                             .fill(MoyeotaColor.Hairline)
                             .frame(width: 1, height: 12)
-                            .padding(.horizontal, 14)
-                        recoveryLink("비밀번호 재설정", action: onResetPassword)
+                            .padding(.horizontal, 6)
+                        TextLinkButton(text: "비밀번호 재설정", onClick: onResetPassword, color: MoyeotaColor.TextMute, enabled: !submitting)
                     }
                     .frame(maxWidth: .infinity)
 
-                    Spacer().frame(height: 18)
                     HStack(alignment: .center, spacing: 0) {
                         Text("아직 계정이 없어요")
                             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
-                        Spacer().frame(width: 12, height: 12)
-                        Button(action: onSignUp) {
-                            Text("가입하기")
-                                .moyeotaText(
-                                    MoyeotaType.BodySm.copy(fontWeight: .bold).hangulTrimmed,
-                                    color: MoyeotaColor.Primary500
-                                )
-                        }
-                        .buttonStyle(NoIndicationButtonStyle())
+                        Spacer().frame(width: 4, height: 4)
+                        // 04 시작 화면의 「로그인」과 같은 링크 — 48 터치 + 눌림 표시(디자인 QA G12)
+                        TextLinkButton(text: "가입하기", onClick: onSignUp)
                     }
                     .frame(maxWidth: .infinity)
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 24)
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,7 +160,7 @@ public struct LoginFormScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear {
             loginId = ""
@@ -179,16 +171,6 @@ public struct LoginFormScreen: View {
         .onAppear {
             if let prefillLoginId, !prefillLoginId.isEmpty { loginId = prefillLoginId }
         }
-    }
-
-    private func recoveryLink(_ text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(text)
-                .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium).hangulTrimmed, color: MoyeotaColor.TextMute)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(NoIndicationButtonStyle())
-        .disabled(submitting)
     }
 }
 

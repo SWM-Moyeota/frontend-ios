@@ -26,9 +26,9 @@
 | `app/...` | `Moyeota/` (앱 타깃 — Firebase 는 여기서만 안다) |
 | `*/src/test/...` | 대응 모듈의 `Tests/<모듈>Tests` |
 
-파일 이름은 원본과 같게 한다(`RideHistoryRoute.kt` → `RideHistoryRoute.swift`). 대응 모듈에 첫 파일을 넣을 때 `Placeholder.swift` 를 지운다.
+파일 이름은 원본과 같게 한다(`RideHistoryRoute.kt` → `RideHistoryRoute.swift`). 대응 모듈에 첫 파일을 넣을 때 `Placeholder.swift` 를 지운다. 예외: 원본 `core/designsystem/component/Dialogs.kt`(`MoyeotaConfirmDialog`)는 뒤로가기 가로채기(`moyeotaBackHandler`) 때문에 `PresentationCore/Dialogs.swift` 에 있다(docs/IOS-DIFFERENCES.md).
 
-기능 모듈끼리는 서로 import 할 수 없다. 원본의 기능 간 참조는 **PresentationCore 로 옮긴다**: `headcountLabel`(home), `CheckMarkIcon`(auth), `authUserMessage`·`NicknamePolicy`·`NicknameCheckState`(auth), `ChatForeground`(chat), `KOREA_ZONE`·`RESERVATION_WINDOW_DAYS`·`reservationDates`·`reservationDateApiValue`·`isReservationSearchDate`·`reservationDateLabel`·`reservationTimeLabel`·`reservationCommitmentNotice`(home, `PresentationCore/ReservationRules.swift` — 원본 `ReservationRules.kt` 의 나머지는 FeatureHome 에 남는다), `toMeetingInstantOrNull`(matching, `PresentationCore/MeetingInstant.swift`). 새로 생기면 이 목록에 더한다.
+기능 모듈끼리는 서로 import 할 수 없다. 원본의 기능 간 참조는 **PresentationCore 로 옮긴다**: `headcountLabel`(home), `authUserMessage`·`NicknamePolicy`·`NicknameCheckState`(auth), `ChatForeground`(chat), `KOREA_ZONE`·`RESERVATION_WINDOW_DAYS`·`reservationDates`·`reservationDateApiValue`·`isReservationSearchDate`·`reservationDateLabel`·`reservationTimeLabel`·`reservationCommitmentNotice`·`reservationDateCells`·`reservationDateCellDescription`·`reservationMonthLabel`(home, `PresentationCore/ReservationRules.swift` — 원본 `ReservationRules.kt` 의 나머지는 FeatureHome 에 남는다), `ReservationDateStrip`(home, `PresentationCore/ReservationPickers.swift` — 원본 `ReservationPickers.kt` 의 `ReservationTimeWheel` 은 FeatureHome 에 남는다), `toMeetingInstantOrNull`(matching, `PresentationCore/MeetingInstant.swift`). 새로 생기면 이 목록에 더한다.
 
 ## 3. 언어 대응
 
@@ -83,18 +83,19 @@ Compose → SwiftUI. `Route`(상태·부수효과) / `Screen`(그리기)의 분�
 | `Scaffold` + 자체 상단바 | 시스템 내비게이션 바를 쓰지 않는다. 원본의 상단바 컴포넌트를 그대로 그린다 |
 | `Column` / `Row` / `Box` / `LazyColumn` | `VStack(spacing: 0)` / `HStack(spacing: 0)` / `ZStack` / `ScrollView` + `LazyVStack` 또는 `List` |
 | `Modifier.imePadding()` | SwiftUI 기본 키보드 회피. 맞지 않으면 `.ignoresSafeArea(.keyboard)` 와 조합 |
-| `ModalBottomSheet`, `AlertDialog` | `.sheet`(detent) / 원본 시각 디자인을 살린 커스텀 오버레이. 문구·버튼 순서 유지 |
-| `Icons.*` (머티리얼 아이콘) | 가장 가까운 SF Symbol. 원본이 Canvas/Path 로 그린 아이콘은 `Canvas`/`Path` 로 옮긴다 |
+| `ModalBottomSheet`, `AlertDialog` | `.sheet`(detent) / 원본 시각 디자인을 살린 커스텀 오버레이. 문구·버튼 순서 유지. 원본 `MoyeotaConfirmDialog` 는 `PresentationCore` 의 같은 이름(화면 뿌리의 `.overlay` 에 둔다) |
+| `Icons.*` (머티리얼 아이콘) | 가장 가까운 SF Symbol. 원본이 Canvas/Path 로 그린 아이콘은 `Canvas`/`Path` 로 옮긴다. 디자인시스템 아이콘(`ChevronIcon`·`CheckIcon`·`SearchIcon` 등, 원본 `Icons.kt`)은 같은 이름 |
 | `coil AsyncImage` | `SwiftUI.AsyncImage` 또는 `MoyeotaDesignSystem` 의 캐시 이미지 뷰 |
 | Naver `MapView` | `NMFMapView` 를 감싼 `UIViewRepresentable`. `import NMapsMap` |
 | `FusedLocationProviderClient` | `CLLocationManager` |
 | `Intent(ACTION_VIEW/DIAL/SENDTO)` | `UIApplication.shared.open(URL)` — `@Environment(\.openURL)` |
 | `MoyeotaColor.*`, `MoyeotaType.*`, dp/sp | `MoyeotaDesignSystem` 의 같은 이름. dp → pt 1:1, sp → pt 1:1 |
+| `MoyeotaShape.*`·`MoyeotaSpacing.*`·`MoyeotaElevation.*`, `Modifier.mapOverlayShadow/sheetShadow/modalShadow(shape)`, `TextStyle.tabularNums()` | 같은 이름(`MoyeotaShape.Card` 는 도형, 숫자는 `MoyeotaShape.CardRadius`), `.mapOverlayShadow(shape)` 등, `MoyeotaType.tabularNums()`(`.monospacedDigit()`) |
 | `@Preview` | 옮기지 않는다 |
 
 폰트는 원본처럼 시스템 기본 sans(SF + Apple SD Gothic Neo)를 쓴다. 다크 모드 없음(`UIUserInterfaceStyle=Light`). 세로 고정.
 
-**화면은 원본과 같아 보여야 한다.** 여백·모서리·색·글자 크기 값을 원본에서 그대로 옮긴다. 참고 스크린샷: `_workspace/play-assets/*.png`, `_workspace/landing/assets/shots/*.webp`. 디자인 토큰: `DESIGN-moyeota.md`, `moyeota-figma-tokens.json`. 화면 이동 규칙의 근거: `docs/MODE-ROUTES.md`.
+**화면은 원본과 같아 보여야 한다.** 여백·모서리·색·글자 크기 값을 원본에서 그대로 옮긴다. 화면 코드(`PresentationCore`·`AppNavigation`·기능 모듈)는 원본처럼 색(`Color(argb:` 등)과 글자 크기(`fontSize:`)를 직접 쓰지 않고 `MoyeotaColor`·`MoyeotaType` 토큰만 쓴다(`DesignTokenGuardTest`). 도형·여백·그림자도 원본이 토큰(`MoyeotaShape`·`MoyeotaSpacing`·`MoyeotaElevation`)을 쓴 자리는 같은 토큰을 쓴다. 참고 스크린샷: `_workspace/play-assets/*.png`, `_workspace/landing/assets/shots/*.webp`. 디자인 토큰: `DESIGN-moyeota.md`, `moyeota-figma-tokens.json`. 화면 이동 규칙의 근거: `docs/MODE-ROUTES.md`.
 
 ## 5. 빌드·테스트
 

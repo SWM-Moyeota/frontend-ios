@@ -155,16 +155,223 @@ final class ChatListViewModel {
         case error(message: String)
     }
 
+    /// 메뉴가 떠 있는 동안의 판정 — 방 상태를 읽는 중이면 `plan` 이 nil 이다.
+    ///
+    /// - `leaveTapped`: 판정 전에 「나가기」를 눌렀다 — 판정이 끝나는 대로 확인창으로 넘어간다
+    /// - `planFailed`: 방 상태를 읽지 못했다 — 「나가기」를 누르면 다시 읽는다
+    struct Menu: Equatable {
+        var item: ChatRoomListItem
+        var plan: ChatLeavePlan?
+        var leaveTapped = false
+        var planFailed = false
+    }
+
+    /// 길게 누른 방에 대해 떠 있는 것 — 메뉴 → 확인창 → 요청 중. nil 이면 아무것도 없다
+    enum RoomAction: Equatable {
+        case menu(Menu)
+        case confirm(item: ChatRoomListItem, plan: ChatLeavePlan)
+        /// 나가기 요청이 나갔다 — 확인을 두 번 눌러도 한 번만 보낸다
+        case leaving(item: ChatRoomListItem, plan: ChatLeavePlan)
+    }
+
     private(set) var uiState: UiState = .loading
+    private(set) var action: RoomAction?
+    /// 메뉴 동작이 실패했을 때 목록 위에 띄우는 한 줄. 다음 동작이나 새로 읽기에서 지운다
+    private(set) var notice: String?
+
+    /// 나가기가 끝났다 — 진행 중인 방 기억(홈 배너·「채팅 열기」)을 고쳐야 해서 화면 밖으로 알린다.
+    /// 원본 `left: SharedFlow` 자리. 라우트가 그릴 때마다 꽂는다
+    @ObservationIgnored var onLeft: (ChatLeavePlan) -> Void = { _ in }
 
     @ObservationIgnored private let repository: any ChatRepository
+    @ObservationIgnored private let rideRepository: any RideRepository
     @ObservationIgnored private let scope = ViewModelScope()
+    @ObservationIgnored private var planJob: Task<Void, Never>?
 
-    init(repository: any ChatRepository) {
+    init(repository: any ChatRepository, rideRepository: any RideRepository) {
         self.repository = repository
+        self.rideRepository = rideRepository
+    }
+
+    /// 길게 누르기 — 메뉴를 띄우고, 「나가기」를 대비해 방 상태를 미리 읽는다
+    func openMenu(item: ChatRoomListItem) {
+        if case .leaving = action { return }
+        notice = nil
+        action = .menu(Menu(item: item))
+        resolvePlan(item: item)
+    }
+
+    func dismissAction() {
+        if case .leaving = action { return }
+        planJob?.cancel()
+        action = nil
+    }
+
+    /// 메뉴의 「알림 끄기/켜기」 — 바로 바꿔 그리고, 실패하면 되돌린다
+    func toggleMuted(item: ChatRoomListItem) {
+        // iOS 는 기본 메뉴라 `openMenu` 를 거치지 않는다 — 원본이 길게 누를 때 하는 「앞 안내 지우기」를 여기서 한다
+        notice = nil
+        // 나가는 중이면 그 상태를 지우지 않는다 — 지우면 같은 방 「나가기」가 한 번 더 나갈 수 있다
+        if case .leaving = action {} else {
+            planJob?.cancel()
+            action = nil
+        }
+        let roomId = item.room.room.id
+        let target = !item.room.membership.notificationMuted
+        setMutedInList(chatRoomId: roomId, muted: target)
+        let repository = self.repository
+        scope.launch { [weak self] in
+            do {
+                try await repository.setNotificationMuted(chatRoomId: roomId, muted: target)
+            } catch {
+                guard let failure = chatFailureOnLiveTask(error: error), let self else { return }
+                // 그사이 다시 눌러 값이 바뀌었으면 되돌리지 않는다 — 앞 요청의 실패가 뒤 선택을 덮으면 안 된다
+                if self.isMutedInList(chatRoomId: roomId) == target { self.setMutedInList(chatRoomId: roomId, muted: !target) }
+                self.notice = failure.toChatMessage(fallback: "알림 설정을 바꾸지 못했어요")
+            }
+        }
+    }
+
+    /// 메뉴의 「나가기」 — 판정이 끝났으면 확인창, 아니면 끝나는 대로 넘어간다
+    func requestLeave() {
+        guard case .menu(var menu) = action else { return }
+        if let plan = menu.plan {
+            action = .confirm(item: menu.item, plan: plan)
+        } else if menu.planFailed {
+            menu.leaveTapped = true
+            menu.planFailed = false
+            action = .menu(menu)
+            resolvePlan(item: menu.item)
+        } else {
+            menu.leaveTapped = true
+            action = .menu(menu)
+        }
+    }
+
+    /// 확인창의 확인. 막힌 경우(`.blocked`)는 닫기만 한다
+    func confirmLeave() {
+        guard case .confirm(let item, let plan) = action else { return }
+        if plan == .blocked {
+            action = nil
+            return
+        }
+        action = .leaving(item: item, plan: plan)
+        let repository = self.repository
+        let rideRepository = self.rideRepository
+        scope.launch { [weak self] in
+            do {
+                switch plan {
+                case .chatOnly(let chatRoomId):
+                    do {
+                        try await repository.leaveChatRoom(chatRoomId: chatRoomId)
+                    } catch where isAlreadyOutOfChat(error: error) {
+                        // 이미 나간 방 — 사용자가 할 일이 같아 성공으로 친다
+                    }
+                case .leaveParty(let leave):
+                    // 나가는 주체는 Bearer 토큰이 정한다. 채팅방은 서버가 동승 이탈에 맞춰 정리한다
+                    try await rideRepository.leaveParty(partyId: leave.partyId)
+                    Analytics.track(.matchCanceled(capacity: leave.capacity, memberCount: leave.memberCount))
+                case .blocked:
+                    break
+                }
+                guard let self else { return }
+                // 서버의 채팅방 정리는 이벤트로 늦게 돈다 — 바로 다시 읽으면 나간 방이 잠깐 남아 보여 목록에서 먼저 뺀다
+                self.removeFromList(chatRoomId: item.room.room.id)
+                if case .leaving = self.action { self.action = nil }
+                self.onLeft(plan)
+            } catch {
+                guard let self else { return }
+                if case .leaving = self.action { self.action = nil }
+                guard let failure = chatFailureOnLiveTask(error: error) else { return }
+                switch chatListLeaveRetry(plan: plan, error: failure) {
+                case .replan:
+                    // 판정과 요청 사이에 방이 끝났다 — 다시 판정해 「채팅방만 나가기」 확인창으로 넘긴다
+                    self.notice = "그사이 방이 끝났어요. 채팅방만 나갈지 다시 확인해 주세요"
+                    self.action = .menu(Menu(item: item, leaveTapped: true))
+                    self.resolvePlan(item: item)
+                case .blocked:
+                    // 그사이 도착을 눌렀다 — 막힌 이유를 확인창으로 보여 준다
+                    self.action = .confirm(item: item, plan: .blocked)
+                case .none:
+                    if case .leaveParty = plan {
+                        self.notice = LEAVE_PARTY_FAILED_MESSAGE
+                    } else {
+                        self.notice = failure.toChatMessage(fallback: "채팅방에서 나가지 못했어요")
+                    }
+                }
+            }
+        }
+    }
+
+    private func resolvePlan(item: ChatRoomListItem) {
+        let chatRoomId = item.room.room.id
+        let repository = self.repository
+        let rideRepository = self.rideRepository
+        planJob?.cancel()
+        planJob = scope.launch { [weak self] in
+            let plan = try? await ChatListViewModel.loadLeavePlan(
+                chatRoomId: chatRoomId,
+                repository: repository,
+                rideRepository: rideRepository
+            )
+            if Task.isCancelled { return }
+            guard let self, case .menu(var menu) = self.action, menu.item.room.room.id == chatRoomId else { return }
+            if let plan {
+                if menu.leaveTapped {
+                    self.action = .confirm(item: menu.item, plan: plan)
+                } else {
+                    menu.plan = plan
+                    self.action = .menu(menu)
+                }
+            } else if menu.leaveTapped {
+                self.notice = "방 상태를 확인하지 못했어요. 잠시 뒤 다시 시도해 주세요"
+                self.action = nil
+            } else {
+                menu.planFailed = true
+                self.action = .menu(menu)
+            }
+        }
+    }
+
+    /// 채팅방 → 방 id → 방 상세. 목록 응답에는 방 id 가 없어(`UNKNOWN_PARTY_ID`) 채팅방 상세를 한 번 더 읽는다.
+    /// 채팅방 상세가 403·404 면 이미 그 방 사람이 아니거나 방이 없다 — 채팅방만 치운다.
+    ///
+    /// 뷰모델을 잡지 않으려고 `static` 이다(`loadRooms` 와 같은 이유).
+    private static func loadLeavePlan(
+        chatRoomId: Int64,
+        repository: any ChatRepository,
+        rideRepository: any RideRepository
+    ) async throws -> ChatLeavePlan {
+        let partyId: Int64
+        do {
+            partyId = try await repository.getChatRoom(chatRoomId: chatRoomId).partyId
+        } catch let error as ChatException where error.httpStatus == 403 || error.httpStatus == 404 {
+            return .chatOnly(chatRoomId: chatRoomId)
+        }
+        if partyId <= 0 { return .chatOnly(chatRoomId: chatRoomId) }
+        return chatLeavePlan(chatRoomId: chatRoomId, ride: try await rideRepository.getPartyDetail(partyId: partyId))
+    }
+
+    private func setMutedInList(chatRoomId: Int64, muted: Bool) {
+        guard case .success(var rooms) = uiState else { return }
+        for index in rooms.indices where rooms[index].room.room.id == chatRoomId {
+            rooms[index].room.membership.notificationMuted = muted
+        }
+        uiState = .success(rooms: rooms)
+    }
+
+    private func isMutedInList(chatRoomId: Int64) -> Bool? {
+        guard case .success(let rooms) = uiState else { return nil }
+        return rooms.first { $0.room.room.id == chatRoomId }?.room.membership.notificationMuted
+    }
+
+    private func removeFromList(chatRoomId: Int64) {
+        guard case .success(let rooms) = uiState else { return }
+        uiState = .success(rooms: rooms.filter { $0.room.room.id != chatRoomId })
     }
 
     func refresh() {
+        notice = nil
         uiState = .loading
         let repository = self.repository
         scope.launch { [weak self] in
@@ -937,15 +1144,19 @@ final class ChatRoomViewModel {
 /// 그쪽은 `ChatRoomDestinationRoute` 를 독립 목적지로 쌓아 뒤로가기가 원래 화면으로 돌아가게 한다.
 ///
 /// - `activeChatRoomId`: 진행 중인 방의 **채팅방 id**(`ActivePartyViewModel.chatRoomId`). 열린 채팅방이
-///   이것이면 헤더에 「매칭 화면으로 →」를 띄우고 「나가기」를 감춘다. 이 경로의 방은 목록 응답으로 만든
+///   이것이면 헤더에 「매칭 화면으로」를 띄우고 「나가기」를 감춘다. 이 경로의 방은 목록 응답으로 만든
 ///   것이어서 `partyId` 가 0(모름)이라 **이 값만이 판정 근거다**(`ChatRoom.isActiveParty`).
 /// - `activePartyId`: 진행 중인 방의 id(`Ride.id`). 이 경로에서는 사실상
 ///   판정에 기여하지 못한다(위 참조) — 그래도 같은 판정 함수를 쓰므로 함께 넘긴다. 없으면 nil.
+/// - `onLeftParty`: 목록 길게 누르기로 **동승에서** 나갔다(방 id) — 진행 중인 방 기억을 고쳐야 한다
+/// - `onLeftChatRoom`: 목록에서 **채팅방만** 나갔다(채팅방 id) — 그 id 를 들고 있으면 버려야 한다
 public struct ChatRoute: View {
     private let activeChatRoomId: Int64?
     private let activePartyId: String?
     private let onOpenMatching: () -> Void
     private let onLeaveChat: () -> Void
+    private let onLeftParty: (Int64) -> Void
+    private let onLeftChatRoom: (Int64) -> Void
     private let onTabSelect: (MoyeotaTab) -> Void
     private let onNotParticipant: () -> Void
 
@@ -955,10 +1166,13 @@ public struct ChatRoute: View {
     /// - Parameter onNotParticipant: 열린 방에서 403(참여자 아님) — 진행 화면의 채팅방 id 캐시를 버리게 한다
     public init(
         repository: any ChatRepository,
+        rideRepository: any RideRepository,
         activeChatRoomId: Int64? = nil,
         activePartyId: String? = nil,
         onOpenMatching: @escaping () -> Void = {},
         onLeaveChat: @escaping () -> Void = {},
+        onLeftParty: @escaping (Int64) -> Void = { _ in },
+        onLeftChatRoom: @escaping (Int64) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         onNotParticipant: @escaping () -> Void = {}
     ) {
@@ -966,9 +1180,11 @@ public struct ChatRoute: View {
         self.activePartyId = activePartyId
         self.onOpenMatching = onOpenMatching
         self.onLeaveChat = onLeaveChat
+        self.onLeftParty = onLeftParty
+        self.onLeftChatRoom = onLeftChatRoom
         self.onTabSelect = onTabSelect
         self.onNotParticipant = onNotParticipant
-        _state = HostedViewModel(wrappedValue: ChatTabState(repository: repository))
+        _state = HostedViewModel(wrappedValue: ChatTabState(repository: repository, rideRepository: rideRepository))
     }
 
     /// 호스트가 탭 상태를 들고 있는 경로 — 원본 탭 엔트리의 `ViewModelStore`·저장 상태 자리(`ChatTabState`).
@@ -980,6 +1196,8 @@ public struct ChatRoute: View {
         activePartyId: String? = nil,
         onOpenMatching: @escaping () -> Void = {},
         onLeaveChat: @escaping () -> Void = {},
+        onLeftParty: @escaping (Int64) -> Void = { _ in },
+        onLeftChatRoom: @escaping (Int64) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         onNotParticipant: @escaping () -> Void = {}
     ) {
@@ -987,6 +1205,8 @@ public struct ChatRoute: View {
         self.activePartyId = activePartyId
         self.onOpenMatching = onOpenMatching
         self.onLeaveChat = onLeaveChat
+        self.onLeftParty = onLeftParty
+        self.onLeftChatRoom = onLeftChatRoom
         self.onTabSelect = onTabSelect
         self.onNotParticipant = onNotParticipant
         _state = HostedViewModel(wrappedValue: state)
@@ -1022,6 +1242,8 @@ public struct ChatRoute: View {
                         state.openedMuted = picked.membership.notificationMuted
                         state.openedRoom = picked.room
                     },
+                    onLeftParty: onLeftParty,
+                    onLeftChatRoom: onLeftChatRoom,
                     onTabSelect: onTabSelect
                 )
             }
@@ -1051,8 +1273,8 @@ public final class ChatTabState {
     // 목록에서 고른 방의 음소거 상태 — 방 화면이 목록 API 를 다시 부르지 않게 함께 들고 간다
     var openedMuted: Bool?
 
-    public init(repository: any ChatRepository) {
-        listViewModel = ChatListViewModel(repository: repository)
+    public init(repository: any ChatRepository, rideRepository: any RideRepository) {
+        listViewModel = ChatListViewModel(repository: repository, rideRepository: rideRepository)
         roomViewModel = ChatRoomViewModel(repository: repository)
     }
 }
@@ -1060,11 +1282,22 @@ public final class ChatTabState {
 private struct ChatListRoute: View {
     let viewModel: ChatListViewModel
     let onRoomClick: (MyChatRoom) -> Void
+    let onLeftParty: (Int64) -> Void
+    let onLeftChatRoom: (Int64) -> Void
     let onTabSelect: (MoyeotaTab) -> Void
 
     var body: some View {
+        let viewModel = viewModel
+        // 원본 `left.collect` 자리 — 그릴 때마다 지금의 콜백을 꽂는다
+        viewModel.onLeft = { [onLeftParty, onLeftChatRoom] plan in
+            switch plan {
+            case .leaveParty(let leave): onLeftParty(leave.partyId)
+            case .chatOnly(let chatRoomId): onLeftChatRoom(chatRoomId)
+            case .blocked: break
+            }
+        }
         // 로딩·에러에서도 하단탭 유지 (QA F-1)
-        ZStack {
+        return ZStack {
             switch viewModel.uiState {
             case .loading:
                 TabStateScaffold(selectedTab: .chat, onTabSelect: onTabSelect) {
@@ -1075,9 +1308,59 @@ private struct ChatListRoute: View {
                     ErrorBox(message: message, onRetry: { viewModel.refresh() })
                 }
             case .success(let rooms):
-                ChatListScreen(rooms: rooms, onRoomClick: onRoomClick, onTabSelect: onTabSelect)
+                ChatListScreen(
+                    rooms: rooms,
+                    notice: viewModel.notice,
+                    onRoomClick: onRoomClick,
+                    onToggleMuted: { viewModel.toggleMuted(item: $0) },
+                    onLeave: { item in
+                        // iOS 는 기본 길게 누르기 메뉴라 메뉴 상태를 따로 그리지 않는다 — 「나가기」를 누른 순간
+                        // 메뉴를 열고 바로 나가기를 요청한 것과 같다(판정이 끝나는 대로 확인창)
+                        viewModel.openMenu(item: item)
+                        viewModel.requestLeave()
+                    },
+                    onTabSelect: onTabSelect
+                )
+                switch viewModel.action {
+                case .menu(let menu) where menu.leaveTapped:
+                    // 방 상태를 읽는 틈 — 다른 행을 누르지 못하게 막고 돌고 있음을 보인다. 망이 나쁘면 오래 걸릴 수 있어
+                    // 바깥을 누르면 그만둔다(원본 카드의 「취소」 자리)
+                    ZStack {
+                        Color.clear.contentShape(Rectangle())
+                            .onTapGesture { viewModel.dismissAction() }
+                        ProgressView()
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("방 상태를 확인하고 있어요")
+                    .accessibilityAddTraits(.isModal)
+                    .accessibilityAction(.escape) { viewModel.dismissAction() }
+                case .leaving:
+                    // 나가는 중 — 목록·하단탭을 막고 돌고 있음을 보인다(원본 `LeavingOverlay`). 요청을 끝까지 본다
+                    ZStack {
+                        MoyeotaColor.Scrim.ignoresSafeArea().contentShape(Rectangle())
+                        ProgressView()
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("나가는 중이에요")
+                    .accessibilityAddTraits(.isModal)
+                case .confirm(_, let plan):
+                    let copy = chatLeaveDialog(plan: plan)
+                    MoyeotaConfirmDialog(
+                        title: copy.title,
+                        confirmText: copy.confirmText,
+                        onConfirm: { viewModel.confirmLeave() },
+                        onDismiss: { viewModel.dismissAction() },
+                        body: copy.body,
+                        dismissText: copy.dismissText,
+                        destructive: copy.destructive
+                    )
+                default:
+                    EmptyView()
+                }
             }
         }
+        // 메뉴·확인창이 떠 있으면 시스템 뒤로가기는 그것만 닫는다
+        .moyeotaBackHandler(enabled: viewModel.action != nil) { viewModel.dismissAction() }
         // 방에 들어갔다 돌아오면 안읽음 배지가 갱신돼야 해서 매 진입마다 다시 읽는다
         .topEntryTask { viewModel.refresh() }
     }
@@ -1243,7 +1526,7 @@ private struct NestedBackStateScaffold<Content: View>: View {
 /// 통째로 들고 오지만, 진행 화면에서는 id 밖에 없다.
 ///
 /// - `activeChatRoomId`: 진행 중인 방의 **채팅방 id**. 이 화면의 `roomId` 가 그것이면 헤더에
-///   「매칭 화면으로 →」가 뜨고 「나가기」가 사라진다 — 판정의 1순위 근거다(`ChatRoom.isActiveParty`).
+///   「매칭 화면으로」가 뜨고 「나가기」가 사라진다 — 판정의 1순위 근거다(`ChatRoom.isActiveParty`).
 /// - `activePartyId`: 진행 중인 방 id. 이 경로의 `ChatRoom` 은 방 상세에서 온 **진짜** partyId 를
 ///   들고 있어 보조 근거가 된다(채팅방 id 를 아직 못 찾은 구간을 메운다).
 ///   뒤로가기로도 돌아갈 수 있지만, 채팅방에 오래 머문 뒤에는 「어디로 돌아가는 뒤로가기인지」가
@@ -1335,7 +1618,7 @@ public struct ChatRoomDestinationRoute: View {
 }
 
 extension ChatRoom {
-    /// 이 채팅방이 **지금 진행 중인 방**의 것인가 — 「매칭 화면으로 →」 배너와 「나가기」 노출을 가르는 판정.
+    /// 이 채팅방이 **지금 진행 중인 방**의 것인가 — 「매칭 화면으로」 배너와 「나가기」 노출을 가르는 판정.
     ///
     /// 기준은 **채팅방 id** 다(`activeChatRoomId`). 예전에는 `ChatRoom.partyId` 와 진행 중인 방 id 를
     /// 비교했는데, 채팅 **탭 목록**에서 연 방은 그 값이 0 이다 — 목록 응답(`GET /chat-rooms/me`)에 partyId 가

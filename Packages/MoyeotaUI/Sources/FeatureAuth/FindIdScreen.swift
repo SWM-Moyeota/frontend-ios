@@ -68,7 +68,7 @@ public struct FindIdScreen: View {
                     } else {
                         form
                     }
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 24)
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -80,7 +80,7 @@ public struct FindIdScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 
     @ViewBuilder
@@ -88,11 +88,11 @@ public struct FindIdScreen: View {
         Spacer().frame(height: 24)
         Text("가입한 휴대폰 번호로\n아이디를 찾아요")
             .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-        Spacer().frame(height: 10)
+        Spacer().frame(height: 12)
         Text("문자로 받은 인증번호를 확인하면 아이디를 알려 드려요")
-            .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         MoyeotaTextField(
             value: phoneDigits,
             onValueChange: { new in
@@ -110,8 +110,9 @@ public struct FindIdScreen: View {
 
         if notRegistered {
             // 문구는 번호 입력란 아래(errorText)에 이미 떠 있다 — 여기서는 갈 길만 준다.
-            Spacer().frame(height: 10)
-            RecoveryTextLink(text: "가입하러 가기", action: onSignUp)
+            // 다듬기(디자인 QA G12) 뒤 원본처럼 48 터치 링크 — 글자 시작을 입력란 왼쪽 선에 맞춘다
+            TextLinkButton(text: "가입하러 가기", onClick: onSignUp, style: .ButtonSm)
+                .offset(x: -8)
         }
 
         PhoneVerificationBlock(
@@ -132,14 +133,14 @@ public struct FindIdScreen: View {
         Spacer().frame(height: 24)
         Text("아이디를 찾았어요")
             .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-        Spacer().frame(height: 10)
+        Spacer().frame(height: 12)
         Text("가입할 때 만든 아이디예요")
-            .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         VStack(alignment: .leading, spacing: 8) {
             Text("아이디")
-                .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .bold).hangulTrimmed, color: MoyeotaColor.TextMute)
+                .moyeotaText(MoyeotaType.ButtonSm.hangulTrimmed, color: MoyeotaColor.TextMute)
             Text(loginId)
                 .moyeotaText(MoyeotaType.HeadingXl, color: MoyeotaColor.InkPrimary)
                 .textSelection(.enabled)
@@ -151,32 +152,17 @@ public struct FindIdScreen: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .circular).strokeBorder(MoyeotaColor.Hairline, lineWidth: 1))
         .accessibilityElement(children: .combine)
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         PrimaryCtaButton(text: "이 아이디로 로그인", onClick: { onLogin(loginId) })
 
-        Spacer().frame(height: 18)
+        Spacer().frame(height: 4)
         HStack(alignment: .center, spacing: 0) {
             Text("비밀번호가 기억나지 않아요")
                 .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
-            Spacer().frame(width: 12, height: 12)
-            RecoveryTextLink(text: "비밀번호 재설정", style: MoyeotaType.BodySm, action: { onResetPassword(loginId) })
+            Spacer().frame(width: 4, height: 4)
+            TextLinkButton(text: "비밀번호 재설정", onClick: { onResetPassword(loginId) })
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// 본문 속 이동 링크. 04a 의 「가입하기」와 같은 모양이다.
-struct RecoveryTextLink: View {
-    let text: String
-    var style: MoyeotaType = MoyeotaType.CaptionMd
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(text)
-                .moyeotaText(style.copy(fontWeight: .bold).hangulTrimmed, color: MoyeotaColor.Primary500)
-        }
-        .buttonStyle(NoIndicationButtonStyle())
     }
 }
 

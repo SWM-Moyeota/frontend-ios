@@ -215,7 +215,7 @@ private struct RideHistoryCard: View {
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                Spacer().frame(height: 10)
+                Spacer().frame(height: 12)
             }
 
             if !item.members.isEmpty || item.memberLabel != nil {
@@ -243,7 +243,7 @@ private struct RideHistoryCard: View {
                     }
                     if fare.perPersonLabel != nil && fare.totalLabel != nil {
                         Text(" · ")
-                            .moyeotaText(.BodySm, color: MoyeotaColor.TextAsh)
+                            .moyeotaText(.BodySm, color: MoyeotaColor.TextPlaceholder)
                     }
                     if let totalLabel = fare.totalLabel {
                         Text(totalLabel)
@@ -254,7 +254,7 @@ private struct RideHistoryCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MoyeotaColor.SurfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+        .background(MoyeotaColor.SurfaceCard, in: MoyeotaShape.Card)
     }
 }
 

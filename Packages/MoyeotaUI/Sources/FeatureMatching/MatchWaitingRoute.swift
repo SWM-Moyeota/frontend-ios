@@ -971,7 +971,7 @@ func shouldObservePartyEvents(visible: Bool, streamEnded: Bool) -> Bool {
 }
 
 /// 폴백 폴링 패스 하나가 할 일 — `fallbackPollStep` 의 판정 결과.
-/// (17 탐색 `NearbyPollStep` 과 같은 자리·같은 모양이다.)
+/// (17 탐색이 예전에 쓰던 `NearbyPollStep` 과 같은 모양이다 — 17 은 지금 시계 `ExploreRefreshCycle` 의 세션이 가시성을 본다.)
 enum FallbackStep: Equatable, Sendable {
     /// 아무것도 하지 않고 다음 신호를 기다린다 — 안 보이거나, 루프가 이미 끝났다
     case stop
@@ -985,7 +985,7 @@ enum FallbackStep: Equatable, Sendable {
 
 /// 폴백 루프를 **돌릴지, 첫 조회를 미룰지, 아예 멈출지.**
 ///
-/// 폴링을 화면 가시성에 묶는 판정을 이 한 곳에 모은다(17 탐색 `nearbyPollStep` 과 같은 역할).
+/// 폴링을 화면 가시성에 묶는 판정을 이 한 곳에 모은다(17 탐색에서는 `ExploreRefreshCycle` 의 세션이 같은 역할을 한다).
 /// 위에서부터 읽는다 — 앞의 조건이 뒤를 가린다.
 ///
 /// | 판정 | 조건 | 이유 |
@@ -1321,9 +1321,10 @@ func canLeaveParty(ride: Ride) -> Bool {
 /// 정원이 차면 서버가 배차를 시작해 이 단계가 아예 없었고, 그 분기를 `isMatchFull` 과 함께 지웠다.
 ///
 /// `canFinishParty` 와 **일부러 갈라 두었다**: 이쪽은 「방이 어떤 단계인가」, 저쪽은 「내가 누를 수
-/// 있는가」다. 헤드라인(「같이 탈 사람이 모였어요」)·나가기 문구(「방 나가기」)처럼 방장 여부와
-/// 상관없는 표시는 **이쪽**을 봐야 한다 — 저쪽을 보면 정원이 찬 방을 보고 있는 비방장에게
-/// 「같이 탈 사람 찾는 중」이라고 거짓말을 하게 된다.
+/// 있는가」다. 나가기 문구(「방 나가기」)처럼 방장 여부와 상관없는 표시는 **이쪽**을 봐야 한다 —
+/// 저쪽을 보면 정원이 찬 방을 보고 있는 비방장에게 「그만 찾기」라고 거짓말을 하게 된다.
+/// (예전엔 머리줄 제목 「같이 탈 사람이 모였어요」도 이 값을 봤지만, 단계를 세 번 되풀이하던 그 제목은
+/// 디자인 QA W1 에서 지웠다.)
 func isFinishStage(status: RideStatus) -> Bool {
     status == .matched
 }

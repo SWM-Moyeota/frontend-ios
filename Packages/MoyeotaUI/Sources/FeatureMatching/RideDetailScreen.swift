@@ -4,16 +4,6 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
-// 와이어프레임 그레이 (core token 미정의 색 — 화면 재현용)
-private let CanvasBg = Color(argb: 0xFFF5F7FA)
-private let GraySlate = Color(argb: 0xFF4B5563)
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let ChipBg = Color(argb: 0xFFF1F5FD)
-private let CardSoft = Color(argb: 0xFFF6F8FB)
-private let GrayButtonBg = Color(argb: 0xFFEEF1F6)
-private let DashGray = Color(argb: 0xFFB9C3D6)
-
 /// 22 · 탑승 상세 — 모집 중 [S12]
 ///
 /// 이동(디스크립션):
@@ -91,25 +81,11 @@ public struct RideDetailScreen: View {
         let partners = ride.members.filter { !$0.isMe }
         let departureLabel = ride.departureLabel.isBlank ? nil : ride.departureLabel
         let durationLabel = ride.estimatedMinutes.map { "약 \($0)분" }
-        let sheetShape = UnevenRoundedRectangle(topLeadingRadius: 24, topTrailingRadius: 24, style: .circular)
 
         VStack(spacing: 0) {
-            // 상단 흰색 헤더
-            VStack(spacing: 0) {
-                StatusBarSpacer()
-                HStack(spacing: 0) {
-                    MatchingBackButton(onBack: onBack)
-                    Text("탑승 상세")
-                        .moyeotaText(inlineType(18, .bold), color: MoyeotaColor.InkPrimary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12)
-                .padding(.trailing, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-            }
-            .frame(maxWidth: .infinity)
-            .background(MoyeotaColor.SurfaceCanvas)
+            // 상단 헤더 — 하위 화면 공용 앱바(디자인 QA G7·J3, 가운데 제목 18/600)
+            StatusBarSpacer()
+            MoyeotaTopBar(title: "탑승 상세", onBack: onBack)
 
             // 지도 + 예상 시간 칩 — 16·20 과 같은 실지도 스트립(높이만 이 화면에 맞춘다)
             ZStack(alignment: .topLeading) {
@@ -119,70 +95,76 @@ public struct RideDetailScreen: View {
                     routePath: routePath
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 지도 위 공용 흰 알약 — 20 합류 확인의 소요 시간 칩과 같은 모양·그림자
                 if let etaLabel {
-                    Text(etaLabel)
-                        .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.InkPrimary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(MoyeotaColor.SurfaceCanvas, in: Capsule(style: .circular))
-                        .moyeotaShadow(elevation: 4, shape: Capsule(style: .circular), spotColor: Color(argb: 0x141B2A4A))
-                        .padding(.leading, 16)
-                        .padding(.top, 16)
+                    MapOverlayPill {
+                        Text(etaLabel)
+                            .moyeotaText(
+                                MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed,
+                                color: MoyeotaColor.InkPrimary
+                            )
+                    }
+                    .padding(.leading, 16)
+                    .padding(.top, 16)
                 }
             }
             .frame(maxWidth: .infinity)
             .frame(height: 160)
 
-            // 바텀시트
+            // 바텀시트 — 모서리 20 · 그림자 8(디자인 QA G3·G4, 모든 시트 공통)
             VStack(spacing: 0) {
                 SheetHandle()
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 8)
+                    .padding(.top, 12)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Spacer().frame(height: 10)
+                        Spacer().frame(height: 12)
 
                         // 상태 배지 행
                         HStack(spacing: 0) {
                             StatusBadge(kind: .success, text: "모집 중")
                                 .fixedSize()
-                            Spacer().frame(width: 10)
+                            Spacer().frame(width: 8)
                             Text("\(ride.members.count)명 참여 · 목표 \(ride.capacity)명")
-                                .moyeotaText(inlineType(13, .medium), color: GrayMute)
+                                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         Spacer().frame(height: 16)
 
-                        // Group A · 경로
-                        RouteCard(
+                        // Group A · 경로 / Group B · 요금 — **판 없이** 시트 위에 바로 놓는다(디자인 QA J1). 예전엔 옅은 파란
+                        // 판(경로) + 회색 판 안의 파란 판(1인 부담, 19 파란 숫자)이 겹친 "카드 더미"였다.
+                        // 20 합류 확인과 같은 공용 조각이다 — 한 번 탭으로 오가는 두 화면이 같은 모양으로 읽힌다.
+                        RouteSummary(
                             origin: ride.origin,
                             destination: ride.destination,
-                            departureLabel: departureLabel,
-                            pickupDistanceMeters: pickupDistanceMeters,
-                            durationLabel: durationLabel
+                            originMeta: departureLabel,
+                            destinationMeta: durationLabel,
+                            // 내 위치를 모르면 이 줄은 비운다 — 보행 시간 같은 지어낸 값을 채우지 않는다
+                            connectorNote: pickupDistanceMeters.map { "내 위치에서 \(pickupDistanceLabel(meters: $0))" }
                         )
                         Spacer().frame(height: 16)
-
-                        // Group B · 요금
-                        FareCard(ride: ride)
-                        Spacer().frame(height: 14)
+                        FareSummary(
+                            total: wonLabel(amount: ride.totalFare),
+                            perPerson: wonLabel(amount: ride.farePerPerson),
+                            capacity: ride.capacity
+                        )
+                        Spacer().frame(height: MoyeotaSpacing.SectionGap)
 
                         // 함께 타는 사람
-                        Text("함께 타는 사람 · \(partners.count)명")
-                            .moyeotaText(inlineType(13, .medium), color: GrayMute)
-                        Spacer().frame(height: 8)
+                        SectionLabel(text: "함께 타는 사람 · \(partners.count)명")
                         // 나까지 포함해 전원을 보여준다 — 위 개수는 나를 뺀 값이라 목록에 내 줄이 없으면
                         // "나는 이 방에 있나"를 확인할 곳이 사라진다. 대신 내 줄은 배지로 구분하고 탭을 막는다.
                         // 빈 id 멤버가 겹칠 수 있어(요약 없음) id 가 아니라 자리로 구별한다 — 원본 forEach 도 키가 없다.
                         ForEach(Array(ride.members.enumerated()), id: \.offset) { _, member in
                             DetailMemberRow(member: member, onClick: { onPartnerClick(member) })
                         }
-                        Spacer().frame(height: 14)
+                        Spacer().frame(height: 16)
 
                         // 정원이 찬 뒤 무슨 일이 일어나는지 (21 매칭 대기의 안내 배너와 **짝인 문구**) —
                         // 한쪽만 고치면 조건 카드 한 번 탭으로 오가는 두 화면이 다른 말을 한다.
                         Text(rideDetailNotice(isFull: ride.members.count >= ride.capacity))
-                            .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                            .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                            .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity, alignment: .center)
                         Spacer().frame(height: 12)
                     }
@@ -195,12 +177,15 @@ public struct RideDetailScreen: View {
 
                 // 남은 액션은 나가기 하나뿐 — 수동 출발 버튼은 도메인에서 사라졌다.
                 // 매칭이 시작된 뒤에는 서버가 나가기를 막으므로 버튼 대신 현재 단계를 적는다.
+                //
+                // 바탕 없는 빨간 글자 알약이다(디자인 QA G5·J3, 디자인 문서 button-danger) — 예전 회색 r16 상자는
+                // 앱의 다른 버튼과 모양이 달랐고, 회색은 「방에서 빠진다」는 무게를 말하지 못했다.
                 if ride.status == .recruiting {
-                    GrayActionButton(text: "나가기", onClick: onLeave)
+                    DangerTextButton(text: "나가기", onClick: onLeave)
                         .padding(.horizontal, 16)
                 } else {
                     Text(stageNotice(status: ride.status))
-                        .moyeotaText(inlineType(13, .medium), color: GrayMute)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 16)
@@ -209,105 +194,15 @@ public struct RideDetailScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MoyeotaColor.SurfaceCanvas)
-            .clipShape(sheetShape)
-            .moyeotaShadow(elevation: 14, shape: sheetShape, spotColor: Color(argb: 0x141B2A4A))
+            .clipShape(MoyeotaShape.Sheet)
+            .sheetShadow(MoyeotaShape.Sheet)
 
             NavigationBarSpacer()
                 .frame(maxWidth: .infinity)
                 .background(MoyeotaColor.SurfaceCanvas)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBg)
-    }
-}
-
-private struct RouteCard: View {
-    let origin: String
-    let destination: String
-    let departureLabel: String?
-    let pickupDistanceMeters: Double?
-    let durationLabel: String?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            VStack(spacing: 0) {
-                Spacer().frame(height: 5)
-                Circle()
-                    .fill(MoyeotaColor.MarkerOrigin)
-                    .frame(width: 11, height: 11)
-                DashedRouteLine()
-                    .padding(.vertical, 3)
-                Circle()
-                    .fill(MoyeotaColor.MarkerDestination)
-                    .frame(width: 11, height: 11)
-            }
-            Spacer().frame(width: 12)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 0) {
-                    Text(origin)
-                        .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let departureLabel {
-                        Text(departureLabel)
-                            .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-                // 내 위치를 모르면 이 줄은 비운다 — 보행 시간 같은 지어낸 값을 채우지 않는다
-                if let pickupDistanceMeters {
-                    Text("내 위치에서 \(pickupDistanceLabel(meters: pickupDistanceMeters))")
-                        .moyeotaText(inlineType(12, .medium), color: GrayMute)
-                }
-                Spacer().frame(height: 12)
-                HStack(spacing: 0) {
-                    Text(destination)
-                        .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if let durationLabel {
-                        Text(durationLabel)
-                            .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-                            .fixedSize(horizontal: true, vertical: false)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity)
-        .background(ChipBg, in: RoundedRectangle(cornerRadius: 16, style: .circular))
-    }
-}
-
-private struct FareCard: View {
-    let ride: Ride
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            FareRow(label: "총 예상 요금", value: wonLabel(amount: ride.totalFare))
-            Spacer().frame(height: 14)
-            HStack(spacing: 0) {
-                Text("1인 부담")
-                    .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.Primary600)
-                Spacer(minLength: 0)
-                Text(wonLabel(amount: ride.farePerPerson))
-                    .moyeotaText(inlineType(19, .bold), color: MoyeotaColor.Primary500)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .frame(maxWidth: .infinity)
-            .background(MoyeotaColor.Primary50, in: RoundedRectangle(cornerRadius: 14, style: .circular))
-            Spacer().frame(height: 6)
-            HStack(spacing: 0) {
-                CheckSmallIcon(tint: MoyeotaColor.Success500)
-                Spacer().frame(width: 5)
-                Text("총 예상 요금을 정원 \(ride.capacity)명으로 나눈 금액이에요")
-                    .moyeotaText(inlineType(12, .medium), color: GrayMute)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 18)
-        .background(CardSoft, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
@@ -321,7 +216,7 @@ private struct DetailMemberRow: View {
             Button(action: onClick) {
                 content(clickable: true)
             }
-            .buttonStyle(PressOverlayStyle(shape: RoundedRectangle(cornerRadius: 12, style: .circular)))
+            .buttonStyle(PressOverlayStyle(shape: MoyeotaShape.Card))
         } else {
             content(clickable: false)
         }
@@ -330,13 +225,13 @@ private struct DetailMemberRow: View {
     private func content(clickable: Bool) -> some View {
         HStack(spacing: 0) {
             MemberAvatar(user: member, size: 40)
-            Spacer().frame(width: 10)
+            Spacer().frame(width: 12)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Text(member.displayNickname)
                         .moyeotaText(
-                            inlineType(15, .bold),
-                            color: member.isWithdrawn ? GrayMute : MoyeotaColor.InkPrimary
+                            MoyeotaType.BodyStrong.hangulTrimmed,
+                            color: member.isWithdrawn ? MoyeotaColor.TextMute : MoyeotaColor.InkPrimary
                         )
                     if member.isMe {
                         Spacer().frame(width: 6)
@@ -355,12 +250,11 @@ private struct DetailMemberRow: View {
                 // 사용자가 그걸 근거로 사람을 고른다
                 // 21 멤버 줄과 같은 이유로 숫자 폭을 고정한다
                 Text(member.isWithdrawn ? "탈퇴한 회원" : member.rideCountLabel)
-                    .monospacedDigit()
-                    .moyeotaText(inlineType(13, .medium), color: GrayMute)
+                    .moyeotaText(MoyeotaType.BodySm.tabularNums().hangulTrimmed, color: MoyeotaColor.TextMute)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if clickable {
-                ChevronRightIcon()
+                ChevronIcon()
             }
         }
         .padding(.vertical, 4)
@@ -369,111 +263,9 @@ private struct DetailMemberRow: View {
     }
 }
 
-private struct FareRow: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Text(label)
-                .moyeotaText(inlineType(15, .medium), color: MoyeotaColor.TextMute)
-            Spacer(minLength: 0)
-            Text(value)
-                .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
-
 /// 원본 `"%,d원".format(amount)` — 천 단위 구분은 원본처럼 기기 로케일을 따른다.
 func wonLabel(amount: Int, locale: Locale = .current) -> String {
     "\(amount.formatted(.number.locale(locale).grouping(.automatic)))원"
-}
-
-/// 원본의 점선 간격 `5f, 7f` 는 dp 가 아니라 **픽셀**이다. 기준 기기(2.625배)의 물리 길이로 옮긴다.
-/// 같은 픽셀 수를 3배 화면에 그리면 주기가 4.57 에서 4.0 으로 줄어 같은 높이에 점이 하나 더 들어간다.
-///
-/// 둥근 끝은 위아래로 굵기 절반씩 칸을 벗어나는데 Compose `Canvas` 는 넘쳐 그리고 SwiftUI `Canvas` 는
-/// 잘라 내므로, 그만큼 큰 캔버스에 그리고 레이아웃은 24 로 둔다(원본 높이 30 − 위아래 여백 3).
-private struct DashedRouteLine: View {
-    private static let width: CGFloat = 3
-    private static let height: CGFloat = 24
-    private static let lineWidth: CGFloat = 2
-
-    private static let on: CGFloat = 5 / 2.625
-    private static let off: CGFloat = 7 / 2.625
-
-    var body: some View {
-        Canvas { context, size in
-            let overflow = Self.lineWidth / 2
-            var path = Path()
-            path.move(to: CGPoint(x: size.width / 2, y: overflow))
-            path.addLine(to: CGPoint(x: size.width / 2, y: overflow + Self.height))
-            context.stroke(
-                path,
-                with: .color(DashGray),
-                style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, dash: [Self.on, Self.off])
-            )
-        }
-        .frame(width: Self.width, height: Self.height + Self.lineWidth)
-        .frame(width: Self.width, height: Self.height)
-    }
-}
-
-// ─── 아이콘 (머티리얼 아이콘 미사용 — Canvas 직접 드로잉) ─────────────────────
-
-private struct CheckSmallIcon: View {
-    let tint: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            var path = Path()
-            path.move(to: CGPoint(x: w * 0.12, y: h * 0.55))
-            path.addLine(to: CGPoint(x: w * 0.42, y: h * 0.82))
-            path.move(to: CGPoint(x: w * 0.42, y: h * 0.82))
-            path.addLine(to: CGPoint(x: w * 0.88, y: h * 0.2))
-            context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-        }
-        .frame(width: 14, height: 14)
-    }
-}
-
-private struct ChevronRightIcon: View {
-    var tint: Color = GrayAsh
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            var path = Path()
-            path.move(to: CGPoint(x: w * 0.38, y: h * 0.24))
-            path.addLine(to: CGPoint(x: w * 0.66, y: h * 0.5))
-            path.move(to: CGPoint(x: w * 0.38, y: h * 0.76))
-            path.addLine(to: CGPoint(x: w * 0.66, y: h * 0.5))
-            context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-        }
-        .frame(width: 18, height: 18)
-    }
-}
-
-// 와이어프레임의 회색 보조 버튼 (나가기)
-private struct GrayActionButton: View {
-    let text: String
-    let onClick: () -> Void
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .circular)
-        Button(action: onClick) {
-            Text(text)
-                .moyeotaText(inlineType(15, .bold), color: GraySlate)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(GrayButtonBg, in: shape)
-        }
-        .buttonStyle(PressOverlayStyle(shape: shape))
-    }
 }
 
 /// 정원 안내 문구 — 21 의 안내 배너와 짝이다.
@@ -504,19 +296,5 @@ func stageNotice(status: RideStatus) -> String {
     case .completed: "완료된 탑승이에요"
     // 호출부가 RECRUITING 에서는 나가기 버튼을 그리므로 여기 오지 않는다
     case .recruiting: "지금은 나갈 수 없어요"
-    }
-}
-
-/// 머티리얼 `IconButton` 자리 — 레이아웃 크기는 최소 터치 영역인 48dp 다.
-struct MatchingBackButton: View {
-    let onBack: () -> Void
-
-    var body: some View {
-        Button(action: onBack) {
-            BackArrowIcon()
-                .frame(width: 48, height: 48)
-                .contentShape(Circle())
-        }
-        .buttonStyle(IconPressStyle())
     }
 }

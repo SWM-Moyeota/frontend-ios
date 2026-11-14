@@ -173,6 +173,48 @@ import Testing
         #expect(info.name == "김성윤")
     }
 
+    // ─────────────────────────── loginId (Backend PR #330) ───────────────────────────
+
+    /// 로컬 로그인 계정이면 서버가 **로그인 아이디**를 실어 준다 — 36 프로필 수정의 읽기 전용
+    /// 「아이디」 행이 이 값 하나로 그려진다. 매퍼가 떨어뜨리면 응답은 멀쩡한데 행만 사라진다.
+    @Test("loginId 가 있으면 도메인까지 흐른다")
+    func loginIdFlowsToDomain() throws {
+        let body = """
+            {"uuid":"u-1","name":"김성윤","imageUrl":"https://cdn.moyeota.co.kr/profile/presets/01.png",
+             "noShowCount":0,"restrictedUntil":null,"loginId":"hong123"}
+            """
+
+        let dto = try decodeJSON(UserProfileResponse.self, body)
+
+        #expect(dto.loginId == "hong123")
+        #expect(dto.toDomain().loginId == "hong123")
+    }
+
+    /// 로컬 로그인이 없는 계정은 **키는 남기고 값만 null** 이다(Jackson 기본 `ALWAYS`). 논-널로
+    /// 선언했다면 그 계정의 내 정보 조회가 통째로 터져 로그인 직후 화면이 열리지 않는다.
+    @Test("loginId 가 null 이면 아이디 없음으로 읽는다")
+    func nullLoginId() throws {
+        let dto = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤","loginId":null}"#)
+
+        #expect(dto.toDomain().loginId == nil)
+    }
+
+    /// PR #330 이전 배포에는 키 자체가 없다 — 기본값 nil 로 떨어져야 한다.
+    @Test("loginId 키가 아예 없어도 파싱된다")
+    func missingLoginIdKey() throws {
+        let dto = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤"}"#)
+
+        #expect(dto.loginId == nil)
+        #expect(dto.toDomain().loginId == nil)
+    }
+
+    /// 이름·사진과 같은 규칙 — 공백뿐인 아이디도 도메인에서는 없음이다(빈 값 행을 그리지 않게).
+    @Test("공백뿐인 loginId 는 없음으로 정규화한다")
+    func blankLoginIdNormalized() {
+        #expect(UserProfileResponse(uuid: "u-1", loginId: "").toDomain().loginId == nil)
+        #expect(UserProfileResponse(uuid: "u-1", loginId: "   ").toDomain().loginId == nil)
+    }
+
     /// 목록 본문은 **엔벨로프 없는 벗은 배열**이다. 그리고 `ProfileImage.key` 는 서버에 보내는 값,
     /// `ProfileImage.url` 은 그리는 값이라 **두 필드가 뒤집히면** PATCH 가 400 `USER112` 로 거절되고
     /// 격자에는 아무것도 안 그려진다 — 원인이 응답 파싱이라 추적이 어려워 여기서 따로 못 박는다.

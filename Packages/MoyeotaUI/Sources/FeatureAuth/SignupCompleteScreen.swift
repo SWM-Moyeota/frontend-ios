@@ -25,7 +25,7 @@ public struct SignupCompleteScreen: View {
                         .frame(maxWidth: .infinity)
                     Spacer().frame(height: 32)
                     Text("가입이 끝났어요")
-                        .moyeotaText(MoyeotaType.DisplayMd.copy(fontSize: 26).hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                        .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                         .frame(maxWidth: .infinity)
                     Spacer().frame(height: 8)
                     Text("이제 같이 탈 사람을 찾아볼까요?")
@@ -33,39 +33,33 @@ public struct SignupCompleteScreen: View {
                         .frame(maxWidth: .infinity)
 
                     Spacer().frame(height: 40)
-                    Text("이렇게 이용해요")
-                        .moyeotaText(
-                            MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold).hangulTrimmed,
-                            color: MoyeotaColor.InkPrimary
-                        )
-                    Spacer().frame(height: 12)
+                    SectionLabel(text: "이렇게 이용해요")
+                    Spacer().frame(height: 4)
                     ForEach(Array(completeGuideSteps.enumerated()), id: \.offset) { index, step in
                         HStack(alignment: .center, spacing: 0) {
+                            // 순서 번호는 회색 원 — 옅은 파란 원 셋이 위 체크 배지·아래 CTA 와 파랑을 다투지 않게 한다
                             ZStack {
-                                Circle().fill(MoyeotaColor.Primary50)
+                                Circle().fill(MoyeotaColor.SurfaceSoft)
                                 Text(verbatim: "\(index + 1)")
                                     .moyeotaText(
-                                        MoyeotaType.CaptionMd.copy(fontWeight: .bold),
-                                        color: MoyeotaColor.Primary500
+                                        MoyeotaType.CaptionMd.copy(fontWeight: .semibold),
+                                        color: MoyeotaColor.TextBody
                                     )
                             }
-                            .frame(width: 26, height: 26)
-                            Spacer().frame(width: 11, height: 0)
+                            .frame(width: 24, height: 24)
+                            Spacer().frame(width: 12, height: 0)
                             Text(step)
-                                .moyeotaText(
-                                    MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .medium).hangulTrimmed,
-                                    color: Color(argb: 0xFF4B5563)
-                                )
+                                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
                         }
                         if index != completeGuideSteps.count - 1 {
-                            Spacer().frame(height: 18)
+                            Spacer().frame(height: 16)
                         }
                     }
                     Spacer().frame(height: 24)
                 }
-                // 원본 Column 에는 fillMaxWidth 가 없어 폭이 가장 넓은 안내 줄에 맞춰 줄고, 왼쪽에 붙는다. 그래서 배지와
-                // 위 두 줄의 가운데는 화면 가운데가 아니라 그 폭의 가운데다. 안내 줄은 고정 pt 라 가장 좁은 기기에도 들어간다.
-                .fixedSize(horizontal: true, vertical: false)
+                // 원본 Column 에는 fillMaxWidth 가 없지만 「이렇게 이용해요」 머리말(`SectionLabel`)이 폭을 다 채워
+                // 묶음이 화면 폭이 된다 — 배지와 위 두 줄은 화면 가운데에 선다. 예전엔 가장 넓은 안내 줄 폭에 맞춰 줄었다.
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -75,18 +69,16 @@ public struct SignupCompleteScreen: View {
 
             VStack(spacing: 0) {
                 PrimaryCtaButton(text: "탑승할 사람 찾기", onClick: onStart)
-                Spacer().frame(height: 16)
-                Button(action: onExplore) {
-                    Text("앱 먼저 둘러보기")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium).hangulTrimmed, color: MoyeotaColor.TextMute)
-                }
-                .buttonStyle(NoIndicationButtonStyle())
+                Spacer().frame(height: 4)
+                // 글자 크기 그대로 눌리던 링크를 48 터치 + 눌림 표시로(디자인 QA G12)
+                TextLinkButton(text: "앱 먼저 둘러보기", onClick: onExplore, color: MoyeotaColor.TextMute)
+                Spacer().frame(height: 4)
             }
             .padding(.horizontal, 16)
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 

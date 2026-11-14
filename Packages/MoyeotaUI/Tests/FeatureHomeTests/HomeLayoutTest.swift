@@ -4,9 +4,11 @@ import Testing
 import UIKit
 @testable import FeatureHome
 
-/// 원본에는 없는 테스트. 스타일 없는 Compose `Text` 가 물려받는 줄 높이 24sp 가 실제 높이로 옮겨졌는지 잰다.
+/// 원본에는 없는 테스트. 원본 `HomeScreen.kt` 의 여백·토큰이 실제 높이로 옮겨졌는지 잰다.
 ///
 /// 기대값은 원본 `HomeScreen.kt` 의 값을 더한 것이다. 시트의 접힘 높이와 목록의 밀도가 여기서 정해진다.
+/// 글자 한 줄은 토큰의 한글 글자 상자(`MoyeotaType.hangulTrimmed` — 크기 × 1.44)다: 원본 토큰 글은 첫 줄 위·끝 줄
+/// 아래를 대체 글꼴 상자에서 자른다(22pt 30 이 아니라 31.68, 15pt 21.6, 13pt 18.72, 12pt 17.28).
 @MainActor
 @Suite struct HomeLayoutTest {
 
@@ -52,11 +54,11 @@ import UIKit
         )
     }
 
-    /// 18.5 + 인사 24 + 제목 38.86 + 6 + 부제 24 + 20 + 검색 바 64 + 20. 18.5 는 원본 렌더에 맞춘 값이고(코드는 18), 제목은 코드의 34sp 가 아니라 원본 UI 트리에서 잰 실제 높이다
-    /// (한글 대체 폰트의 줄 상자가 34sp 를 넘는다). 원본 `14_no_banner` 렌더의 히어로와 같은 높이다.
-    @Test("히어로 높이는 원본 값의 합 210 이다")
-    func heroHeight() {
-        #expect(abs(height(HeroSection(userName: "민준", onSearchClick: {})) - 215.36) < 1)
+    /// 위 4 + 제목 31.68(HeadingXl 22) + 12 + 검색 바 52 + 아래 16. 원본 주석의 114 는 제목을 줄 높이 30 으로 센 값이다.
+    /// 인사말·설명·64 검색 카드를 걷어낸 디자인 QA H1(최소안)의 높이 — 예전 히어로는 215 였다.
+    @Test("검색 머리줄 높이는 제목과 검색 바만의 합이다")
+    func searchHeaderHeight() {
+        #expect(abs(height(HomeSearchHeader(onSearchClick: {})) - 115.68) < 1)
     }
 
     /// 상태바 인셋별 배너 위 여백. 62 는 iPhone 17, 48.8 은 원본 렌더의 인셋이다.
@@ -78,34 +80,34 @@ import UIKit
         #expect(homeZoomControlOffsetY(bannerHeight: 124, visibleBottom: 200) == -1.5)
     }
 
-    /// 위아래 12 + 이름 24 + 도로명 24.
-    @Test("즐겨찾기 행 높이는 72 이다")
+    /// 위아래 12 + 이름 21.6(BodyStrong 15) + 도로명 18.72(BodySm 13).
+    @Test("즐겨찾기 행 높이는 이름과 도로명 두 줄의 합이다")
     func rowHeight() {
-        #expect(abs(height(row(roadName: "부산 금정구 부산대학로 63번길 2")) - 72) < 1)
+        #expect(abs(height(row(roadName: "부산 금정구 부산대학로 63번길 2")) - 64.32) < 1)
     }
 
-    /// Compose 의 빈 `Text` 는 한 줄을 차지한다. 도로명이 빈 즐겨찾기는 실제로 있어(`favoritePlaceQuery` 참고)
-    /// 그 행만 낮아지면 목록의 행 높이가 들쭉날쭉해진다.
-    @Test("도로명이 빈 행도 높이가 같다")
+    /// 도로명이 빈 즐겨찾기는 실제로 있다(`favoritePlaceQuery` 참고). 빈 줄을 세우지 않고(15 검색 결과와 같은 규칙)
+    /// 행의 최소 높이 56 이 목록의 밀도를 지킨다.
+    @Test("도로명이 빈 행은 최소 높이 56 이다")
     func rowHeightWithBlankRoad() {
-        #expect(abs(height(row(roadName: "")) - 72) < 1)
+        #expect(abs(height(row(roadName: "")) - 56) < 1)
     }
 
-    /// 위 24 + 머리줄 32(「편집」 24 + 위아래 4) + 10 + 안내 24 + 아래 16.
-    @Test("빈 목록 안내까지의 상세 높이는 106 이다")
+    /// 위 8 + 머리말 줄 56(「편집」 48 터치 + 아래 8) + 안내 18.72 + 아래 16.
+    @Test("빈 목록 안내까지의 상세 높이는 머리말과 안내 한 줄의 합이다")
     func emptyDetailHeight() {
-        #expect(abs(height(detail()) - 106) < 1)
+        #expect(abs(height(detail()) - 98.72) < 1)
     }
 
-    /// 안내 24 + 4 + 「다시 시도」 48 자리.
-    @Test("조회 실패 상세 높이는 158 이다")
+    /// 안내 18.72 + 4 + 「다시 시도」 48 자리.
+    @Test("조회 실패 상세 높이는 안내와 다시 시도 줄의 합이다")
     func failedDetailHeight() {
-        #expect(abs(height(detail(loadFailed: true)) - 158) < 1)
+        #expect(abs(height(detail(loadFailed: true)) - 150.72) < 1)
     }
 
-    /// 실패 문구 한 줄은 위 8 + 줄 높이 24 를 더한다.
-    @Test("삭제 실패 문구는 한 줄 24 를 차지한다")
+    /// 실패 문구 한 줄은 위 8 + CaptionMd 한 줄 17.28 을 더한다.
+    @Test("삭제 실패 문구는 한 줄을 차지한다")
     func errorMessageHeight() {
-        #expect(abs(height(detail(errorMessage: "즐겨찾기를 지우지 못했어요")) - 138) < 1)
+        #expect(abs(height(detail(errorMessage: "즐겨찾기를 지우지 못했어요")) - 124) < 1)
     }
 }

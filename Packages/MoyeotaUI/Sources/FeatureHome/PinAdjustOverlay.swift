@@ -18,10 +18,6 @@ private let PinHeight: CGFloat = 34
 // 카메라가 움직이는 동안 핀이 지면에서 떠오르는 높이 (카카오T 와 같은 「집어 든」 연출)
 private let PinLift: CGFloat = 8
 
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let PanelShadow = Color(argb: 0x141B2A4A)
-
 /// 진입점이 지정한 대상에 좌표가 없으면 반대쪽에서 시작한다.
 func initialPinTarget(
     initialTarget: PinTarget,
@@ -166,52 +162,38 @@ public struct PinAdjustOverlay: View {
         return VStack(spacing: 0) {
             // 헤더 + 대상 토글
             VStack(spacing: 0) {
-                // 16 모달 위에 덮이므로 안전 영역 안이다(16 헤더와 같다).
-                StatusBarSpacer(startsCollapsed: true)
-                HStack(alignment: .center, spacing: 0) {
-                    Button(action: onCancel) {
-                        // 머티리얼 `IconButton` 의 레이아웃 크기는 최소 터치 영역인 48dp 다.
-                        BackArrowIcon()
-                            .frame(width: 48, height: 48)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(PressFeedbackStyle())
-                    Text("위치 조정")
-                        .moyeotaText(inlineType(18, .bold), color: MoyeotaColor.InkPrimary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 56)
-                .padding(.leading, 12)
-                .padding(.trailing, 16)
-
+                // 16 모달이 화면 끝까지 그리므로(S16-1) 그 위에 덮이는 이 화면도 상태바 자리를 흰색으로 칠한다.
+                // 시작값(창 인셋)이 실제 겹침과 같아 첫 레이아웃 뒤에 높이가 바뀌지 않는다(16 헤더와 같다).
+                StatusBarSpacer()
+                // 16 과 같은 가운데 제목 앱바(디자인 QA G7)
+                MoyeotaTopBar(title: "위치 조정", onBack: onCancel)
                 HStack(spacing: 8) {
-                    // 좌표가 없는 대상은 조정할 것이 없으므로 칩 자체를 내지 않는다
+                    // 좌표가 없는 대상은 조정할 것이 없으므로 칩 자체를 내지 않는다.
+                    // 앱 공용 칩(`MoyeotaChip`)을 쓴다 — 둘뿐인 토글이라 글자 좌우를 넓혀(28) 누르기 쉽게 한다.
                     if originPosition != nil {
-                        ConditionChip(
+                        MoyeotaChip(
                             text: "출발지",
                             selected: target == .origin,
                             onClick: { working.target = .origin },
-                            wide: true
+                            horizontalPadding: 28
                         )
                     }
                     if destinationPosition != nil {
-                        ConditionChip(
+                        MoyeotaChip(
                             text: "도착지",
                             selected: target == .destination,
                             onClick: { working.target = .destination },
-                            wide: true
+                            horizontalPadding: 28
                         )
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
 
                 Spacer().frame(height: 8)
             }
             .frame(maxWidth: .infinity)
-            // 상태바 띠는 16 과 같이 어둡게 남는다. `ShapeStyle` 배경은 기본값이 안전 영역까지 번진다.
-            .background(MoyeotaColor.SurfaceCanvas, ignoresSafeAreaEdges: [])
+            .background(MoyeotaColor.SurfaceCanvas)
 
             // 지도 + 중앙 고정 핀
             ZStack {
@@ -288,17 +270,19 @@ public struct PinAdjustOverlay: View {
     }
 
     private func confirmPanel(targetColor: Color, targetName: String) -> some View {
-        let shape = UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20, style: .circular)
+        let shape = MoyeotaShape.Sheet
         let working = self.working
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 0) {
+                // 16 의 경로 요약(`RouteSummary`)과 같은 8 점 · 12 간격
                 Circle()
                     .fill(targetColor)
-                    .frame(width: 11, height: 11)
-                Spacer().frame(width: 10)
+                    .frame(width: 8, height: 8)
+                Spacer().frame(width: 12)
                 Text(targetName)
-                    .moyeotaText(inlineType(16, .bold), color: MoyeotaColor.InkPrimary)
+                    .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             Spacer().frame(height: 4)
@@ -306,18 +290,23 @@ public struct PinAdjustOverlay: View {
             Spacer().frame(height: 12)
             // 1줄에 맞춘 길이 — 「…갱신돼 / 요」처럼 마지막 글자만 떨어지면 지저분하다
             Text("지도를 움직여 핀을 맞춰 주세요 · 설정하면 주소가 갱신돼요")
-                .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
             Spacer().frame(height: 12)
             PrimaryCtaButton(
                 text: "이 위치로 설정",
                 onClick: { onConfirm(working.originWorking, working.destinationWorking) }
             )
+            // 원본은 아래 여백 16 **안쪽**에 내비게이션 바 인셋 전체를 둔다(`windowInsetsBottomHeight` 는 놓인 자리를
+            // 보지 않는다). iOS 여백은 창 가장자리와 겹치는 만큼만 재므로, 같은 합(16 + 인셋)이 되도록 16 을 여백 위로 올린다.
+            Spacer().frame(height: 16)
             NavigationBarSpacer()
         }
-        .padding(16)
+        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+        .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MoyeotaColor.SurfaceCanvas, in: shape)
-        .moyeotaShadow(elevation: 14, shape: shape, spotColor: PanelShadow)
+        // 지도 위로 올라온 시트라 시트 가장자리 그림자 하나만 둔다(G4 — 8)
+        .sheetShadow(shape)
     }
 }
 
@@ -406,6 +395,7 @@ private struct CoordinateLabel: View {
 
     var body: some View {
         Text(pinCoordinateLabel(position: position()))
-            .moyeotaText(inlineType(13, .medium), color: GrayMute)
+            // 팬 중에 숫자가 바뀌어도 글자 폭이 흔들리지 않게 고정폭 숫자
+            .moyeotaText(MoyeotaType.BodySm.tabularNums(), color: MoyeotaColor.TextMute)
     }
 }
