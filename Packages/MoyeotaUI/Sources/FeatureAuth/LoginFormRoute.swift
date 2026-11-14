@@ -58,6 +58,9 @@ public struct LoginFormRoute: View {
     private let onBack: () -> Void
     private let onLoggedIn: () -> Void
     private let onSignUp: () -> Void
+    private let onFindId: () -> Void
+    private let onResetPassword: () -> Void
+    private let prefillLoginId: String?
     private let noticeMessage: String?
 
     @HostedViewModel private var viewModel: LoginViewModel
@@ -67,11 +70,17 @@ public struct LoginFormRoute: View {
         onBack: @escaping () -> Void = {},
         onLoggedIn: @escaping () -> Void = {},
         onSignUp: @escaping () -> Void = {},
+        onFindId: @escaping () -> Void = {},
+        onResetPassword: @escaping () -> Void = {},
+        prefillLoginId: String? = nil,
         noticeMessage: String? = nil
     ) {
         self.onBack = onBack
         self.onLoggedIn = onLoggedIn
         self.onSignUp = onSignUp
+        self.onFindId = onFindId
+        self.onResetPassword = onResetPassword
+        self.prefillLoginId = prefillLoginId
         self.noticeMessage = noticeMessage
         _viewModel = HostedViewModel(wrappedValue: LoginViewModel(repository: repository))
     }
@@ -82,6 +91,9 @@ public struct LoginFormRoute: View {
             onBack: onBack,
             onSubmit: { loginId, password in viewModel.login(loginId: loginId, password: password) },
             onSignUp: onSignUp,
+            onFindId: onFindId,
+            onResetPassword: onResetPassword,
+            prefillLoginId: prefillLoginId,
             submitting: state.submitting,
             errorMessage: state.errorMessage,
             // 로그인 실패 문구가 떴다면 "왜 이 화면인지"보다 그쪽이 급하다 — 안내는 접는다

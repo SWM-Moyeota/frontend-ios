@@ -929,6 +929,27 @@ private final class FakeAuthApi: AuthApi {
         if let phoneCheckFailure { throw phoneCheckFailure }
         return PhoneCheckResponse(exists: phoneExists)
     }
+
+    // 아이디 찾기·비밀번호 재설정은 `AccountRecoveryTest` 가 자기 가짜로 확인한다 — 여기서는 불리지 않는다.
+    func sendFindLoginIdCode(request: SmsSendRequestDto) async throws {
+        throw IllegalStateException("AccountRecoveryTest 가 확인한다")
+    }
+
+    func findLoginId(request: SmsVerifyRequestDto) async throws -> FindLoginIdResponse {
+        throw IllegalStateException("AccountRecoveryTest 가 확인한다")
+    }
+
+    func sendPasswordResetCode(request: PasswordResetSendRequestDto) async throws -> PasswordResetSendResponse {
+        throw IllegalStateException("AccountRecoveryTest 가 확인한다")
+    }
+
+    func verifyPasswordResetCode(request: PasswordResetVerifyRequestDto) async throws -> PasswordResetVerifyResponse {
+        throw IllegalStateException("AccountRecoveryTest 가 확인한다")
+    }
+
+    func confirmPasswordReset(request: PasswordResetConfirmRequestDto) async throws {
+        throw IllegalStateException("AccountRecoveryTest 가 확인한다")
+    }
 }
 
 /// 목록 응답 픽스처. 백엔드 `ProfileImages` 설정 기준이다 — **실서버로 확인한 값이 아니다**

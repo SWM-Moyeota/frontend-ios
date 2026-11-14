@@ -128,7 +128,7 @@ struct RestClient: Sendable {
         let request = try newRequest(route, path: path, query: query, body: body)
         let raw = try await client.execute(request)
         guard raw.isSuccessful else {
-            throw HttpException(Response<Void>.error(raw.code, bytes: raw.body))
+            throw HttpException(Response<Void>.error(raw.code, bytes: raw.body, headers: raw.headers))
         }
         guard !isNoContent(raw.code) else {
             throw IllegalStateException(
@@ -148,7 +148,7 @@ struct RestClient: Sendable {
         let request = try newRequest(route, path: path, query: query, body: body)
         let raw = try await client.execute(request)
         guard raw.isSuccessful else {
-            throw HttpException(Response<Void>.error(raw.code, bytes: raw.body))
+            throw HttpException(Response<Void>.error(raw.code, bytes: raw.body, headers: raw.headers))
         }
     }
 
@@ -163,7 +163,7 @@ struct RestClient: Sendable {
         let request = try newRequest(route, path: path, query: query, body: body)
         let raw = try await client.execute(request)
         guard raw.isSuccessful else {
-            return .error(raw.code, bytes: raw.body)
+            return .error(raw.code, bytes: raw.body, headers: raw.headers)
         }
         if isNoContent(raw.code) {
             return .success(nil, code: raw.code)

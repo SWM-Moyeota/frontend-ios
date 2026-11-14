@@ -406,6 +406,12 @@ final class ProfileEditFakeAuthRepository: AuthRepository, @unchecked Sendable {
         throw unrelated("프리필 값은 35 가 조회해 prefill 로 넘긴다")
     }
 
+    func sendFindLoginIdCode(phoneNumber: String) async throws { throw unrelated("36 프로필 수정과 무관한 호출이다") }
+    func findLoginId(phoneNumber: String, code: String) async throws -> String { throw unrelated("36 프로필 수정과 무관한 호출이다") }
+    func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket { throw unrelated("36 프로필 수정과 무관한 호출이다") }
+    func verifyPasswordResetCode(requestId: String, code: String) async throws -> String { throw unrelated("36 프로필 수정과 무관한 호출이다") }
+    func confirmPasswordReset(resetToken: String, newPassword: String, newPasswordConfirm: String) async throws { throw unrelated("36 프로필 수정과 무관한 호출이다") }
+
     private func unrelated(_ message: String) -> any Error {
         Issue.record(Comment(rawValue: message))
         return Unrelated()
