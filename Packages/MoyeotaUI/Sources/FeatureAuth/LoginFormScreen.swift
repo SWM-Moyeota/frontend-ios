@@ -132,7 +132,7 @@ public struct LoginFormScreen: View {
                     )
 
                     if let onSocialLogin {
-                        Button("Google · Apple로 로그인", action: onSocialLogin).padding(.top, 18)
+                        Button("Google로 로그인", action: onSocialLogin).padding(.top, 18)
                     }
                     // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
                     // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).

@@ -2,22 +2,6 @@ import Foundation
 
 public enum SocialProvider: String, Codable, CaseIterable, Sendable {
     case google = "GOOGLE"
-    case apple = "APPLE"
-}
-public struct AppleChallenge: Codable, Equatable, Sendable {
-    public let challengeToken: String
-    public let nonce: String
-    public let expiresInSeconds: Int
-}
-public struct AppleCredential: Sendable {
-    public let identityToken: String
-    public let authorizationCode: String
-    public let name: String?
-    public init(identityToken: String, authorizationCode: String, name: String?) {
-        self.identityToken = identityToken
-        self.authorizationCode = authorizationCode
-        self.name = name
-    }
 }
 /// 가입 대기표는 메모리에만 보관한다. 이메일은 표시용이며 가입 요청에 다시 보내지 않는다.
 public struct SocialSignup: Equatable, Sendable {
@@ -43,7 +27,8 @@ public struct LoginMethods: Codable, Equatable, Sendable {
     public let methods: [Method]
 }
 extension LoginMethods {
-    /// 모르는 provider 항목은 건너뛴다. 서버가 수단을 늘려도 `hasPassword`와 아는 수단은 읽혀야
+    /// 모르는 provider 항목은 건너뛴다. 앱이 제공하지 않는 `APPLE`도 여기서 걸러진다.
+    /// 서버가 수단을 늘려도 `hasPassword`와 아는 수단은 읽혀야
     /// 로그인 수단 화면과 탈퇴 화면(같은 응답의 `hasPassword`를 쓴다)이 열린다.
     /// 그 밖의 형식 오류(`status` 누락 등)는 그대로 실패시킨다.
     public init(from decoder: any Decoder) throws {
@@ -81,13 +66,10 @@ public struct SocialRegistration: Encodable, Sendable {
 }
 public protocol SocialAuthRepository: Sendable {
     func loginGoogle(idToken: String) async throws -> SocialLoginResult
-    func appleChallenge(linking: Bool) async throws -> AppleChallenge
-    func loginApple(credential: AppleCredential, challengeToken: String) async throws -> SocialLoginResult
     func registerSocial(_ registration: SocialRegistration) async throws
     func loginMethods() async throws -> LoginMethods
     func sendLinkCode() async throws
     func verifyLinkCode(_ code: String) async throws -> String
     func linkGoogle(idToken: String, verificationToken: String) async throws
-    func linkApple(credential: AppleCredential, challengeToken: String, verificationToken: String) async throws
     func deleteSocialAccount() async throws
 }

@@ -135,7 +135,6 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
-				TargetAttributes = { A10000000000000000000051 = { SystemCapabilities = { com.apple.SignInWithApple = { enabled = 1; }; }; }; };
 			};
 			buildConfigurationList = A10000000000000000000071 /* Build configuration list for PBXProject "Moyeota" */;
 			developmentRegion = ko;

@@ -16,12 +16,12 @@ import Testing
         #expect(registration.birthDate == "2000-01-01T00:00:00Z")
         #expect(draft.toNewUser() == nil)
     }
-    @Test("이름을 주지 않는 Apple 계정도 사용자가 이름을 입력해야 가입할 수 있다")
+    @Test("이름이 오지 않은 소셜 계정도 사용자가 이름을 입력해야 가입할 수 있다")
     func missingName() throws {
         var draft = SignupDraft(
             nickname: "별명", phoneNumber: "01012345678", birthDate: try LocalDate.of(2000, 1, 1), gender: .male,
             verificationToken: "verified")
-        draft.socialSignup = SocialSignup(signupToken: "pending", email: "hidden@privaterelay.appleid.com", name: nil)
+        draft.socialSignup = SocialSignup(signupToken: "pending", email: "user@example.com", name: nil)
         #expect(draft.toSocialRegistration() == nil)
         draft.name = "홍길동"
         #expect(draft.toSocialRegistration() != nil)

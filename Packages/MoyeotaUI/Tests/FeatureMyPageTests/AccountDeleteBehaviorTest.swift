@@ -57,14 +57,11 @@ private final class AccountDeleteFakeAuthRepository: AuthRepository, SocialAuthR
         if let failure { throw failure }
     }
     func loginGoogle(idToken: String) async throws -> SocialLoginResult { throw unrelated() }
-    func appleChallenge(linking: Bool) async throws -> AppleChallenge { throw unrelated() }
-    func loginApple(credential: AppleCredential, challengeToken: String) async throws -> SocialLoginResult { throw unrelated() }
     func registerSocial(_ registration: SocialRegistration) async throws { throw unrelated() }
     func loginMethods() async throws -> LoginMethods { throw unrelated() }
     func sendLinkCode() async throws { throw unrelated() }
     func verifyLinkCode(_ code: String) async throws -> String { throw unrelated() }
     func linkGoogle(idToken: String, verificationToken: String) async throws { throw unrelated() }
-    func linkApple(credential: AppleCredential, challengeToken: String, verificationToken: String) async throws { throw unrelated() }
 
     func updateProfile(nickname: String?, imageKey: String?) async throws { throw unrelated() }
     func resetProfileImage() async throws { throw unrelated() }

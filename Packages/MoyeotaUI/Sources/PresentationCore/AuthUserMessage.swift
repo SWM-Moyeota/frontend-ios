@@ -109,7 +109,8 @@ public func authErrorMessage(error: AuthError, serverMessage: String? = nil) -> 
     case .socialAlreadyRegistered: return "이미 가입된 계정이에요. 소셜 로그인부터 다시 진행해 주세요"
     case .socialLinkConflict: return "이미 다른 계정에 연결되었거나 다른 소셜 계정이 연결되어 있어요"
     case .socialVerificationExpired: return "본인 확인 시간이 지났어요. 문자를 다시 받아 주세요"
-    case .socialChallengeInvalid: return "Apple 인증 시간이 지났어요. 다시 시도해 주세요"
+    // 서버 `USER407`. 앱이 challenge 를 쓰는 로그인을 제공하지 않아 실제로 보일 일은 없다.
+    case .socialChallengeInvalid: return "인증 시간이 지났어요. 다시 시도해 주세요"
     case .sessionExpired: return "다시 로그인해 주세요"
     case .network: return "네트워크 연결을 확인해 주세요"
     case .unknown: return "잠시 후 다시 시도해 주세요"

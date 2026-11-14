@@ -47,14 +47,6 @@ public final class RemoteAuthRepository: AuthRepository, SocialAuthRepository {
     public func loginGoogle(idToken: String) async throws -> SocialLoginResult {
         try await authCall { try await finishSocialLogin(socialApi.google(.init(idToken: idToken))) }
     }
-    public func appleChallenge(linking: Bool) async throws -> AppleChallenge {
-        try await authCall { try await socialApi.challenge(linking: linking) }
-    }
-    public func loginApple(credential: AppleCredential, challengeToken: String) async throws -> SocialLoginResult {
-        try await authCall {
-            try await finishSocialLogin(socialApi.apple(.init(identityToken: credential.identityToken, authorizationCode: credential.authorizationCode, challengeToken: challengeToken, name: credential.name)))
-        }
-    }
     private func finishSocialLogin(_ response: SocialLoginResponse) async throws -> SocialLoginResult {
         switch response.status {
         case "LOGIN":
@@ -89,9 +81,6 @@ public final class RemoteAuthRepository: AuthRepository, SocialAuthRepository {
     }
     public func linkGoogle(idToken: String, verificationToken: String) async throws {
         try await authCall { try await socialApi.linkGoogle(.init(idToken: idToken, verificationToken: verificationToken)) }
-    }
-    public func linkApple(credential: AppleCredential, challengeToken: String, verificationToken: String) async throws {
-        try await authCall { try await socialApi.linkApple(.init(identityToken: credential.identityToken, authorizationCode: credential.authorizationCode, challengeToken: challengeToken, verificationToken: verificationToken)) }
     }
     public func deleteSocialAccount() async throws {
         try await authCall { try await socialApi.deleteAccount() }

@@ -18,22 +18,17 @@ import Testing
                 activePartyStorage: SocialTestPartyStorage()), session
         )
     }
-    @Test("가입 대기에서는 세션을 열지 않고 Apple의 누락된 이름과 비공개 이메일을 보존한다")
+    @Test("가입 대기에서는 세션을 열지 않고 누락된 이름과 이메일을 그대로 보존한다")
     func pendingSignup() async throws {
         let server = StubServer(
-            body:
-                #"{"status":"SIGNUP_REQUIRED","signupToken":"pending","email":"hidden@privaterelay.appleid.com","name":null}"#
+            body: #"{"status":"SIGNUP_REQUIRED","signupToken":"pending","email":"user@example.com","name":null}"#
         )
         let (repository, session) = try await repository(server)
-        let result = try await repository.loginApple(
-            credential: .init(identityToken: "identity", authorizationCode: "code", name: nil),
-            challengeToken: "challenge")
-        #expect(
-            result
-                == .signupRequired(.init(signupToken: "pending", email: "hidden@privaterelay.appleid.com", name: nil)))
+        let result = try await repository.loginGoogle(idToken: "google-id-token")
+        #expect(result == .signupRequired(.init(signupToken: "pending", email: "user@example.com", name: nil)))
         #expect(session.authState.value == .unauthenticated)
-        #expect(server.requests.first?.path == "/api/v1/auth/login/apple")
-        #expect(server.requests.first?.bodyString?.contains("challenge") == true)
+        #expect(server.requests.first?.path == "/api/v1/auth/login/google")
+        #expect(server.requests.first?.bodyString?.contains("google-id-token") == true)
         #expect(server.requests.first?.header("Authorization") == nil)
     }
     @Test("로그인 응답은 기존 세션 저장 경로로 사용자 식별자와 토큰을 저장한다")
@@ -51,18 +46,6 @@ import Testing
         let (repository, session) = try await repository(server)
         await #expect(throws: AuthException.self) { try await repository.loginGoogle(idToken: "google") }
         #expect(!session.isLoggedIn)
-    }
-    @Test("로그인과 연결용 Apple challenge는 서로 다른 경로를 쓰고 서버 nonce를 그대로 읽는다")
-    func challengePaths() async throws {
-        let server = StubServer(body: #"{"challengeToken":"challenge","nonce":"server-nonce","expiresInSeconds":300}"#)
-        let api = SocialAuthApi(auth: try server.rest(), user: try server.rest())
-        #expect(try await api.challenge(linking: false).nonce == "server-nonce")
-        #expect(try await api.challenge(linking: true).nonce == "server-nonce")
-        #expect(
-            server.requests.map(\.path) == [
-                "/api/v1/auth/apple/challenge", "/api/v1/users/me/login-methods/apple/challenge",
-            ])
-        #expect(server.requests.allSatisfy { $0.body == nil })
     }
     @Test("소셜 전용 탈퇴는 본문 없이 요청한다")
     func deletionHasNoBody() async throws {
@@ -89,27 +72,21 @@ import Testing
         let api = SocialAuthApi(auth: try publicServer.rest(), user: try userServer.rest())
         try await api.sendCode()
         try await api.linkGoogle(.init(idToken: "google", verificationToken: "verified"))
-        try await api.linkApple(
-            .init(
-                identityToken: "apple", authorizationCode: "code", challengeToken: "challenge",
-                verificationToken: "verified"))
         #expect(publicServer.requests.isEmpty)
         #expect(
             userServer.requests.map(\.path) == [
                 "/api/v1/users/me/login-methods/sms/send", "/api/v1/users/me/login-methods/google",
-                "/api/v1/users/me/login-methods/apple",
             ])
         #expect(userServer.requests[0].body == nil)
-        let body = try #require(userServer.requests[2].body)
+        let body = try #require(userServer.requests[1].body)
         let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
         #expect(object["verificationToken"] == "verified")
-        #expect(object["challengeToken"] == "challenge")
     }
     @Test("인증 로그는 요청과 응답의 공급자 토큰을 남기지 않는다")
     func logsAreRedacted() async throws {
         let lines = Locked<[String]>([])
         let interceptor = HttpLoggingInterceptor { line in lines.update { $0.append(line) } }
-        var request = URLRequest(url: URL(string: "https://example.invalid/api/v1/auth/login/apple")!)
+        var request = URLRequest(url: URL(string: "https://example.invalid/api/v1/auth/login/google")!)
         request.httpMethod = "POST"
         request.httpBody = Data("secret-identity".utf8)
         request.setValue("Bearer secret-access", forHTTPHeaderField: "Authorization")
@@ -146,22 +123,6 @@ import Testing
         #expect(request.path == "/api/v1/auth/login/google")
         #expect(try jsonObject(request) == ["idToken": "google-id-token"])
     }
-    @Test("Apple 로그인 본문은 identityToken·authorizationCode·challengeToken 이고 이름이 없으면 name 을 생략한다")
-    func appleLoginBody() async throws {
-        let server = StubServer(body: #"{"status":"SIGNUP_REQUIRED","signupToken":"pending"}"#)
-        let (repository, _) = try await repository(server)
-        _ = try await repository.loginApple(
-            credential: .init(identityToken: "identity", authorizationCode: "code", name: nil),
-            challengeToken: "challenge")
-        _ = try await repository.loginApple(
-            credential: .init(identityToken: "identity", authorizationCode: "code", name: "홍길동"),
-            challengeToken: "challenge")
-        #expect(server.requests.map(\.method) == ["POST", "POST"])
-        #expect(server.requests.map(\.path) == ["/api/v1/auth/login/apple", "/api/v1/auth/login/apple"])
-        let expected = ["identityToken": "identity", "authorizationCode": "code", "challengeToken": "challenge"]
-        #expect(try jsonObject(server.requests[0]) == expected)
-        #expect(try jsonObject(server.requests[1]) == expected.merging(["name": "홍길동"]) { $1 })
-    }
     @Test("소셜 가입은 /auth/social/register 에 POST 한다")
     func socialRegisterRequest() async throws {
         let server = StubServer(body: "{\(sessionTokens())}")
@@ -189,8 +150,9 @@ import Testing
         #expect(request.path == "/api/v1/users/me/login-methods")
         #expect(request.body == nil)
         #expect(methods.hasPassword)
-        #expect(methods.methods.map(\.provider) == [.google, .apple])
-        #expect(methods.methods.map(\.status) == ["ACTIVE", "REVOKED"])
+        // 앱은 Google 만 제공한다. APPLE 항목은 모르는 provider 로 걸러지고 응답 전체는 그대로 읽힌다.
+        #expect(methods.methods.map(\.provider) == [.google])
+        #expect(methods.methods.map(\.status) == ["ACTIVE"])
     }
     /// 이 응답 하나로 로그인 수단 화면과 탈퇴 화면(`hasPassword`)이 모두 열린다.
     /// 모르는 수단 하나 때문에 전체 디코딩이 실패하면 탈퇴 화면에도 들어갈 수 없다.
@@ -199,11 +161,16 @@ import Testing
         let methods = try JSONDecoder().decode(
             LoginMethods.self,
             from: Data(
-                #"{"hasPassword":false,"methods":[{"provider":"KAKAO","status":"ACTIVE"},{"provider":"APPLE","status":"ACTIVE"}]}"#
+                #"{"hasPassword":false,"methods":[{"provider":"KAKAO","status":"ACTIVE"},{"provider":"APPLE","status":"ACTIVE"},{"provider":"GOOGLE","status":"REVOKED"}]}"#
                     .utf8))
         #expect(!methods.hasPassword)
-        #expect(methods.methods.map(\.provider) == [.apple])
-        #expect(methods.methods.map(\.status) == ["ACTIVE"])
+        #expect(methods.methods.map(\.provider) == [.google])
+        #expect(methods.methods.map(\.status) == ["REVOKED"])
+        // APPLE 하나만 와도 화면이 열려야 한다 — 빈 목록으로 읽고 실패하지 않는다.
+        let appleOnly = try JSONDecoder().decode(
+            LoginMethods.self,
+            from: Data(#"{"hasPassword":false,"methods":[{"provider":"APPLE","status":"ACTIVE"}]}"#.utf8))
+        #expect(!appleOnly.hasPassword && appleOnly.methods.isEmpty)
         // 건너뛰는 것은 모르는 provider 뿐이다 — 형식이 깨진 응답까지 삼키지 않는다.
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(
@@ -229,25 +196,8 @@ import Testing
         let api = SocialAuthApi(auth: try StubServer(status: 500).rest(), user: try server.rest())
         try await api.sendCode()
         try await api.linkGoogle(.init(idToken: "google", verificationToken: "verified"))
-        try await api.linkApple(
-            .init(
-                identityToken: "apple", authorizationCode: "code", challengeToken: "challenge",
-                verificationToken: "verified"))
-        #expect(server.requests.map(\.method) == ["POST", "POST", "POST"])
-        #expect(try jsonObject(server.requests[1]) == ["idToken": "google", "verificationToken": "verified"])
-        #expect(
-            try jsonObject(server.requests[2]) == [
-                "identityToken": "apple", "authorizationCode": "code", "challengeToken": "challenge",
-                "verificationToken": "verified",
-            ])
-    }
-    @Test("Apple challenge 요청은 두 경로 모두 POST 다")
-    func challengeMethods() async throws {
-        let server = StubServer(body: #"{"challengeToken":"challenge","nonce":"server-nonce","expiresInSeconds":300}"#)
-        let api = SocialAuthApi(auth: try server.rest(), user: try server.rest())
-        _ = try await api.challenge(linking: false)
-        _ = try await api.challenge(linking: true)
         #expect(server.requests.map(\.method) == ["POST", "POST"])
+        #expect(try jsonObject(server.requests[1]) == ["idToken": "google", "verificationToken": "verified"])
     }
 
     // ── 서버 계약 고정: 오류 코드 ──

@@ -86,11 +86,8 @@ public struct LoginMethodsScreen: View {
                             }.disabled(code.count != 6)
                         }
                         if verificationToken != nil {
-                            ForEach(SocialProvider.allCases, id: \.self) { provider in
-                                if !methods.methods.contains(where: { $0.provider == provider && $0.status == "ACTIVE" }
-                                ) {
-                                    Button("\(label(provider)) 연결") { connect(provider) }
-                                }
+                            if !methods.methods.contains(where: { $0.provider == .google && $0.status == "ACTIVE" }) {
+                                Button("Google 연결") { connectGoogle() }
                             }
                         }
                     }
@@ -109,9 +106,14 @@ public struct LoginMethodsScreen: View {
         }
         .task { refresh() }
     }
-    private func label(_ provider: SocialProvider) -> String { provider == .google ? "Google" : "Apple" }
+    /// 연결 수단은 Google 하나다. 서버가 다른 provider 를 보내도 디코딩에서 걸러져 여기 오지 않는다.
+    private func label(_ provider: SocialProvider) -> String {
+        switch provider {
+        case .google: return "Google"
+        }
+    }
     private func refresh() { run { methods = try await repository.loginMethods() } }
-    private func connect(_ provider: SocialProvider) {
+    private func connectGoogle() {
         guard let native, let token = verificationToken, let verifiedAt else { return }
         guard Date().timeIntervalSince(verifiedAt) < 300 else {
             verificationToken = nil
@@ -119,14 +121,7 @@ public struct LoginMethodsScreen: View {
             return
         }
         run {
-            if provider == .google {
-                try await repository.linkGoogle(idToken: native.google(), verificationToken: token)
-            } else {
-                let challenge = try await repository.appleChallenge(linking: true)
-                try await repository.linkApple(
-                    credential: native.apple(challenge.nonce), challengeToken: challenge.challengeToken,
-                    verificationToken: token)
-            }
+            try await repository.linkGoogle(idToken: native.google(), verificationToken: token)
             verificationToken = nil
             sent = false
             methods = try await repository.loginMethods()
