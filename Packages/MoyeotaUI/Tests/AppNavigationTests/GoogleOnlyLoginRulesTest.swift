@@ -40,7 +40,7 @@ import Testing
     @Test("Google 진입점은 그대로 있다")
     func googleEntryPointsRemain() throws {
         let login = try #require(SourceTree.read("FeatureAuth/LoginScreen.swift"))
-        #expect(login.contains("Button(\"Google로 계속하기\", action: onGoogle)"))
+        #expect(login.contains("Button(\"구글로 회원가입하기\", action: onGoogle)"))
         let form = try #require(SourceTree.read("FeatureAuth/LoginFormScreen.swift"))
         #expect(form.contains("Button(\"Google로 로그인\", action: onSocialLogin)"))
         let route = try #require(SourceTree.read("FeatureAuth/SocialLoginRoute.swift"))

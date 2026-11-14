@@ -89,7 +89,7 @@ public struct LoginScreen: View {
     private let onLogin: () -> Void
     private let onGoogle: (() -> Void)?
 
-    /// - Parameter onEmailStart: 「이메일로 시작하기」 → 10 프로필 설정 (가입 1단계)
+    /// - Parameter onEmailStart: 「일반 회원가입」 → 10 프로필 설정 (가입 1단계)
     /// - Parameter onLogin: 「로그인」(이미 계정이 있어요) → 04a 아이디 로그인
     public init(onEmailStart: @escaping () -> Void, onLogin: @escaping () -> Void, onGoogle: (() -> Void)? = nil) {
         self.onGoogle = onGoogle
@@ -155,13 +155,13 @@ public struct LoginScreen: View {
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // 「이메일로 시작하기」 묶음은 스크롤 밖 = 화면 하단 고정.
+            // 「일반 회원가입」 묶음은 스크롤 밖 = 화면 하단 고정.
             // 본문이 짧아 고정 Spacer 로 CTA 위치를 잡으면 본문 아래에 빈 공간이 남는다.
             // 하단 고정이면 남는 높이를 스크롤 영역이 흡수한다.
             VStack(spacing: 0) {
-                if let onGoogle { Button("Google로 계속하기", action: onGoogle).buttonStyle(.bordered).padding(.bottom, 8) }
+                if let onGoogle { Button("구글로 회원가입하기", action: onGoogle).buttonStyle(.bordered).padding(.bottom, 8) }
                 PrimaryCtaButton(
-                    text: "이메일로 시작하기",
+                    text: "일반 회원가입",
                     onClick: onEmailStart
                 )
 
