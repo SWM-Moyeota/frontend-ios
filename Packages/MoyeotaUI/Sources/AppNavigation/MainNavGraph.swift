@@ -349,6 +349,10 @@ private struct MainNavContent: View {
     @State private var reverifyPhoneRequest = 0
     // 로그인 화면으로 돌아온 이유. 세션 만료일 때만 채워지고 사용자가 스스로 로그아웃하면 비운다.
     @State private var signOutNotice: String?
+
+    /// 04b 에서 찾았거나 04c 에서 비밀번호를 바꾼 아이디. 04a 로 돌아왔을 때 아이디 칸을 채우고,
+    /// 04b → 04c 로 건너갈 때 04c 의 아이디 칸도 채운다. 로그인에 성공하면 버린다.
+    @State private var recoveredLoginId: String?
     @State private var logoutRequested = false
     // ── 37 탈퇴의 두 표시 ──
     //
@@ -488,6 +492,12 @@ private struct MainNavContent: View {
         navController.resetTo(route)
     }
 
+    /// 04b·04c 를 끝내고 04a 로 돌아간다. 둘 다 04a 위에 쌓여 열리므로 그 엔트리로 되돌아가면 되고,
+    /// 스택에 없으면(있을 수 없는 경로지만 화면 없는 그래프를 남기지 않으려고) 04a 로 새로 연다.
+    private func returnToLoginForm() {
+        if !navController.popBackStack(.loginForm, inclusive: false) { resetTo(.loginForm) }
+    }
+
     private func navigateTab(_ tab: MoyeotaTab) {
         navController.navigateTab(tab)
     }
@@ -566,6 +576,7 @@ private struct MainNavContent: View {
             // 재로그인**하면 복귀 판단이 다시 돌아야 한다 — 빗장만 true 로 남으면 진행 중인 방이
             // 있어도 홈에 떨어진다.
             startupStageHandled = false
+            signupDraft = SignupDraft()
             navController.resetAfterSignOut(.loginForm)
         }
         wasLoggedIn = loggedIn
@@ -732,8 +743,16 @@ private struct MainNavContent: View {
 
         // B · 로그인 04 · 04a
         case .login:
-            LoginScreen(
-                // 「이메일로 시작하기」 = 가입 시작 → 10 프로필 설정. 소셜(카카오) 로그인은 백엔드에 없어 제공하지 않는다
+            SocialLoginRoute(
+                repository: authRepository,
+                onSignup: { signup in
+                    signupDraft = SignupDraft()
+                    signupDraft.socialSignup = signup
+                    reverifyPhoneRequest = 0
+                    navController.navigate(.profileSetup)
+                },
+                onLoggedIn: { signupDraft = SignupDraft(); signOutNotice = nil; recoveredLoginId = nil; resetTo(.home) },
+                // 기존 아이디 가입은 빈 초안으로 프로필 설정을 시작한다.
                 onEmailStart: {
                     signupDraft = SignupDraft() // 새 가입은 빈 초안에서 시작
                     // 지난 가입에서 인증 되돌림이 있었어도 새 폼에 그 안내가 남으면 안 된다
@@ -752,6 +771,7 @@ private struct MainNavContent: View {
                 },
                 onLoggedIn: {
                     signOutNotice = nil
+                    recoveredLoginId = nil
                     resetTo(.home)
                 },
                 onSignUp: {
@@ -759,7 +779,55 @@ private struct MainNavContent: View {
                     reverifyPhoneRequest = 0
                     navController.navigate(.profileSetup)
                 },
+                onSocialSignup: { signup in
+                    signupDraft = SignupDraft()
+                    signupDraft.socialSignup = signup
+                    reverifyPhoneRequest = 0
+                    navController.navigate(.profileSetup)
+                },
+                onFindId: { navController.navigate(.findId) },
+                onResetPassword: {
+                    // 직접 들어가는 재설정은 빈 아이디 칸에서 시작한다 — 지난번에 찾은 아이디를 끌고 가지 않는다
+                    recoveredLoginId = nil
+                    navController.navigate(.passwordReset)
+                },
+                prefillLoginId: recoveredLoginId,
                 noticeMessage: signOutNotice
+            )
+
+        // B · 계정 찾기 04b · 04c (2026-11 신규)
+        case .findId:
+            FindIdRoute(
+                repository: authRepository,
+                onBack: back,
+                // 가입되지 않은 번호 — 가입으로 보낸다. 04a 의 「가입하기」와 같은 시작이다.
+                onSignUp: {
+                    signupDraft = SignupDraft()
+                    reverifyPhoneRequest = 0
+                    navController.navigate(.profileSetup)
+                },
+                onLogin: { loginId in
+                    recoveredLoginId = loginId
+                    returnToLoginForm()
+                },
+                onResetPassword: { loginId in
+                    recoveredLoginId = loginId
+                    navController.navigate(.passwordReset)
+                }
+            )
+        case .passwordReset:
+            PasswordResetRoute(
+                repository: authRepository,
+                initialLoginId: recoveredLoginId ?? "",
+                onBack: back,
+                onFindId: { navController.navigate(.findId) },
+                onCompleted: { loginId in
+                    recoveredLoginId = loginId
+                    // 성공해도 서버는 토큰을 주지 않는다 — 새 비밀번호로 직접 로그인해야 한다는 걸 04a 에서 말한다.
+                    // 세션 만료 안내와 같은 자리(noticeMessage)라 로그인에 성공하면 함께 지워진다.
+                    signOutNotice = "비밀번호를 바꿨어요. 새 비밀번호로 로그인해 주세요"
+                    returnToLoginForm()
+                }
             )
 
         // C · 가입 10 · 12 · 13 (2단계 — 11 안심 설정은 삭제)
@@ -783,7 +851,8 @@ private struct MainNavContent: View {
                 // 이미 가입된 번호(409)로 인증번호 발송이 끊겼을 때의 길 — 가입을 계속하게 두지 않고 로그인으로 보낸다.
                 // 가입 폼 위에 쌓으므로 뒤로 가면 적어 둔 입력이 그대로 있다.
                 onGoToLogin: { navController.navigate(.loginForm) },
-                reverifyPhoneRequest: reverifyPhoneRequest
+                reverifyPhoneRequest: reverifyPhoneRequest,
+                socialSignup: signupDraft.socialSignup
             )
         case .mannerPledge:
             // 여기서 회원가입 + 자동 로그인이 실행된다. 성공했을 때만 13 으로 넘어간다.
@@ -791,7 +860,7 @@ private struct MainNavContent: View {
                 repository: authRepository,
                 draft: signupDraft,
                 onBack: back,
-                onCompleted: { navController.navigate(.signupComplete) },
+                onCompleted: { signupDraft = SignupDraft(); navController.navigate(.signupComplete) },
                 // 409 닉네임 중복 — 10 으로 되돌린다. 스택에 남아 있는 그 엔트리로 pop 하므로
                 // 이미 채운 나머지 7개 필드는 그대로 있고 닉네임만 고치면 된다.
                 onEditNickname: { navController.popBackStack(.profileSetup, inclusive: false) },
@@ -800,7 +869,8 @@ private struct MainNavContent: View {
                 onReverifyPhone: {
                     reverifyPhoneRequest += 1
                     navController.popBackStack(.profileSetup, inclusive: false)
-                }
+                },
+                onRestartSocial: { signupDraft = SignupDraft(); resetTo(.login) }
             )
         case .signupComplete:
             SignupCompleteScreen(
@@ -1079,6 +1149,7 @@ private struct MainNavContent: View {
                     Task { try? await authRepository.logout() }
                 },
                 onDeleteAccount: { navController.navigate(.accountDelete) },
+                socialRepository: authRepository as? any SocialAuthRepository,
                 onTabSelect: navigateTab
             )
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })

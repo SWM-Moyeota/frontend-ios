@@ -3,6 +3,12 @@ import Foundation
 /// 인증 실패 사유. 서버의 `UserErrorCode` + 전송 계층 실패를 화면이 분기 가능한 형태로 좁힌 것.
 /// ViewModel 은 이 값으로 한국어 안내 문구를 고른다.
 public enum AuthError: String, CaseIterable, Sendable {
+    case socialRejected, socialSignupExpired, socialAlreadyRegistered, socialLinkConflict, socialVerificationExpired, socialChallengeInvalid
+    /// 503 `USER404` — 소셜 공급자나 인증 저장소가 일시적으로 응답하지 않는다.
+    ///
+    /// `socialRejected`(401 `USER401`)와 합치지 않는다 — 그쪽은 「다시 로그인」이 답이지만 여기는
+    /// 사용자가 고칠 것이 없고 기다리는 수밖에 없다.
+    case socialUnavailable
     /// 401 LOGIN_FAILED — 아이디나 비밀번호가 다르다.
     case loginFailed = "LOGIN_FAILED"
 
@@ -156,6 +162,50 @@ public enum AuthError: String, CaseIterable, Sendable {
     /// 서버 기준은 앱과 같다 — 만 나이, KST, 14번째 생일 당일은 통과.
     case underMinimumAge = "UNDER_MINIMUM_AGE"
 
+    /// 404 `USER114` PHONE_NOT_REGISTERED — 이 번호로 가입한 계정이 없다(아이디 찾기).
+    ///
+    /// **발송 단계에서 난다** — 서버가 문자 비용을 쓰기 전에 끊는다. 가입 흐름의
+    /// `phoneNumberDuplicated` 와 뜻이 정반대라(그쪽은 「계정이 있다」) 합치면 안 된다:
+    /// 여기서 사용자가 갈 곳은 로그인이 아니라 **가입**이다.
+    ///
+    /// 비밀번호 재설정에서는 **절대 오지 않는다** — 그쪽은 계정 존재 여부를 숨기려고 맞든 틀리든 같은 202 를 준다.
+    case phoneNotRegistered = "PHONE_NOT_REGISTERED"
+
+    /// 400 `USER301` PASSWORD_RESET_VERIFICATION_FAILED — 재설정 인증번호가 통과하지 못했다.
+    ///
+    /// **틀림·만료·없는 접수·아직 발송 전이 한 코드로 온다**(서버가 사유를 가르지 않는다).
+    /// 그중 가장 헷갈리는 건 「아이디·번호가 가입 정보와 달라 문자가 애초에 안 나간」 경우다 —
+    /// 발송 응답이 늘 같은 202 라 앱은 그 사실을 알 수 없고, 사용자는 오지 않는 문자를 기다린다.
+    /// 그래서 화면은 「다시 입력」과 함께 「아이디·번호 확인」을 같이 말해야 한다.
+    ///
+    /// 틀려도 접수는 살아 있어 5번까지 다시 넣을 수 있다. 넘기면 `passwordResetRateLimited` 다.
+    case passwordResetCodeRejected = "PASSWORD_RESET_CODE_REJECTED"
+
+    /// 400 `USER302` PASSWORD_RESET_TOKEN_INVALID — 재설정 권한이 없다(만료 600초·이미 사용·무효화).
+    ///
+    /// 입력을 고쳐서 풀리지 않는다 — **인증부터 다시** 해야 한다.
+    case passwordResetTokenInvalid = "PASSWORD_RESET_TOKEN_INVALID"
+
+    /// 400 `USER303` PASSWORD_CONFIRM_MISMATCH — 새 비밀번호와 확인 값이 다르다.
+    /// 앱이 먼저 막으므로 정상 경로에서는 보이지 않는다. 토큰은 소진되지 않는다.
+    case passwordConfirmMismatch = "PASSWORD_CONFIRM_MISMATCH"
+
+    /// 400 `USER304` PASSWORD_POLICY_VIOLATION — 비밀번호 규칙 위반.
+    ///
+    /// 앱도 같은 규칙(`AuthPolicy.isValidPassword`)으로 먼저 막는다. 그래도 남는 경우가 하나 있다 —
+    /// 서버는 **UTF-8 72바이트** 상한도 보는데(해시 함수의 한계) 앱 규칙에는 없다.
+    case passwordPolicyViolation = "PASSWORD_POLICY_VIOLATION"
+
+    /// 400 `USER305` SAME_PASSWORD — 지금 쓰는 비밀번호와 같다. **앱이 미리 알 수 없는** 유일한 입력 오류다.
+    case samePassword = "SAME_PASSWORD"
+
+    /// 429 `USER306` PASSWORD_RESET_RATE_LIMITED — 재설정 요청 제한.
+    ///
+    /// 네 가지 제한이 한 코드로 온다: 문자 쿨다운(1분) · 하루 문자 횟수 · 계정당 시간당 10회 · IP 당 분당 30회.
+    /// 서버가 `Retry-After` 로 남은 초를 주지만 사유는 주지 않으므로 문구에 숫자를 박지 않는다.
+    /// 확인 단계에서는 「5번 틀렸다」는 뜻이다 — 그 접수로는 더 못 넣는다.
+    case passwordResetRateLimited = "PASSWORD_RESET_RATE_LIMITED"
+
     /// 400 INVALID_REQUEST — 서버 검증 실패. 서버 message 가 "필드: 사유" 형태라
     /// `AuthException.serverMessage` 를 그대로 보여줘도 사용자에게 의미가 통한다.
     case invalidRequest = "INVALID_REQUEST"
@@ -187,11 +237,23 @@ public struct AuthException: Throwable {
     /// 서버가 준 원문 message. 없으면 null.
     public let serverMessage: String?
     public let cause: (any Error)?
+    /// 서버가 `Retry-After` 로 알려 준 「다시 시도할 수 있을 때까지의 초」. 주지 않았으면 null.
+    ///
+    /// 지금 이 값을 주는 건 비밀번호 재설정의 429 `USER306` 뿐이다. 네 가지 제한(문자 쿨다운 60초 ·
+    /// 하루 문자 횟수 · 계정당 시간당 · IP 당 분당)이 한 코드로 오는데, **사유는 없어도 남은 시간은 온다** —
+    /// 화면은 이 값으로 「곧 풀린다」와 「한참 걸린다」를 가른다.
+    public let retryAfterSeconds: Int?
 
-    public init(error: AuthError, serverMessage: String? = nil, cause: (any Error)? = nil) {
+    public init(
+        error: AuthError,
+        serverMessage: String? = nil,
+        cause: (any Error)? = nil,
+        retryAfterSeconds: Int? = nil
+    ) {
         self.error = error
         self.serverMessage = serverMessage
         self.cause = cause
+        self.retryAfterSeconds = retryAfterSeconds
     }
 
     public var message: String? { serverMessage ?? error.name }

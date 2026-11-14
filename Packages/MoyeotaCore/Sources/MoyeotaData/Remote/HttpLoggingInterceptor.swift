@@ -3,7 +3,7 @@ import os
 
 /// `HttpLoggingInterceptor(Level.BODY)` 의 자리. `NetworkModule` 이 `debugLogging` 일 때만 붙인다.
 ///
-/// 요청/응답 본문 전체가 남는다 — 채팅 메시지와 **인증 토큰**이 포함되므로 릴리즈에서는 반드시 꺼져야 한다.
+/// 인증·계정 연결 본문과 인증 헤더는 남기지 않는다. 그 외 본문은 릴리즈에서 로깅하지 않는다.
 /// 기본 싱크의 `os.Logger` 는 문자열을 `private` 로 남겨, Xcode 콘솔에서는 보이고 기기 로그 수집에서는 가려진다.
 ///
 /// 인터셉터 체인의 맨 앞에 붙으므로 원본과 같이 `AuthHeaderInterceptor` 가 붙이기 전의 헤더를 찍는다.
@@ -22,14 +22,15 @@ struct HttpLoggingInterceptor: Interceptor {
 
     func intercept(chain: InterceptorChain) async throws -> HttpRawResponse {
         let request = chain.request
+        let sensitive = request.url?.path.contains("/auth/") == true || request.url?.path.contains("/login-methods") == true
         let method = request.httpMethod ?? "GET"
         let url = request.url?.absoluteString ?? ""
 
         sink("--> \(method) \(url)")
         for (name, value) in (request.allHTTPHeaderFields ?? [:]).sorted(by: { $0.key < $1.key }) {
-            sink("\(name): \(value)")
+            if name.lowercased() != "authorization" && name.lowercased() != "cookie" && name.lowercased() != "set-cookie" { sink("\(name): \(value)") }
         }
-        if let body = request.httpBody, !body.isEmpty { sink(describe(body)) }
+        if !sensitive, let body = request.httpBody, !body.isEmpty { sink(describe(body)) }
         sink("--> END \(method)")
 
         let startedAt = ContinuousClock.now
@@ -45,12 +46,12 @@ struct HttpLoggingInterceptor: Interceptor {
 
         sink("<-- \(response.code) \(url) (\(millis)ms)")
         for (name, value) in response.headers.sorted(by: { $0.key < $1.key }) {
-            sink("\(name): \(value)")
+            if name.lowercased() != "authorization" && name.lowercased() != "cookie" && name.lowercased() != "set-cookie" { sink("\(name): \(value)") }
         }
         if response.bytes != nil {
             sink("<-- END HTTP (streaming body omitted)")
         } else {
-            if !response.body.isEmpty { sink(describe(response.body)) }
+            if !sensitive, !response.body.isEmpty { sink(describe(response.body)) }
             sink("<-- END HTTP (\(response.body.count)-byte body)")
         }
         return response

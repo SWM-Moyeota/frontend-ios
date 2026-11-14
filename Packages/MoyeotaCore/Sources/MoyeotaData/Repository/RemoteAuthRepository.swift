@@ -15,7 +15,7 @@ import MoyeotaDomain
 /// 결정해야 한다. 화면이나 앱 계층에서 나란히 호출하게 두면 순서가 어긋나거나 한쪽이 빠진다.
 /// `ActivePartyRepository` 가 아니라 저장소 인터페이스를 직접 받는 건
 /// 필요한 게 `clear()` 하나이고, 도메인 계약끼리 서로 의존하게 만들 이유가 없기 때문이다.
-public final class RemoteAuthRepository: AuthRepository {
+public final class RemoteAuthRepository: AuthRepository, SocialAuthRepository {
     private let api: any AuthApi
     private let userApi: any UserApi
     private let session: SessionManager
@@ -34,6 +34,61 @@ public final class RemoteAuthRepository: AuthRepository {
         self.session = session
         self.fcmTokenRegistrar = fcmTokenRegistrar
         self.activePartyStorage = activePartyStorage
+    }
+
+    private var socialApi: SocialAuthApi {
+        get throws {
+            guard let auth = api as? RestAuthApi, let user = userApi as? RestUserApi else {
+                throw AuthException(error: .unknown)
+            }
+            return SocialAuthApi(auth: auth.rest, user: user.rest)
+        }
+    }
+    public func loginGoogle(idToken: String) async throws -> SocialLoginResult {
+        try await authCall { try await finishSocialLogin(socialApi.google(.init(idToken: idToken))) }
+    }
+    private func finishSocialLogin(_ response: SocialLoginResponse) async throws -> SocialLoginResult {
+        switch response.status {
+        case "LOGIN":
+            guard let access = response.accessToken, let refresh = response.refreshToken else { throw AuthException(error: .unknown) }
+            try await saveSocialSession(access: access, refresh: refresh)
+            return .loggedIn
+        case "SIGNUP_REQUIRED":
+            guard let token = response.signupToken, !token.isBlank else { throw AuthException(error: .unknown) }
+            return .signupRequired(.init(signupToken: token, email: response.email, name: response.name))
+        default: throw AuthException(error: .unknown)
+        }
+    }
+    private func saveSocialSession(access: String, refresh: String) async throws {
+        guard !access.isBlank, !refresh.isBlank, let uuid = jwtSubject(token: access) else { throw AuthException(error: .unknown) }
+        try await session.onLoggedIn(newSession: StoredSession(userUuid: uuid, accessToken: access, refreshToken: refresh))
+        try await fcmTokenRegistrar.registerPendingToken()
+    }
+    public func registerSocial(_ registration: SocialRegistration) async throws {
+        try await authCall {
+            let response = try await socialApi.register(registration)
+            try await saveSocialSession(access: response.accessToken, refresh: response.refreshToken)
+        }
+    }
+    public func loginMethods() async throws -> LoginMethods { try await authCall { try await socialApi.methods() } }
+    public func sendLinkCode() async throws { try await authCall { try await socialApi.sendCode() } }
+    public func verifyLinkCode(_ code: String) async throws -> String {
+        try await authCall {
+            let result = try await socialApi.verifyCode(code)
+            guard !result.verificationToken.isBlank else { throw AuthException(error: .unknown) }
+            return result.verificationToken
+        }
+    }
+    public func linkGoogle(idToken: String, verificationToken: String) async throws {
+        try await authCall { try await socialApi.linkGoogle(.init(idToken: idToken, verificationToken: verificationToken)) }
+    }
+    public func deleteSocialAccount() async throws {
+        try await authCall { try await socialApi.deleteAccount() }
+        let cleanup = Task { [self] in
+            try? await activePartyStorage.clear()
+            _ = session.onLoggedOut()
+        }
+        await cleanup.value
     }
 
     // 세션 상태의 실체는 SessionManager 다. 여기서 별도 상태를 들면 두 출처가 어긋난다.
@@ -242,6 +297,84 @@ public final class RemoteAuthRepository: AuthRepository {
         try await authCall {
             try await api.checkPhone(request: PhoneCheckRequestDto(phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber)))
         }.exists
+    }
+
+    /// 번호 정규화는 가입 인증과 같다 — 발송과 확인이 **같은 형태**를 보내야 서버가 같은 번호로 본다.
+    public func sendFindLoginIdCode(phoneNumber: String) async throws {
+        try await authCall {
+            try await api.sendFindLoginIdCode(
+                request: SmsSendRequestDto(phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber))
+            )
+        }
+    }
+
+    /// 빈 아이디를 끊는 이유는 `verifyPhoneCode` 의 빈 토큰과 같다 — 통과시키면 화면이
+    /// 「회원님의 아이디는 예요」처럼 빈 값을 결과로 그린다.
+    public func findLoginId(phoneNumber: String, code: String) async throws -> String {
+        let response = try await authCall {
+            try await api.findLoginId(
+                request: SmsVerifyRequestDto(
+                    phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber),
+                    code: code.trim()
+                )
+            )
+        }
+        guard !response.loginId.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "아이디 찾기 응답에 loginId 가 없습니다.")
+        }
+        return response.loginId
+    }
+
+    /// 접수번호가 비면 끊는다 — 확인 단계가 빈 `requestId` 로 400 만 받게 되고, 사용자는 문자를 받고도
+    /// 인증을 끝낼 수 없다. 시간 값은 서버가 0 이하를 줘도 화면이 즉시 만료로 그리지 않게 정책 상수로 메운다.
+    public func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket {
+        let response = try await authCall {
+            try await api.sendPasswordResetCode(
+                request: PasswordResetSendRequestDto(
+                    loginId: loginId.trim(),
+                    phoneNumber: AuthPolicy.normalizePhoneNumber(value: phoneNumber)
+                )
+            )
+        }
+        guard !response.requestId.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "재설정 접수 응답에 requestId 가 없습니다.")
+        }
+        return PasswordResetTicket(
+            requestId: response.requestId,
+            expiresInSeconds: response.expiresIn > 0 ? Int(response.expiresIn) : AuthPolicy.SMS_CODE_TTL_SECONDS,
+            resendAfterSeconds: response.resendAfter > 0
+                ? Int(response.resendAfter) : AuthPolicy.SMS_RESEND_COOLDOWN_SECONDS
+        )
+    }
+
+    public func verifyPasswordResetCode(requestId: String, code: String) async throws -> String {
+        let response = try await authCall {
+            try await api.verifyPasswordResetCode(
+                request: PasswordResetVerifyRequestDto(requestId: requestId, code: code.trim())
+            )
+        }
+        guard !response.resetToken.isBlank else {
+            throw AuthException(error: .unknown, serverMessage: "재설정 인증 응답에 resetToken 이 없습니다.")
+        }
+        return response.resetToken
+    }
+
+    /// 비밀번호는 **다듬지 않는다** — 로그인이 입력값을 그대로 보내므로 여기서 공백을 깎으면
+    /// 사용자가 정한 비밀번호와 저장된 비밀번호가 달라진다.
+    public func confirmPasswordReset(
+        resetToken: String,
+        newPassword: String,
+        newPasswordConfirm: String
+    ) async throws {
+        try await authCall {
+            try await api.confirmPasswordReset(
+                request: PasswordResetConfirmRequestDto(
+                    resetToken: resetToken,
+                    newPassword: newPassword,
+                    newPasswordConfirm: newPasswordConfirm
+                )
+            )
+        }
     }
 
     /// 204 라 돌려받을 값이 없다. 실패는 전부 `AuthException` 으로 좁혀 올린다.

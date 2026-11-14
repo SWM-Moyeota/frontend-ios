@@ -87,6 +87,30 @@ public func authErrorMessage(error: AuthError, serverMessage: String? = nil) -> 
     // 로그인 실패(401)와 달리 세션은 살아 있다 — "다시 로그인"이 아니라 "다시 입력"이다.
     case .passwordMismatch: return "비밀번호가 일치하지 않아요"
 
+    // ── 아이디 찾기 · 비밀번호 재설정 (2026-11 신규, 04b · 04c) ──
+    // 가입 흐름의 「이미 가입된 번호」와 정반대다 — 갈 곳이 로그인이 아니라 가입이다.
+    case .phoneNotRegistered: return "이 번호로 가입한 계정이 없어요. 번호를 다시 확인하거나 새로 가입해 주세요"
+    // 서버가 「틀림·만료·문자가 애초에 안 나감」을 한 코드로 뭉친다. 재설정은 아이디·번호가 틀려도
+    // 접수가 되므로, 오지 않는 문자를 기다리는 사람에게 확인할 곳을 같이 말한다.
+    case .passwordResetCodeRejected:
+        return "인증번호를 확인하지 못했어요. 문자로 받은 6자리를 다시 입력해 주세요. 문자가 오지 않았다면 아이디와 번호를 확인해 주세요"
+    // 입력을 고쳐서 풀리지 않는다 — 인증으로 되돌린다.
+    case .passwordResetTokenInvalid: return "인증 시간이 지났어요. 휴대폰 인증부터 다시 해 주세요"
+    case .passwordConfirmMismatch: return "새 비밀번호와 확인 값이 달라요"
+    case .passwordPolicyViolation: return "비밀번호는 영문·숫자·특수문자를 모두 넣어 8~64자로 만들어 주세요"
+    case .samePassword: return "지금 쓰는 비밀번호와 같아요. 다른 비밀번호를 입력해 주세요"
+    // 네 가지 제한이 한 코드로 온다(쿨다운·하루 횟수·계정당·IP 당) — 사유를 몰라 숫자를 말하지 않는다.
+    case .passwordResetRateLimited: return "요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요"
+
+    case .socialRejected: return "소셜 인증을 확인하지 못했어요. 로그인을 다시 시도해 주세요"
+    // 사용자 입력·계정 문제가 아니라 일시 장애다 — 「다시 로그인」이 아니라 「잠시 후」를 말한다.
+    case .socialUnavailable: return "지금은 로그인을 진행할 수 없어요. 잠시 후 다시 시도해 주세요"
+    case .socialSignupExpired: return "가입 인증 시간이 지났어요. 처음 화면에서 소셜 로그인을 다시 해 주세요"
+    case .socialAlreadyRegistered: return "이미 가입된 계정이에요. 소셜 로그인부터 다시 진행해 주세요"
+    case .socialLinkConflict: return "이미 다른 계정에 연결되었거나 다른 소셜 계정이 연결되어 있어요"
+    case .socialVerificationExpired: return "본인 확인 시간이 지났어요. 문자를 다시 받아 주세요"
+    // 서버 `USER407`. 앱이 challenge 를 쓰는 로그인을 제공하지 않아 실제로 보일 일은 없다.
+    case .socialChallengeInvalid: return "인증 시간이 지났어요. 다시 시도해 주세요"
     case .sessionExpired: return "다시 로그인해 주세요"
     case .network: return "네트워크 연결을 확인해 주세요"
     case .unknown: return "잠시 후 다시 시도해 주세요"

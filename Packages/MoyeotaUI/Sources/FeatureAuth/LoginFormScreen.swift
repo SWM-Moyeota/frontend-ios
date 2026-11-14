@@ -23,6 +23,10 @@ public struct LoginFormScreen: View {
     private let onBack: () -> Void
     private let onSubmit: (_ loginId: String, _ password: String) -> Void
     private let onSignUp: () -> Void
+    private let onSocialLogin: (() -> Void)?
+    private let onFindId: () -> Void
+    private let onResetPassword: () -> Void
+    private let prefillLoginId: String?
     private let submitting: Bool
     private let errorMessage: String?
     private let noticeMessage: String?
@@ -33,10 +37,15 @@ public struct LoginFormScreen: View {
 
     /// - Parameter errorMessage: 로그인 실패 사유 (LOGIN_FAILED 등) — 필드 아래 인라인 표시
     /// - Parameter noticeMessage: 세션 만료처럼 "왜 이 화면으로 돌아왔는지" 알려야 할 때의 안내 문구
+    /// - Parameter prefillLoginId: 04b 에서 찾았거나 04c 에서 비밀번호를 바꾼 아이디 — 돌아왔을 때 아이디 칸을 채운다
     public init(
         onBack: @escaping () -> Void = {},
         onSubmit: @escaping (_ loginId: String, _ password: String) -> Void = { _, _ in },
         onSignUp: @escaping () -> Void = {},
+        onSocialLogin: (() -> Void)? = nil,
+        onFindId: @escaping () -> Void = {},
+        onResetPassword: @escaping () -> Void = {},
+        prefillLoginId: String? = nil,
         submitting: Bool = false,
         errorMessage: String? = nil,
         noticeMessage: String? = nil
@@ -44,6 +53,10 @@ public struct LoginFormScreen: View {
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onSignUp = onSignUp
+        self.onSocialLogin = onSocialLogin
+        self.onFindId = onFindId
+        self.onResetPassword = onResetPassword
+        self.prefillLoginId = prefillLoginId
         self.submitting = submitting
         self.errorMessage = errorMessage
         self.noticeMessage = noticeMessage
@@ -118,6 +131,28 @@ public struct LoginFormScreen: View {
                         loading: submitting
                     )
 
+                    if let onSocialLogin {
+                        // Google 로 가입한 회원은 아이디가 없다 - 시작 화면과 같은 버튼을 여기에도 둔다
+                        Spacer().frame(height: 12)
+                        SecondaryButton(
+                            text: "Google로 계속하기",
+                            onClick: onSocialLogin,
+                            leadingImage: Image("GoogleLogo", bundle: .main)
+                        )
+                    }
+                    // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
+                    // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).
+                    Spacer().frame(height: 18)
+                    HStack(alignment: .center, spacing: 0) {
+                        recoveryLink("아이디 찾기", action: onFindId)
+                        Rectangle()
+                            .fill(MoyeotaColor.Hairline)
+                            .frame(width: 1, height: 12)
+                            .padding(.horizontal, 14)
+                        recoveryLink("비밀번호 재설정", action: onResetPassword)
+                    }
+                    .frame(maxWidth: .infinity)
+
                     Spacer().frame(height: 18)
                     HStack(alignment: .center, spacing: 0) {
                         Text("아직 계정이 없어요")
@@ -152,6 +187,20 @@ public struct LoginFormScreen: View {
             password = ""
             passwordVisible = false
         }
+        // 04b·04c 에서 돌아올 때마다 다시 채운다 — 위의 비우기가 화면을 가릴 때 아이디도 지우기 때문이다.
+        .onAppear {
+            if let prefillLoginId, !prefillLoginId.isEmpty { loginId = prefillLoginId }
+        }
+    }
+
+    private func recoveryLink(_ text: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(text)
+                .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium).hangulTrimmed, color: MoyeotaColor.TextMute)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(NoIndicationButtonStyle())
+        .disabled(submitting)
     }
 }
 
