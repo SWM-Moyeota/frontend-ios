@@ -79,18 +79,21 @@ private func legalDocument(label: String, url: String?) -> AttributedString {
 ///
 /// 진입: 03 시작하기 · 온보딩 완료 후 재실행 · 로그아웃 직후
 ///
-/// 소셜(카카오) 로그인은 없다 — 백엔드 AuthController 에 소셜 로그인 엔드포인트가 없고
-/// 가입·로그인은 아이디/비밀번호뿐이다. 카카오 버튼과 「준비 중」 안내는 그래서 뺐다.
+/// 아이디 가입·로그인과 Google·Apple 네이티브 로그인을 제공한다.
+/// SDK 실행은 앱에서 주입하고 인증 결과·가입 전이는 SocialLoginRoute가 처리한다.
 ///
 /// 신뢰 불릿은 `LoginTrustBullets` 에 있다 — 가입 전 마지막으로 "모여타가 무엇을 해 주는가"를
 /// 말하는 자리라 **코드로 확인한 사실만** 적는다(2026-10-13).
 public struct LoginScreen: View {
     private let onEmailStart: () -> Void
     private let onLogin: () -> Void
+    private let onGoogle: (() -> Void)?
+    private let onApple: (() -> Void)?
 
     /// - Parameter onEmailStart: 「이메일로 시작하기」 → 10 프로필 설정 (가입 1단계)
     /// - Parameter onLogin: 「로그인」(이미 계정이 있어요) → 04a 아이디 로그인
-    public init(onEmailStart: @escaping () -> Void, onLogin: @escaping () -> Void) {
+    public init(onEmailStart: @escaping () -> Void, onLogin: @escaping () -> Void, onGoogle: (() -> Void)? = nil, onApple: (() -> Void)? = nil) {
+        self.onGoogle = onGoogle; self.onApple = onApple
         self.onEmailStart = onEmailStart
         self.onLogin = onLogin
     }
@@ -120,7 +123,7 @@ public struct LoginScreen: View {
                     Spacer().frame(height: 18)
                     // 학교 이메일 인증은 가입 필수 경로가 아니다(마이페이지에서 나중에 추가하는 컨셉).
                     // 「학생만 · 학교 이메일로 확인」은 이제 사실이 아니라 지웠다.
-                    Text("아이디로 간편하게 가입해요")
+                    Text("원하는 방법으로 간편하게 시작해요")
                         .moyeotaText(
                             MoyeotaType(fontSize: 14, lineHeight: .sp(20), letterSpacing: -0.28).hangulTrimmed,
                             color: MoyeotaColor.TextMute
@@ -157,6 +160,8 @@ public struct LoginScreen: View {
             // 본문이 짧아 고정 Spacer 로 CTA 위치를 잡으면 본문 아래에 빈 공간이 남는다.
             // 하단 고정이면 남는 높이를 스크롤 영역이 흡수한다.
             VStack(spacing: 0) {
+                if let onGoogle { Button("Google로 계속하기", action: onGoogle).buttonStyle(.bordered).padding(.bottom, 8) }
+                if let onApple { Button("Apple로 계속하기", action: onApple).buttonStyle(.borderedProminent).tint(.black).padding(.bottom, 8) }
                 PrimaryCtaButton(
                     text: "이메일로 시작하기",
                     onClick: onEmailStart

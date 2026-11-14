@@ -19,4 +19,8 @@ FACEBOOK_CLIENT_TOKEN =
 MARKETING_VERSION = 1.0.4
 CURRENT_PROJECT_VERSION = 1
 
+GOOGLE_IOS_CLIENT_ID = 568416567998-ict7rqmsprjeo1buffh9v1ahm3pdvbit.apps.googleusercontent.com
+GOOGLE_SERVER_CLIENT_ID = 568416567998-gd5lf8u4ohshrar4bjj18nrp8va01vrv.apps.googleusercontent.com
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.568416567998-ict7rqmsprjeo1buffh9v1ahm3pdvbit
+
 #include? "Secrets.xcconfig"

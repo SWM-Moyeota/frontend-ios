@@ -576,6 +576,7 @@ private struct MainNavContent: View {
             // 재로그인**하면 복귀 판단이 다시 돌아야 한다 — 빗장만 true 로 남으면 진행 중인 방이
             // 있어도 홈에 떨어진다.
             startupStageHandled = false
+            signupDraft = SignupDraft()
             navController.resetAfterSignOut(.loginForm)
         }
         wasLoggedIn = loggedIn
@@ -742,8 +743,16 @@ private struct MainNavContent: View {
 
         // B · 로그인 04 · 04a
         case .login:
-            LoginScreen(
-                // 「이메일로 시작하기」 = 가입 시작 → 10 프로필 설정. 소셜(카카오) 로그인은 백엔드에 없어 제공하지 않는다
+            SocialLoginRoute(
+                repository: authRepository,
+                onSignup: { signup in
+                    signupDraft = SignupDraft()
+                    signupDraft.socialSignup = signup
+                    reverifyPhoneRequest = 0
+                    navController.navigate(.profileSetup)
+                },
+                onLoggedIn: { signupDraft = SignupDraft(); signOutNotice = nil; recoveredLoginId = nil; resetTo(.home) },
+                // 기존 아이디 가입은 빈 초안으로 프로필 설정을 시작한다.
                 onEmailStart: {
                     signupDraft = SignupDraft() // 새 가입은 빈 초안에서 시작
                     // 지난 가입에서 인증 되돌림이 있었어도 새 폼에 그 안내가 남으면 안 된다
@@ -770,6 +779,7 @@ private struct MainNavContent: View {
                     reverifyPhoneRequest = 0
                     navController.navigate(.profileSetup)
                 },
+                onSocialLogin: { navController.navigate(.login) },
                 onFindId: { navController.navigate(.findId) },
                 onResetPassword: {
                     // 직접 들어가는 재설정은 빈 아이디 칸에서 시작한다 — 지난번에 찾은 아이디를 끌고 가지 않는다
@@ -836,7 +846,8 @@ private struct MainNavContent: View {
                 // 이미 가입된 번호(409)로 인증번호 발송이 끊겼을 때의 길 — 가입을 계속하게 두지 않고 로그인으로 보낸다.
                 // 가입 폼 위에 쌓으므로 뒤로 가면 적어 둔 입력이 그대로 있다.
                 onGoToLogin: { navController.navigate(.loginForm) },
-                reverifyPhoneRequest: reverifyPhoneRequest
+                reverifyPhoneRequest: reverifyPhoneRequest,
+                socialSignup: signupDraft.socialSignup
             )
         case .mannerPledge:
             // 여기서 회원가입 + 자동 로그인이 실행된다. 성공했을 때만 13 으로 넘어간다.
@@ -844,7 +855,7 @@ private struct MainNavContent: View {
                 repository: authRepository,
                 draft: signupDraft,
                 onBack: back,
-                onCompleted: { navController.navigate(.signupComplete) },
+                onCompleted: { signupDraft = SignupDraft(); navController.navigate(.signupComplete) },
                 // 409 닉네임 중복 — 10 으로 되돌린다. 스택에 남아 있는 그 엔트리로 pop 하므로
                 // 이미 채운 나머지 7개 필드는 그대로 있고 닉네임만 고치면 된다.
                 onEditNickname: { navController.popBackStack(.profileSetup, inclusive: false) },
@@ -853,7 +864,8 @@ private struct MainNavContent: View {
                 onReverifyPhone: {
                     reverifyPhoneRequest += 1
                     navController.popBackStack(.profileSetup, inclusive: false)
-                }
+                },
+                onRestartSocial: { signupDraft = SignupDraft(); resetTo(.login) }
             )
         case .signupComplete:
             SignupCompleteScreen(
@@ -1132,6 +1144,7 @@ private struct MainNavContent: View {
                     Task { try? await authRepository.logout() }
                 },
                 onDeleteAccount: { navController.navigate(.accountDelete) },
+                socialRepository: authRepository as? any SocialAuthRepository,
                 onTabSelect: navigateTab
             )
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })

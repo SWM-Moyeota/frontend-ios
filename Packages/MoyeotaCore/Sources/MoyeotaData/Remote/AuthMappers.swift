@@ -94,6 +94,13 @@ extension Error {
             let body = http.readApiError()
             let error: AuthError
             switch body?.code {
+            case "USER401": error = .socialRejected
+            case "USER402": error = .socialSignupExpired
+            case "USER403": error = .socialAlreadyRegistered
+            case "USER404": error = .socialRejected
+            case "USER405": error = .socialLinkConflict
+            case "USER406": error = .socialVerificationExpired
+            case "USER407": error = .socialChallengeInvalid
             case "USER102": error = .loginFailed
             case "USER101": error = .loginIdDuplicated
             case "USER104": error = .phoneNumberDuplicated

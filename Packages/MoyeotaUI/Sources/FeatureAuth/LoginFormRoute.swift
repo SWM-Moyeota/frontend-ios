@@ -58,6 +58,7 @@ public struct LoginFormRoute: View {
     private let onBack: () -> Void
     private let onLoggedIn: () -> Void
     private let onSignUp: () -> Void
+    private let onSocialLogin: (() -> Void)?
     private let onFindId: () -> Void
     private let onResetPassword: () -> Void
     private let prefillLoginId: String?
@@ -70,6 +71,7 @@ public struct LoginFormRoute: View {
         onBack: @escaping () -> Void = {},
         onLoggedIn: @escaping () -> Void = {},
         onSignUp: @escaping () -> Void = {},
+        onSocialLogin: (() -> Void)? = nil,
         onFindId: @escaping () -> Void = {},
         onResetPassword: @escaping () -> Void = {},
         prefillLoginId: String? = nil,
@@ -78,6 +80,7 @@ public struct LoginFormRoute: View {
         self.onBack = onBack
         self.onLoggedIn = onLoggedIn
         self.onSignUp = onSignUp
+        self.onSocialLogin = onSocialLogin
         self.onFindId = onFindId
         self.onResetPassword = onResetPassword
         self.prefillLoginId = prefillLoginId
@@ -91,6 +94,7 @@ public struct LoginFormRoute: View {
             onBack: onBack,
             onSubmit: { loginId, password in viewModel.login(loginId: loginId, password: password) },
             onSignUp: onSignUp,
+            onSocialLogin: onSocialLogin,
             onFindId: onFindId,
             onResetPassword: onResetPassword,
             prefillLoginId: prefillLoginId,

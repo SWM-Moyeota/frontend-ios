@@ -29,6 +29,7 @@ struct ProfileSetupValidation {
         gender: Gender?,
         phoneDigits: String,
         loginId: String,
+        socialSignup: Bool = false,
         password: String,
         email: String,
         today: LocalDate,
@@ -113,7 +114,7 @@ struct ProfileSetupValidation {
         // 중복 확인이 아직 진행 중이거나 네트워크로 실패했어도 다음 단계는 막지 않는다
         // — 서버가 가입 시점에 409 로 최종 판정하고, 12 화면이 그 실패를 배너로 되돌려 준다.
         isValid = NicknamePolicy.isValid(raw: nickname) && nicknameError == nil &&
-            basicValid && phoneVerified && accountValid
+            basicValid && phoneVerified && (socialSignup || accountValid)
     }
 }
 
@@ -151,6 +152,7 @@ struct ProfileSetupValidation {
 public struct ProfileSetupScreen: View {
     private let onBack: () -> Void
     private let onNext: (SignupDraft) -> Void
+    private let socialSignup: SocialSignup?
     private let today: LocalDate
     private let nicknameCheck: NicknameCheckState
     private let onNicknameChange: (String) -> Void
@@ -192,6 +194,7 @@ public struct ProfileSetupScreen: View {
     public init(
         onBack: @escaping () -> Void,
         onNext: @escaping (SignupDraft) -> Void,
+        socialSignup: SocialSignup? = nil,
         today: LocalDate = LocalDate.now(),
         nicknameCheck: NicknameCheckState = .idle,
         onNicknameChange: @escaping (String) -> Void = { _ in },
@@ -206,6 +209,8 @@ public struct ProfileSetupScreen: View {
     ) {
         self.onBack = onBack
         self.onNext = onNext
+        self.socialSignup = socialSignup
+        _realName = State(initialValue: socialSignup?.name ?? "")
         self.today = today
         self.nicknameCheck = nicknameCheck
         self.onNicknameChange = onNicknameChange
@@ -227,6 +232,7 @@ public struct ProfileSetupScreen: View {
             gender: gender,
             phoneDigits: phoneDigits,
             loginId: loginId,
+            socialSignup: socialSignup != nil,
             password: password,
             email: email,
             today: today,
@@ -267,7 +273,7 @@ public struct ProfileSetupScreen: View {
                     basicInfoSection(validation)
 
                     Spacer().frame(height: 28)
-                    accountSection(validation)
+                    if socialSignup == nil { accountSection(validation) }
 
                     Spacer().frame(height: 24)
                     infoCard

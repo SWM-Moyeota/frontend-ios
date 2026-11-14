@@ -102,6 +102,12 @@ public func authErrorMessage(error: AuthError, serverMessage: String? = nil) -> 
     // 네 가지 제한이 한 코드로 온다(쿨다운·하루 횟수·계정당·IP 당) — 사유를 몰라 숫자를 말하지 않는다.
     case .passwordResetRateLimited: return "요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요"
 
+    case .socialRejected: return "소셜 인증을 확인하지 못했어요. 로그인을 다시 시도해 주세요"
+    case .socialSignupExpired: return "가입 인증 시간이 지났어요. 처음 화면에서 소셜 로그인을 다시 해 주세요"
+    case .socialAlreadyRegistered: return "이미 가입된 계정이에요. 소셜 로그인부터 다시 진행해 주세요"
+    case .socialLinkConflict: return "이미 다른 계정에 연결되었거나 다른 소셜 계정이 연결되어 있어요"
+    case .socialVerificationExpired: return "본인 확인 시간이 지났어요. 문자를 다시 받아 주세요"
+    case .socialChallengeInvalid: return "Apple 인증 시간이 지났어요. 다시 시도해 주세요"
     case .sessionExpired: return "다시 로그인해 주세요"
     case .network: return "네트워크 연결을 확인해 주세요"
     case .unknown: return "잠시 후 다시 시도해 주세요"

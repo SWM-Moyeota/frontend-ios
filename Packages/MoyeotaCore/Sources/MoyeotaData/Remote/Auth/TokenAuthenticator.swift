@@ -34,6 +34,9 @@ public final class TokenAuthenticator: Authenticator {
     }
 
     public func authenticate(response: HttpRawResponse) async -> URLRequest? {
+        // 연결 증표나 Apple challenge 만료는 앱 세션 만료가 아니다. 재사용 불가 요청을 재전송하지 않는다.
+        if let code = try? JSONDecoder().decode(ApiErrorDto.self, from: response.body).code,
+           ["USER401", "USER402", "USER406", "USER407"].contains(code) { return nil }
         // 애초에 토큰을 안 실은 요청의 401 은 재발급으로 풀 수 없다(미로그인 상태의 보호 API 접근).
         guard let failedAccessToken = bearerToken(of: response.request) else { return nil }
 

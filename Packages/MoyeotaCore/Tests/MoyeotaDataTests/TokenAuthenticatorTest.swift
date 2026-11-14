@@ -3,6 +3,18 @@ import Testing
 @testable import MoyeotaData
 
 @Suite struct TokenAuthenticatorTest {
+    @Test("연결용 인증 증표가 만료돼도 로그인 세션은 유지하고 재시도하지 않는다")
+    func socialProofDoesNotRefreshSession() async {
+        let tokens = FakeTokenHolder(accessToken: "access", refreshToken: "refresh")
+        let refresher = FakeRefresher(.rejected)
+        var request = URLRequest(url: URL(string: "https://example.invalid/api/v1/users/me/login-methods/apple")!)
+        request.setValue("Bearer access", forHTTPHeaderField: "Authorization")
+        let response = HttpRawResponse(request: request, code: 401, body: Data(#"{"code":"USER406","message":"인증 만료"}"#.utf8))
+        let retry = await TokenAuthenticator(tokens: tokens, refresher: refresher).authenticate(response: response)
+        #expect(retry == nil)
+        #expect(refresher.usedRefreshTokens.isEmpty)
+        #expect(tokens.sessionExpiredCount == 0)
+    }
     private static let threadCount = 4
 
     private func rotated(_ accessToken: String, _ refreshToken: String) -> RefreshResult {

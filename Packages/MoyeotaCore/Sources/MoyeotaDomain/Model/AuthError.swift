@@ -3,6 +3,7 @@ import Foundation
 /// 인증 실패 사유. 서버의 `UserErrorCode` + 전송 계층 실패를 화면이 분기 가능한 형태로 좁힌 것.
 /// ViewModel 은 이 값으로 한국어 안내 문구를 고른다.
 public enum AuthError: String, CaseIterable, Sendable {
+    case socialRejected, socialSignupExpired, socialAlreadyRegistered, socialLinkConflict, socialVerificationExpired, socialChallengeInvalid
     /// 401 LOGIN_FAILED — 아이디나 비밀번호가 다르다.
     case loginFailed = "LOGIN_FAILED"
 
