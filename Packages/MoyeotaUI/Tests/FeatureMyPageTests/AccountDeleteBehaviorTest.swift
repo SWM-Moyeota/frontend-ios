@@ -62,6 +62,12 @@ private final class AccountDeleteFakeAuthRepository: AuthRepository, @unchecked 
     func logout() async throws { throw unrelated() }
     func getMyProfile() async throws -> UserProfileInfo { throw unrelated() }
 
+    func sendFindLoginIdCode(phoneNumber: String) async throws { throw unrelated() }
+    func findLoginId(phoneNumber: String, code: String) async throws -> String { throw unrelated() }
+    func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket { throw unrelated() }
+    func verifyPasswordResetCode(requestId: String, code: String) async throws -> String { throw unrelated() }
+    func confirmPasswordReset(resetToken: String, newPassword: String, newPasswordConfirm: String) async throws { throw unrelated() }
+
     private func unrelated() -> any Error {
         Issue.record("37 회원 탈퇴와 무관한 호출이다")
         return Unrelated()

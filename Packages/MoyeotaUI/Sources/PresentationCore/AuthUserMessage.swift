@@ -87,6 +87,21 @@ public func authErrorMessage(error: AuthError, serverMessage: String? = nil) -> 
     // 로그인 실패(401)와 달리 세션은 살아 있다 — "다시 로그인"이 아니라 "다시 입력"이다.
     case .passwordMismatch: return "비밀번호가 일치하지 않아요"
 
+    // ── 아이디 찾기 · 비밀번호 재설정 (2026-11 신규, 04b · 04c) ──
+    // 가입 흐름의 「이미 가입된 번호」와 정반대다 — 갈 곳이 로그인이 아니라 가입이다.
+    case .phoneNotRegistered: return "이 번호로 가입한 계정이 없어요. 번호를 다시 확인하거나 새로 가입해 주세요"
+    // 서버가 「틀림·만료·문자가 애초에 안 나감」을 한 코드로 뭉친다. 재설정은 아이디·번호가 틀려도
+    // 접수가 되므로, 오지 않는 문자를 기다리는 사람에게 확인할 곳을 같이 말한다.
+    case .passwordResetCodeRejected:
+        return "인증번호를 확인하지 못했어요. 문자로 받은 6자리를 다시 입력해 주세요. 문자가 오지 않았다면 아이디와 번호를 확인해 주세요"
+    // 입력을 고쳐서 풀리지 않는다 — 인증으로 되돌린다.
+    case .passwordResetTokenInvalid: return "인증 시간이 지났어요. 휴대폰 인증부터 다시 해 주세요"
+    case .passwordConfirmMismatch: return "새 비밀번호와 확인 값이 달라요"
+    case .passwordPolicyViolation: return "비밀번호는 영문·숫자·특수문자를 모두 넣어 8~64자로 만들어 주세요"
+    case .samePassword: return "지금 쓰는 비밀번호와 같아요. 다른 비밀번호를 입력해 주세요"
+    // 네 가지 제한이 한 코드로 온다(쿨다운·하루 횟수·계정당·IP 당) — 사유를 몰라 숫자를 말하지 않는다.
+    case .passwordResetRateLimited: return "요청이 너무 많아요. 잠시 뒤 다시 시도해 주세요"
+
     case .sessionExpired: return "다시 로그인해 주세요"
     case .network: return "네트워크 연결을 확인해 주세요"
     case .unknown: return "잠시 후 다시 시도해 주세요"

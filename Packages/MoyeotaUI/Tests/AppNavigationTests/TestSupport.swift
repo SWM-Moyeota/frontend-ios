@@ -27,6 +27,12 @@ final class FakeAuthRepository: AuthRepository, @unchecked Sendable {
     func logout() async throws { flow.value = .unauthenticated }
     func deleteAccount(password: String) async throws { throw FakeFailure() }
     func getMyProfile() async throws -> UserProfileInfo { UserProfileInfo(uuid: "u", name: "테스터") }
+
+    func sendFindLoginIdCode(phoneNumber: String) async throws { throw CancellationError() }
+    func findLoginId(phoneNumber: String, code: String) async throws -> String { throw CancellationError() }
+    func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket { throw CancellationError() }
+    func verifyPasswordResetCode(requestId: String, code: String) async throws -> String { throw CancellationError() }
+    func confirmPasswordReset(resetToken: String, newPassword: String, newPasswordConfirm: String) async throws { throw CancellationError() }
 }
 
 final class FakeAppConfigRepository: AppConfigRepository, @unchecked Sendable {

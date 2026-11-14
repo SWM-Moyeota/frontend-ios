@@ -23,6 +23,9 @@ public struct LoginFormScreen: View {
     private let onBack: () -> Void
     private let onSubmit: (_ loginId: String, _ password: String) -> Void
     private let onSignUp: () -> Void
+    private let onFindId: () -> Void
+    private let onResetPassword: () -> Void
+    private let prefillLoginId: String?
     private let submitting: Bool
     private let errorMessage: String?
     private let noticeMessage: String?
@@ -33,10 +36,14 @@ public struct LoginFormScreen: View {
 
     /// - Parameter errorMessage: 로그인 실패 사유 (LOGIN_FAILED 등) — 필드 아래 인라인 표시
     /// - Parameter noticeMessage: 세션 만료처럼 "왜 이 화면으로 돌아왔는지" 알려야 할 때의 안내 문구
+    /// - Parameter prefillLoginId: 04b 에서 찾았거나 04c 에서 비밀번호를 바꾼 아이디 — 돌아왔을 때 아이디 칸을 채운다
     public init(
         onBack: @escaping () -> Void = {},
         onSubmit: @escaping (_ loginId: String, _ password: String) -> Void = { _, _ in },
         onSignUp: @escaping () -> Void = {},
+        onFindId: @escaping () -> Void = {},
+        onResetPassword: @escaping () -> Void = {},
+        prefillLoginId: String? = nil,
         submitting: Bool = false,
         errorMessage: String? = nil,
         noticeMessage: String? = nil
@@ -44,6 +51,9 @@ public struct LoginFormScreen: View {
         self.onBack = onBack
         self.onSubmit = onSubmit
         self.onSignUp = onSignUp
+        self.onFindId = onFindId
+        self.onResetPassword = onResetPassword
+        self.prefillLoginId = prefillLoginId
         self.submitting = submitting
         self.errorMessage = errorMessage
         self.noticeMessage = noticeMessage
@@ -116,7 +126,20 @@ public struct LoginFormScreen: View {
                         loading: submitting
                     )
 
+                    // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
+                    // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).
+                    // 다듬기(디자인 QA G12) 뒤의 원본처럼 두 링크도 48 터치 `TextLinkButton` 이라 위아래 간격 없이 붙는다.
                     Spacer().frame(height: 4)
+                    HStack(alignment: .center, spacing: 0) {
+                        TextLinkButton(text: "아이디 찾기", onClick: onFindId, color: MoyeotaColor.TextMute, enabled: !submitting)
+                        Rectangle()
+                            .fill(MoyeotaColor.Hairline)
+                            .frame(width: 1, height: 12)
+                            .padding(.horizontal, 6)
+                        TextLinkButton(text: "비밀번호 재설정", onClick: onResetPassword, color: MoyeotaColor.TextMute, enabled: !submitting)
+                    }
+                    .frame(maxWidth: .infinity)
+
                     HStack(alignment: .center, spacing: 0) {
                         Text("아직 계정이 없어요")
                             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
@@ -143,6 +166,10 @@ public struct LoginFormScreen: View {
             loginId = ""
             password = ""
             passwordVisible = false
+        }
+        // 04b·04c 에서 돌아올 때마다 다시 채운다 — 위의 비우기가 화면을 가릴 때 아이디도 지우기 때문이다.
+        .onAppear {
+            if let prefillLoginId, !prefillLoginId.isEmpty { loginId = prefillLoginId }
         }
     }
 }

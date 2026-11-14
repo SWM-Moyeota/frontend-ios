@@ -247,6 +247,12 @@ private final class FakeAuthRepository: AuthRepository, @unchecked Sendable {
 
     func getMyProfile() async throws -> UserProfileInfo { try await script.next() }
 
+    func sendFindLoginIdCode(phoneNumber: String) async throws { throw Failure() }
+    func findLoginId(phoneNumber: String, code: String) async throws -> String { throw Failure() }
+    func requestPasswordReset(loginId: String, phoneNumber: String) async throws -> PasswordResetTicket { throw Failure() }
+    func verifyPasswordResetCode(requestId: String, code: String) async throws -> String { throw Failure() }
+    func confirmPasswordReset(resetToken: String, newPassword: String, newPasswordConfirm: String) async throws { throw Failure() }
+
     func sendPhoneVerificationCode(phoneNumber: String) async throws { throw Failure() }
     func verifyPhoneCode(phoneNumber: String, code: String) async throws -> String { throw Failure() }
     func register(newUser: NewUser) async throws -> String { throw Failure() }

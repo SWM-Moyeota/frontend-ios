@@ -245,3 +245,89 @@ public struct TokenResponse: Decodable, Equatable, Sendable {
         refreshToken = try c.decodeOrDefault(.refreshToken, default: "")
     }
 }
+
+/// POST /api/v1/auth/find-id/verify 의 응답 — 백엔드 `FindLoginIdResponse`.
+///
+/// 요청 본문은 가입 인증과 같은 `SmsVerifyRequestDto` 를 그대로 쓴다(서버도 같은 record 다).
+/// `loginId` 는 가리지 않은 **전체 아이디**다 — 문자 인증을 통과한 사람에게만 돌려준다.
+public struct FindLoginIdResponse: Codable, Equatable, Sendable {
+    public var loginId: String
+
+    public init(loginId: String) {
+        self.loginId = loginId
+    }
+}
+
+/// POST /api/v1/auth/password-reset/send 의 요청 본문 — 백엔드 `PasswordResetSendRequest`.
+///
+/// 둘 다 `@Pattern` 이 걸려 있다 — `loginId` 는 가입 규칙(`AuthPolicy.LOGIN_ID_PATTERN`)과 같고
+/// `phoneNumber` 는 발송 요청과 같다. 형식이 틀리면 접수 전에 400 `INVALID_REQUEST` 다.
+public struct PasswordResetSendRequestDto: Codable, Equatable, Sendable {
+    public var loginId: String
+    public var phoneNumber: String
+
+    public init(loginId: String, phoneNumber: String) {
+        self.loginId = loginId
+        self.phoneNumber = phoneNumber
+    }
+}
+
+/// POST /api/v1/auth/password-reset/send 의 202 응답 — 백엔드 `PasswordResetSendResponse`.
+///
+/// `requestId` 는 확인 요청에 그대로 되돌려 보내는 접수번호(43자)다. `expiresIn`(180)·`resendAfter`(60)는 초 단위.
+/// `message` 는 「입력한 정보가 가입 정보와 일치하면 인증번호가 발송됩니다.」 고정 문구다 —
+/// 앱은 자기 문구를 쓰므로 읽지 않지만, 서버가 빼더라도 디코딩이 깨지지 않게 옵셔널로 받는다.
+public struct PasswordResetSendResponse: Codable, Equatable, Sendable {
+    public var requestId: String
+    public var expiresIn: Int64
+    public var resendAfter: Int64
+    public var message: String?
+
+    public init(requestId: String, expiresIn: Int64, resendAfter: Int64, message: String? = nil) {
+        self.requestId = requestId
+        self.expiresIn = expiresIn
+        self.resendAfter = resendAfter
+        self.message = message
+    }
+}
+
+/// POST /api/v1/auth/password-reset/verify 의 요청 본문 — 백엔드 `PasswordResetVerifyRequest`.
+///
+/// `requestId` 는 `@Pattern(^[A-Za-z0-9_-]{43}$)`, `code` 는 `@Pattern(^\d{6}$)` 다.
+public struct PasswordResetVerifyRequestDto: Codable, Equatable, Sendable {
+    public var requestId: String
+    public var code: String
+
+    public init(requestId: String, code: String) {
+        self.requestId = requestId
+        self.code = code
+    }
+}
+
+/// POST /api/v1/auth/password-reset/verify 의 200 응답 — 백엔드 `PasswordResetVerifyResponse`.
+///
+/// `resetToken` 은 **한 번만 쓰는** 재설정 권한이다(`expiresIn` = 600초). 저장하지 않고 메모리에만 든다.
+public struct PasswordResetVerifyResponse: Codable, Equatable, Sendable {
+    public var resetToken: String
+    public var expiresIn: Int64
+
+    public init(resetToken: String, expiresIn: Int64) {
+        self.resetToken = resetToken
+        self.expiresIn = expiresIn
+    }
+}
+
+/// POST /api/v1/auth/password-reset/confirm 의 요청 본문 — 백엔드 `PasswordResetConfirmRequest`.
+///
+/// 확인 값까지 서버로 보낸다 — 두 값이 같은지는 서버가 다시 본다(400 `USER303`).
+public struct PasswordResetConfirmRequestDto: Codable, Equatable, Sendable {
+    public var resetToken: String
+    public var newPassword: String
+    public var newPasswordConfirm: String
+
+    public init(resetToken: String, newPassword: String, newPasswordConfirm: String) {
+        self.resetToken = resetToken
+        self.newPassword = newPassword
+        self.newPasswordConfirm = newPasswordConfirm
+    }
+}
