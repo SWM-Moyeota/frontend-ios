@@ -14,11 +14,6 @@ let SupportedDomains = ["@pusan.ac.kr", "@pukyong.ac.kr", "@donga.ac.kr"]
 // 유효값 검증: 로컬파트 — 영문·숫자·. _ - 만 허용, 2~64자, 공백 불가
 let LocalPartRegex = JavaRegex("^[A-Za-z0-9._-]{2,64}$")
 
-private let LabelGray = Color(argb: 0xFF8A93A0)
-private let SlateGray = Color(argb: 0xFF4B5563)
-private let FooterGray = Color(argb: 0xFF9AA1AC)
-private let InfoCardBlue = Color(argb: 0xFFF1F5FD)
-
 public struct SchoolEmailScreen: View {
     private let onBack: () -> Void
     private let onSendMail: (_ email: String) -> Void
@@ -46,7 +41,7 @@ public struct SchoolEmailScreen: View {
             StatusBarSpacer()
             MoyeotaTopBar(title: "", onBack: onBack) {
                 Text("1 / 5")
-                    .moyeotaText(.BodySm, color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             SchoolEmailProgressBar(progress: 1.0 / 5.0)
 
@@ -55,10 +50,10 @@ public struct SchoolEmailScreen: View {
                     Spacer().frame(height: 24)
                     Text("학교 이메일을 알려주세요")
                         .moyeotaText(.DisplayMd, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     Text(verbatim: "\(domain) 메일로 인증 코드를 보내드려요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14), color: MoyeotaColor.TextMute)
-                    Spacer().frame(height: 30)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
+                    Spacer().frame(height: 32)
 
                     MoyeotaTextField(
                         value: localPart,
@@ -70,41 +65,35 @@ public struct SchoolEmailScreen: View {
                         keyboardOptions: KeyboardOptions(keyboardType: .email),
                         enabled: !submitting
                     ) {
-                        // 도메인 셀렉트 → @pusan.ac.kr / @pukyong.ac.kr / @donga.ac.kr — 지원 3개 외 선택 불가
-                        Button {
-                            domainMenuOpen = true
-                        } label: {
-                            Text(domain)
-                                .moyeotaText(.BodyMd, color: LabelGray)
-                                .contentShape(Rectangle())
+                        // 도메인 고르기 — 글자만 눌리던 자리를 48 터치 + 눌림 표시로(디자인 QA G12)
+                        // 도메인 셀렉트 → @pusan.ac.kr / @pukyong.ac.kr / @donga.ac.kr — 지원 3개 외 선택 불가.
+                        // 메뉴는 원본처럼 링크를 감싼 상자(밀기 전 자리)에 붙는다
+                        ZStack {
+                            TextLinkButton(
+                                text: domain,
+                                onClick: { domainMenuOpen = true },
+                                color: MoyeotaColor.TextMute,
+                                style: .BodyMd
+                            )
+                            .offset(x: 8)
                         }
-                        .buttonStyle(PressFeedbackStyle())
                         .anchorPreference(key: DomainMenuAnchorKey.self, value: .bounds) { $0 }
                     }
 
                     Spacer().frame(height: 24)
 
-                    // 이렇게 보호해요 카드
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("이렇게 보호해요")
-                            .moyeotaText(
-                                MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold),
-                                color: MoyeotaColor.InkPrimary
-                            )
-                        Spacer().frame(height: 14)
+                    // 이렇게 보호해요 — 파란 상자를 걷고 머리말 + 체크 목록으로 화면에 바로 놓는다(디자인 QA G8).
+                    // 세 줄짜리라 한 문장용 NoticeBanner 에는 담기지 않고, 04 시작 화면의 신뢰 불릿(A1)과 같은 모양이다.
+                    SectionLabel(text: "이렇게 보호해요")
+                    VStack(alignment: .leading, spacing: 8) {
                         SchoolEmailProtectRow(text: "이름과 학번은 저장하지 않아요")
-                        Spacer().frame(height: 13)
                         SchoolEmailProtectRow(text: "메일 주소는 암호화해 보관해요")
-                        Spacer().frame(height: 13)
                         SchoolEmailProtectRow(text: "다른 이용자에게 공개하지 않아요")
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(InfoCardBlue, in: RoundedRectangle(cornerRadius: 18, style: .circular))
 
                     Spacer().frame(height: 24)
 
-                    // 다른 학교 메일 안내 → 도메인 셀렉트 열기
+                    // 다른 학교 메일 안내 → 도메인 셀렉트 열기. 흰 화면 위라 그림자 대신 Border 선(디자인 QA G4)
                     otherSchoolRow
                     Spacer().frame(height: 24)
                 }
@@ -125,15 +114,16 @@ public struct SchoolEmailScreen: View {
                     enabled: localPartValid,
                     loading: submitting
                 )
-                Spacer().frame(height: 14)
+                Spacer().frame(height: 12)
                 // 미연결: 학생증 인증 — 클릭해도 동작 없음 (대체 인증 플로우 필요)
                 Text("학생증으로 인증하기")
-                    .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .bold), color: MoyeotaColor.Primary500)
+                    .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold), color: MoyeotaColor.Primary600)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                Spacer().frame(height: 10)
+                Spacer().frame(height: 8)
+                // 11pt 는 배지 전용이다(G3) — 읽혀야 하는 안내라 CaptionMd · TextMute 로 올린다
                 Text("인증 정보는 매칭 확인 외에 쓰이지 않아요")
-                    .moyeotaText(.CaptionSm, color: FooterGray)
+                    .moyeotaText(.CaptionMd, color: MoyeotaColor.TextMute)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -142,7 +132,7 @@ public struct SchoolEmailScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         .overlayPreferenceValue(DomainMenuAnchorKey.self) { anchor in
             GeometryReader { geometry in
                 if domainMenuOpen, let anchor {
@@ -169,31 +159,27 @@ public struct SchoolEmailScreen: View {
     }
 
     private var otherSchoolRow: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
+        let shape = MoyeotaShape.Card
         return Button {
             domainMenuOpen = true
         } label: {
             HStack(alignment: .center, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("다른 학교 메일을 쓰나요?")
-                        .moyeotaText(
-                            MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold),
-                            color: MoyeotaColor.InkPrimary
-                        )
+                        .moyeotaText(.BodyStrong, color: MoyeotaColor.InkPrimary)
                     Spacer().frame(height: 4)
                     Text("부산대 · 부경대 · 동아대 메일을 지원해요")
-                        .moyeotaText(.CaptionMd, color: LabelGray)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                SchoolEmailChevronIcon()
+                ChevronIcon()
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .frame(maxWidth: .infinity)
-            .background(Color.white, in: shape)
         }
         .buttonStyle(PressOverlayStyle(shape: shape))
-        .moyeotaShadow(elevation: 2, shape: shape)
+        .overlay { shape.strokeBorder(MoyeotaColor.Border, lineWidth: 1) }
     }
 }
 
@@ -215,8 +201,11 @@ private struct DomainMenuAnchorKey: PreferenceKey {
 }
 
 /// 머티리얼 3 `DropdownMenu` 의 자리. 값은 머티리얼 1.4.0 그대로다 — 모서리 4, 위아래 여백 8, 고도 3,
-/// 항목 높이 최소 48·폭 112~280·좌우 여백 12, 배경은 기본 `surfaceContainer`(#F3EDF7).
-/// 이 테마는 그 색을 지정하지 않아 머티리얼 기본값이 그대로 나온다.
+/// 항목 높이 최소 48·폭 112~280·좌우 여백 12.
+///
+/// 배경만 다르다: 원본은 이 테마가 지정하지 않은 머티리얼 기본 `surfaceContainer`(#F3EDF7)를 그대로 쓰는데,
+/// 그 값은 디자인 토큰이 아니고 화면 코드는 색을 직접 정의하지 않는다(`DesignTokenGuardTest`).
+/// 가장 가까운 토큰인 `MoyeotaColor.SurfaceSoft`(#F4F6FA)로 칠한다.
 private struct DomainDropdownMenu: View {
     let anchor: CGRect
     let container: CGSize
@@ -248,7 +237,7 @@ private struct DomainDropdownMenu: View {
                 }
             }
             .padding(.vertical, 8)
-            .background(Color(argb: 0xFFF3EDF7), in: shape)
+            .background(MoyeotaColor.SurfaceSoft, in: shape)
             .moyeotaShadow(elevation: 3, shape: shape)
             .fixedSize()
             // 원본 위치 규칙: 앵커 왼쪽에 맞추되 넘치면 오른쪽에 맞추고, 앵커 아래에 놓되 넘치면 위에 놓는다.
@@ -271,8 +260,8 @@ private struct SchoolEmailProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(Color(argb: 0xFFE6EAF0))
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }
@@ -282,49 +271,15 @@ private struct SchoolEmailProgressBar: View {
     }
 }
 
+// 체크 + 안내 한 줄 — 체크는 「확인된 사실」 표시라 회색 선 아이콘이다(04 신뢰 불릿과 같은 모양)
 private struct SchoolEmailProtectRow: View {
     let text: String
 
     var body: some View {
-        HStack(alignment: .center, spacing: 9) {
-            SchoolEmailCheckIcon()
+        HStack(alignment: .center, spacing: 8) {
+            CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextMute)
             Text(text)
-                .moyeotaText(.BodySm, color: SlateGray)
+                .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
         }
-    }
-}
-
-private struct SchoolEmailCheckIcon: View {
-    var body: some View {
-        Canvas { context, size in
-            let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-            var head = Path()
-            head.move(to: CGPoint(x: size.width * 0.1, y: size.height * 0.55))
-            head.addLine(to: CGPoint(x: size.width * 0.4, y: size.height * 0.85))
-            context.stroke(head, with: .color(MoyeotaColor.Primary500), style: style)
-            var tail = Path()
-            tail.move(to: CGPoint(x: size.width * 0.4, y: size.height * 0.85))
-            tail.addLine(to: CGPoint(x: size.width * 0.9, y: size.height * 0.2))
-            context.stroke(tail, with: .color(MoyeotaColor.Primary500), style: style)
-        }
-        .frame(width: 15, height: 15)
-    }
-}
-
-private struct SchoolEmailChevronIcon: View {
-    var body: some View {
-        Canvas { context, size in
-            let color = Color(argb: 0xFFB6BEC9)
-            let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-            var upper = Path()
-            upper.move(to: CGPoint(x: size.width * 0.35, y: size.height * 0.2))
-            upper.addLine(to: CGPoint(x: size.width * 0.7, y: size.height * 0.5))
-            context.stroke(upper, with: .color(color), style: style)
-            var lower = Path()
-            lower.move(to: CGPoint(x: size.width * 0.7, y: size.height * 0.5))
-            lower.addLine(to: CGPoint(x: size.width * 0.35, y: size.height * 0.8))
-            context.stroke(lower, with: .color(color), style: style)
-        }
-        .frame(width: 16, height: 16)
     }
 }

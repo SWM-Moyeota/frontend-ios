@@ -4,7 +4,7 @@ import Testing
 import UIKit
 @testable import PresentationCore
 
-// 원본에 없는 테스트. 스타일 없는 글자의 줄 상자와, 칸 가운데 놓이는 두 화면의 자리를 원본 렌더에 맞춰 지킨다.
+// 원본에 없는 테스트. 칸 가운데 놓이는 두 화면의 자리를 원본 렌더에 맞춰 지킨다.
 
 /// 씬이 없는 창에는 안전 영역이 없다. 실기 값(iPhone 17: 위 62, 아래 34)을 흉내 낸다.
 private final class InsetWindow: UIWindow {
@@ -60,13 +60,9 @@ private func inkBands(_ window: UIWindow, x: ClosedRange<CGFloat>, y: ClosedRang
 @MainActor
 @Suite(.serialized) struct LineBoxParityTest {
 
-    @Test("스타일 없는 글자의 줄 상자는 16 이하에서 24 이고 그 위로는 한글 글꼴 상자다", arguments: [
-        (CGFloat(13), CGFloat(24)), (15, 24), (22, 31.7),
-    ])
-    func inherited(fontSize: CGFloat, android: CGFloat) {
-        let height = inheritedBodyLargeType(fontSize, .bold).lineHeightPoints ?? 0
-        #expect(abs(height - android) < 0.1, "\(fontSize)sp: \(height) 대 \(android)")
-    }
+    // 아래 두 화면의 기대값은 디자인 다듬기(2026-11) **전** 원본 렌더에서 잰 자리를, 다듬기가 바꾼 줄 상자·간격만큼 옮긴 값이다
+    // (다듬은 원본은 아직 렌더해 재지 않았다). 줄 상자는 원본 규칙대로 셈한다: 토큰 글자는 `Trim.Both` 라 한 줄 상자가 한글
+    // 대체 글꼴 높이(글자 크기 × 1.44)이고 줄 간격만 지정값이다. 상자 안의 잉크 자리는 다듬기 전과 같다고 본다.
 
     @Test("업데이트 안내의 제목·본문·CTA 는 화면 가운데 기준으로 원본 렌더의 자리에 있다")
     func updateRequired() async {
@@ -74,11 +70,14 @@ private func inkBands(_ window: UIWindow, x: ClosedRange<CGFloat>, y: ClosedRang
         defer { window.isHidden = true }
         let bands = inkBands(window, x: 10...390, y: 300...600)
         #expect(bands.count == 4)
-        // 원본: 제목 -77.7 ~ -56.8, 본문 첫 줄 -35.0, CTA +32.0 ~ +84.2
-        #expect(abs(bands[0].top - 437 + 77.7) < 1, "제목 \(bands[0].top - 437)")
-        #expect(abs(bands[1].top - 437 + 35.0) < 1, "본문 \(bands[1].top - 437)")
-        #expect(abs(bands[3].top - 437 - 32.0) < 1, "CTA 위 \(bands[3].top - 437)")
-        #expect(abs(bands[3].bottom - 437 - 84.2) < 1, "CTA 아래 \(bands[3].bottom - 437)")
+        // 다듬기 전 원본: 제목 -77.7, 본문 첫 줄 -35.0, CTA +32.0 ~ +84.2(본문은 bodyLarge 상속 — 두 줄 상자 48, 줄 가운데 정렬).
+        // 다듬은 뒤: 본문이 BodyMd(두 줄 상자 21.6 + 22.5 = 44.1, 첫 줄 위를 자른다)라 묶음이 3.9 짧아져 가운데 기준 1.95 씩 당겨진다.
+        // 제목 -77.7 + 1.95 = -75.75, 본문 첫 줄은 묶음 위 끝 기준 상자 위 끝이 1.95 내려오고 잘린 1.2 만큼 잉크가 위로 → -34.25,
+        // CTA 위 +32.0 − 1.95 = +30.05, 아래 +84.2 − 1.95 = +82.25.
+        #expect(abs(bands[0].top - 437 + 75.75) < 1, "제목 \(bands[0].top - 437)")
+        #expect(abs(bands[1].top - 437 + 34.25) < 1, "본문 \(bands[1].top - 437)")
+        #expect(abs(bands[3].top - 437 - 30.05) < 1, "CTA 위 \(bands[3].top - 437)")
+        #expect(abs(bands[3].bottom - 437 - 82.25) < 1, "CTA 아래 \(bands[3].bottom - 437)")
     }
 
     @Test("시작 화면 제목은 화면 가운데 기준으로 원본 렌더의 자리에 있다")
@@ -87,7 +86,8 @@ private func inkBands(_ window: UIWindow, x: ClosedRange<CGFloat>, y: ClosedRang
         defer { window.isHidden = true }
         let bands = inkBands(window, x: 150...260, y: 380...430)
         #expect(bands.count == 1)
-        #expect(abs((bands.first?.top ?? 0) - 437 + 33.9) < 1, "제목 \((bands.first?.top ?? 0) - 437)")
+        // 다듬기 전 원본 -33.9. 다듬은 뒤 제목·스피너 사이가 20 → 24 라 묶음이 4 길어져 제목이 2 올라간다(DisplayMd 의 줄 상자는 그대로 34.6).
+        #expect(abs((bands.first?.top ?? 0) - 437 + 35.9) < 1, "제목 \((bands.first?.top ?? 0) - 437)")
     }
 }
 

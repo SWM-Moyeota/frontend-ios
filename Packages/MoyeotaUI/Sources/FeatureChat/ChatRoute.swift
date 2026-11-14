@@ -937,7 +937,7 @@ final class ChatRoomViewModel {
 /// 그쪽은 `ChatRoomDestinationRoute` 를 독립 목적지로 쌓아 뒤로가기가 원래 화면으로 돌아가게 한다.
 ///
 /// - `activeChatRoomId`: 진행 중인 방의 **채팅방 id**(`ActivePartyViewModel.chatRoomId`). 열린 채팅방이
-///   이것이면 헤더에 「매칭 화면으로 →」를 띄우고 「나가기」를 감춘다. 이 경로의 방은 목록 응답으로 만든
+///   이것이면 헤더에 「매칭 화면으로」를 띄우고 「나가기」를 감춘다. 이 경로의 방은 목록 응답으로 만든
 ///   것이어서 `partyId` 가 0(모름)이라 **이 값만이 판정 근거다**(`ChatRoom.isActiveParty`).
 /// - `activePartyId`: 진행 중인 방의 id(`Ride.id`). 이 경로에서는 사실상
 ///   판정에 기여하지 못한다(위 참조) — 그래도 같은 판정 함수를 쓰므로 함께 넘긴다. 없으면 nil.
@@ -1243,7 +1243,7 @@ private struct NestedBackStateScaffold<Content: View>: View {
 /// 통째로 들고 오지만, 진행 화면에서는 id 밖에 없다.
 ///
 /// - `activeChatRoomId`: 진행 중인 방의 **채팅방 id**. 이 화면의 `roomId` 가 그것이면 헤더에
-///   「매칭 화면으로 →」가 뜨고 「나가기」가 사라진다 — 판정의 1순위 근거다(`ChatRoom.isActiveParty`).
+///   「매칭 화면으로」가 뜨고 「나가기」가 사라진다 — 판정의 1순위 근거다(`ChatRoom.isActiveParty`).
 /// - `activePartyId`: 진행 중인 방 id. 이 경로의 `ChatRoom` 은 방 상세에서 온 **진짜** partyId 를
 ///   들고 있어 보조 근거가 된다(채팅방 id 를 아직 못 찾은 구간을 메운다).
 ///   뒤로가기로도 돌아갈 수 있지만, 채팅방에 오래 머문 뒤에는 「어디로 돌아가는 뒤로가기인지」가
@@ -1335,7 +1335,7 @@ public struct ChatRoomDestinationRoute: View {
 }
 
 extension ChatRoom {
-    /// 이 채팅방이 **지금 진행 중인 방**의 것인가 — 「매칭 화면으로 →」 배너와 「나가기」 노출을 가르는 판정.
+    /// 이 채팅방이 **지금 진행 중인 방**의 것인가 — 「매칭 화면으로」 배너와 「나가기」 노출을 가르는 판정.
     ///
     /// 기준은 **채팅방 id** 다(`activeChatRoomId`). 예전에는 `ChatRoom.partyId` 와 진행 중인 방 id 를
     /// 비교했는데, 채팅 **탭 목록**에서 연 방은 그 값이 0 이다 — 목록 응답(`GET /chat-rooms/me`)에 partyId 가

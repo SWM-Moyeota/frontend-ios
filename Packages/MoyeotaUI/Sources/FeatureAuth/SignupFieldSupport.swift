@@ -187,9 +187,6 @@ func takeUtf16(_ text: String, _ count: Int) -> String {
     String(decoding: text.utf16.prefix(count), as: UTF16.self)
 }
 
-/// 선택지 칩 안의 글자색 (미선택 상태)
-private let SlateGray = Color(argb: 0xFF4B5563)
-
 /// 가입 폼의 한 줄 선택지 칩 — 성별 3택처럼 값이 몇 개 안 되는 선택에 쓴다.
 /// (09 의 통신사 4택에서 쓰던 모양 그대로다)
 ///
@@ -200,7 +197,12 @@ private let SlateGray = Color(argb: 0xFF4B5563)
 ///
 /// 높이는 고정이 아니라 **최솟값**이다. 고정 44pt 였다면 두 줄이 된 「선택 안 함」의 둘째 줄이 잘려
 /// 「선택」만 남는다 — 선택지의 뜻이 반대로 읽히는 쪽이 칩 높이가 들쭉날쭉한 쪽보다 나쁘다.
-/// 한 줄이면 셋 다 44pt 그대로다.
+/// 한 줄이면 셋 다 48pt 그대로다.
+///
+/// 모양 (디자인 QA G4·G6, 2026-11): 그림자를 걷고 **입력칸과 같은 테두리**(쉬는 칸 `MoyeotaColor.BorderStrong`)를
+/// 준다 — 같은 열에 놓인 텍스트 필드와 한 가족으로 읽혀야 하고, 흰 화면 위 그림자 상자는 "떠 있는 카드"가
+/// 된다. 선택은 공용 칩과 같은 옅은 파랑 + 파란 테두리 + 진한 파랑 글자. 글자 굵기를 선택 여부로 바꾸지
+/// 않는다 — 굵기가 바뀌면 글자 폭이 달라져 칩을 누를 때 글자가 흔들린다. 높이 최솟값은 48pt(터치 타깃).
 ///
 /// 원본 호출부는 전부 `Modifier.weight(1f)` 로 균등 분할하므로 칩이 폭을 스스로 채운다.
 struct SignupChoiceChip: View {
@@ -209,29 +211,19 @@ struct SignupChoiceChip: View {
     let onClick: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .circular)
+        let shape = MoyeotaShape.Card
         Button(action: onClick) {
             Text(text)
-                .moyeotaText(
-                    MoyeotaType.BodySm.copy(fontWeight: selected ? .bold : .medium),
-                    color: selected ? MoyeotaColor.Primary500 : SlateGray
-                )
+                .moyeotaText(.ButtonMd, color: selected ? MoyeotaColor.Primary600 : MoyeotaColor.TextBody)
                 .multilineTextAlignment(.center)
                 // 3분할에서 테두리에 글자가 닿지 않게 한다. 360pt 폭 기준 칩 하나가 104pt 이고
-                // 「선택 안 함」은 13pt 에서 60pt 가 채 안 되므로 한 줄로 들어간다.
+                // 「선택 안 함」은 14pt 에서 65pt 가 채 안 되므로 한 줄로 들어간다.
                 .lineLimit(2)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .background {
-                    if selected {
-                        shape.fill(MoyeotaColor.Primary50)
-                            .overlay(shape.strokeBorder(MoyeotaColor.Primary500, lineWidth: 1.5))
-                    } else {
-                        shape.fill(Color.white)
-                            .moyeotaShadow(elevation: 2, shape: shape)
-                    }
-                }
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .background(selected ? MoyeotaColor.Primary50 : MoyeotaColor.SurfaceCanvas, in: shape)
+                .overlay { shape.strokeBorder(selected ? MoyeotaColor.Primary500 : MoyeotaColor.BorderStrong, lineWidth: 1) }
                 .contentShape(shape)
         }
         .buttonStyle(ChipPressStyle())
@@ -244,13 +236,5 @@ private struct ChipPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.6 : 1)
-    }
-}
-
-/// `Modifier.clickable(indication = null)` 자리. 눌러도 아무 표시가 없고, 글자 영역 전체가 탭 영역이다.
-struct NoIndicationButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
     }
 }

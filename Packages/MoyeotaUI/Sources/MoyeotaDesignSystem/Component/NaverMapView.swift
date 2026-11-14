@@ -2,8 +2,23 @@
 import SwiftUI
 import UIKit
 
-/// 부산 서면 — MVP1 기본 카메라 위치
-public let MoyeotaDefaultCamera = LatLng(35.1578, 129.0594)
+/// 부산 서면 — MVP1 기본 카메라 위치. 좌표는 SDK 를 모르는 계산용 `MoyeotaDefaultGeoPoint` 와 한 값이다.
+public let MoyeotaDefaultCamera = LatLng(MoyeotaDefaultGeoPoint.latitude, MoyeotaDefaultGeoPoint.longitude)
+
+/// 지도 라벨(지명·도로명·POI)의 언어 — **기기 로케일과 무관하게 한국어로 고정한다.**
+///
+/// 네이버 지도 SDK 는 기본값(`nil`)으로 **시스템 로케일**을 따른다. 영어 로케일 기기에서는 라벨이
+/// 「Seomyeon Station 서면역」처럼 영문이 한국어 앞에 붙어, 화면의 다른 글자(「서면역」 목적지·카드
+/// 주소·서버가 준 장소명)와 지도가 **다른 이름**을 쓰게 된다(원본 실기 QA: 영어 로케일 에뮬레이터).
+/// 이 앱의 장소 데이터·검색·주소는 전부 한국어이고 서비스 지역도 국내라, 지도만 다른 언어를 쓸 이유가 없다.
+///
+/// **이 한 곳에서만 정한다.** 앱의 모든 지도는 `NaverMapView` 를 거쳐 만들어지므로(`RouteMapView`·
+/// `RouteStripMap`·홈·탐색이 전부 이 뷰를 감싼다) 여기서 걸면 빠지는 화면이 없다. 새 지도를
+/// `NMFMapView(frame:)` 로 직접 만들면 이 고정이 빠진다 — 그러지 말고 이 뷰를 쓴다.
+///
+/// 원본은 `Locale.KOREA`(ko-KR)다 — 언어·지역을 다 적어 SDK 가 어느 쪽을 보든 같은 결과가 나오게 한다.
+/// iOS SDK 의 `NMFMapView.locale` 은 로케일 식별자 문자열이라 같은 값을 문자열로 둔다.
+public let MoyeotaMapLocale = "ko-KR"
 
 /// 지도가 뜰 수 없는 환경인가. SwiftUI 프리뷰에서는 네이티브 초기화를 하지 않고 대체 배경만 그린다.
 private var isRunningInPreview: Bool {
@@ -113,6 +128,10 @@ private struct NaverMapRepresentable: UIViewRepresentable {
         let coordinator = context.coordinator
         coordinator.update(self)
         coordinator.container = container
+        // **첫 카메라도 만들 때 건다**(원본 `NaverMapOptions.camera`). iOS SDK 에는 생성 옵션이 없어 만든 직후에 옮긴다 —
+        // 그러지 않으면 크기가 정해질 때까지 SDK 기본 카메라(서울)를 들고 있다. 콘텐츠 패딩까지 맞춘 자리는 첫 레이아웃에서
+        // 다시 넣는다(`containerDidLayout`).
+        coordinator.applyInitialCamera(to: container.mapView)
         container.onLaidOut = { [weak coordinator] in
             coordinator?.containerDidLayout()
         }
@@ -150,6 +169,8 @@ private final class NaverMapContainerView: UIView {
 
     override init(frame: CGRect) {
         mapView = EdgeToEdgeMapView(frame: frame)
+        // 라벨 언어는 만들 때 먼저 건다 — 첫 타일이 기기 로케일로 그려졌다가 바뀌는 깜빡임이 없다(`MoyeotaMapLocale`)
+        mapView.locale = MoyeotaMapLocale
         super.init(frame: frame)
         // 원본 로고 여백(콘텐츠 영역 끝에서 왼쪽·아래 12). iOS 로고 뷰는 그림 아래에 투명한 줄이 있어, 아래 값은 그림 끝이
         // 원본과 같은 자리(콘텐츠 끝에서 12.6)에 오도록 잰 값이다.
@@ -304,8 +325,21 @@ private final class NaverMapCoordinator: NSObject, @preconcurrency NMFMapViewCam
         // 호출부가 이 콜백에서 @State 를 바꾸므로 레이아웃 패스가 끝난 다음 차례로 넘긴다.
         Task { @MainActor [weak self] in
             guard let self, self.map === mapView else { return }
+            // 생성 때 건 로케일(`MoyeotaMapLocale`)이 어떤 경로로든 빠졌을 때를 위한 두 번째 고정 — 지도
+            // 인스턴스에 다시 건다. 값이 같으면 건드리지 않는다.
+            if mapView.locale != MoyeotaMapLocale { mapView.locale = MoyeotaMapLocale }
             self.onMapReady(mapView)
         }
+    }
+
+    /// 지도를 만든 직후, 첫 레이아웃 전에 카메라를 화면이 원하는 자리(맡겨 둔 카메라가 있으면 그 자리)로 옮긴다.
+    /// SDK 기본 카메라(서울)를 한 번도 들고 있지 않게 하려는 것이다(원본 `NaverMapOptions.camera`).
+    ///
+    /// 적용 기록(`appliedCenter` 등)은 남기지 않는다 — 크기와 콘텐츠 패딩을 안 뒤의 첫 적용(`applyCamera`)이
+    /// 같은 값을 다시 넣어야 가시 영역 기준으로 중심이 잡힌다.
+    func applyInitialCamera(to mapView: NMFMapView) {
+        let position = cameraMemory?.camera ?? NMFCameraPosition(center.nmgLatLng, zoom: zoom)
+        mapView.moveCamera(NMFCameraUpdate(position: position))
     }
 
     func detach() {

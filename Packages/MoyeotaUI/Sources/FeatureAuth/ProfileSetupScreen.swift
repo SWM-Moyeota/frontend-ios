@@ -3,12 +3,6 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
-private let LabelGray = Color(argb: 0xFF8A93A0)
-private let CounterGray = Color(argb: 0xFF9AA1AC)
-private let SlateGray = Color(argb: 0xFF4B5563)
-private let InfoCardBlue = Color(argb: 0xFFF1F5FD)
-private let TrackGray = Color(argb: 0xFFE6EAF0)
-
 /// 10 프로필 만들기의 입력 판정. 원본은 화면 본문 안의 지역 값들이고, 뷰 없이 확인하려고 값으로 모았다.
 struct ProfileSetupValidation {
     let nicknameError: String?
@@ -242,7 +236,7 @@ public struct ProfileSetupScreen: View {
             MoyeotaTopBar(title: "", onBack: onBack) {
                 // 가입은 10 → 12 두 단계다 (09 본인 인증은 MVP 범위에서 빠졌다)
                 Text("1 / 2")
-                    .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium), color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             ProfileStepProgressBar(progress: 1.0 / 2.0)
 
@@ -251,22 +245,22 @@ public struct ProfileSetupScreen: View {
                     Spacer().frame(height: 24)
                     Text("가입 정보를 알려주세요")
                         .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     // 실명·성별은 가입 시 서버에 저장된다 — "저장하지 않아요"로 안내하면 사실과 다르다.
                     // 「매칭 안전을 위해서만」은 지웠다 — 성별은 매칭에 쓰이지 않는다(2026-10-13).
                     Text("실명은 본인 확인에만 쓰고 탑승 상대에게는 보이지 않아요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-                    Spacer().frame(height: 22)
+                    Spacer().frame(height: 24)
                     ProfileAvatarPlaceholder()
                         .frame(maxWidth: .infinity)
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 32)
                     profileSection(validation)
 
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 32)
                     basicInfoSection(validation)
 
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 32)
                     accountSection(validation)
 
                     Spacer().frame(height: 24)
@@ -287,15 +281,16 @@ public struct ProfileSetupScreen: View {
                     onClick: { submit(validation) },
                     enabled: validation.isValid
                 )
-                Spacer().frame(height: 16)
+                Spacer().frame(height: 12)
                 Text("닉네임은 나중에 바꿀 수 있어요")
-                    .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: CounterGray)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                Spacer().frame(height: 12)
             }
             .padding(.horizontal, 16)
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 복원되어 돌아온 닉네임은 중복 확인을 다시 받아야 한다. 뷰모델은 살아남아 직전 결과
         // (예: available)를 그대로 들고 있는데, 되돌아온 이유가 바로 그 닉네임이 이미 선점됐다는
         // 409 이기 때문이다 — 다시 묻지 않으면 선점된 닉네임에 초록 「사용 가능」이 남는다.
@@ -328,14 +323,15 @@ public struct ProfileSetupScreen: View {
             helperText: nicknameHelperText(validation)
         ) {
             Text(verbatim: "\(nickname.utf16.count) / \(NicknamePolicy.MAX_LENGTH)")
-                .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium), color: CounterGray)
+                .moyeotaText(MoyeotaType.CaptionMd.tabularNums(), color: MoyeotaColor.TextMute)
         }
         // 사용 가능 확인만 초록으로 따로 세운다 — 나머지 상태는 필드가 자기 색으로 그린다.
         // 확인에 실패한 경우(네트워크)는 아무 말도 하지 않는다: 사용자가 고칠 수 있는 게 없다.
+        // Success500(흰 바탕 2.5:1)은 12pt 에서 읽기 어려워 한 단계 진한 Success600 으로 쓴다(디자인 QA P2 와 같은 이유)
         if validation.nicknameError == nil && nicknameCheck == .available {
             Spacer().frame(height: 6)
             Text("사용 가능한 닉네임이에요")
-                .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: MoyeotaColor.Success500)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Success600)
         }
     }
 
@@ -379,8 +375,9 @@ public struct ProfileSetupScreen: View {
         )
 
         Spacer().frame(height: 20)
+        // 필드 라벨은 MoyeotaTextField 의 라벨과 같은 모양(BodySm · TextBody)이어야 한 화면에서 같은 층으로 읽힌다
         Text("성별")
-            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: LabelGray)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextBody)
         Spacer().frame(height: 8)
         // 칩 셋이 **한 묶음의 선택**이라는 사실을 스크린리더에 싣는 자리(원본 `selectableGroup`).
         HStack(spacing: 8) {
@@ -399,14 +396,14 @@ public struct ProfileSetupScreen: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
-        Spacer().frame(height: 8)
+        Spacer().frame(height: 6)
         // 09 의 안내 카드를 필드 바로 아래 한 줄로 옮긴 자리다
         // — 필드가 7개인 화면에서 카드를 하나 더 세우면 읽는 흐름이 끊긴다.
         // 성별은 가입 시 서버에 저장되지만 **매칭에는 쓰이지 않는다** — 백엔드 matching
         // 패키지에 성별이 한 번도 등장하지 않는다(user/profile 의 저장·복원 경로에만 있다).
         // 그래서 용도를 말하지 않고, 프로필에 안 보인다는 사실만 적는다(2026-10-13).
         Text("프로필에는 표시되지 않아요")
-            .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: LabelGray)
+            .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
 
         Spacer().frame(height: 20)
         MoyeotaTextField(
@@ -469,14 +466,14 @@ public struct ProfileSetupScreen: View {
             keyboardOptions: KeyboardOptions(keyboardType: .password),
             visualTransformation: passwordVisible ? .None : PasswordVisualTransformation()
         ) {
-            Button {
-                passwordVisible.toggle()
-            } label: {
-                Text(passwordVisible ? "숨기기" : "보기")
-                    .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .bold).hangulTrimmed, color: CounterGray)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PressFeedbackStyle())
+            // 글자만 눌리던 토글을 48 터치 + 눌림 표시로(디자인 QA G12). 글자 끝은 필드 안쪽 여백에 맞춘다
+            TextLinkButton(
+                text: passwordVisible ? "숨기기" : "보기",
+                onClick: { passwordVisible.toggle() },
+                color: MoyeotaColor.TextMute,
+                style: .ButtonSm
+            )
+            .offset(x: 8)
         }
 
         Spacer().frame(height: 20)
@@ -491,13 +488,15 @@ public struct ProfileSetupScreen: View {
         )
     }
 
+    // 옅은 파란 상자를 NoticeBanner(info) 와 같은 **회색 안내 면**으로 바꿨다(디자인 QA G8·A2).
+    // NoticeBanner 는 한 문장만 담아서, 제목 + 본문 두 줄인 이 안내는 같은 면·모서리·여백으로 직접 그린다.
     private var infoCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 여전히 참이다 — 업로드 경로는 서버에 없다. 2026-10-15 배포로 생긴 건
             // **제공 이미지 16장 중 고르기**이고, 그것도 가입이 아니라 36 프로필 수정에서 한다.
             Text("사진은 올리지 않아요")
                 .moyeotaText(
-                    MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold).hangulTrimmed,
+                    MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed,
                     color: MoyeotaColor.InkPrimary
                 )
             Spacer().frame(height: 4)
@@ -512,11 +511,12 @@ public struct ProfileSetupScreen: View {
             // 가입 시점의 이 고지를 빼면 「닉네임과 탑승 횟수만」을 읽고 가입한 사용자가
             // 자기 사진이 노출되는 걸 모르게 된다 — 이 저장소가 거짓 문구를 들어낸 이유다.
             Text("탑승 상대에게는 닉네임·프로필 사진·탑승 횟수만 보여요")
-                .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium).hangulTrimmed, color: SlateGray)
+                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextBody)
         }
-        .padding(20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(InfoCardBlue, in: RoundedRectangle(cornerRadius: 18, style: .circular))
+        .background(MoyeotaColor.SurfaceSoft, in: MoyeotaShape.Card)
     }
 
     private func submit(_ validation: ProfileSetupValidation) {
@@ -558,18 +558,20 @@ private struct ProfileSectionHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title)
-                .moyeotaText(MoyeotaType.BodyMd.copy(fontWeight: .bold).hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                .accessibilityAddTraits(.isHeader)
             Spacer().frame(height: 4)
             Text(description)
-                .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: LabelGray)
+                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-// 아바타 기본색 (와이어프레임 톤 — core token 미정의)
-private let AvatarOuter = Color(argb: 0xFFD8E0F2)
-private let AvatarInner = Color(argb: 0xFF8296C8)
+// 아바타 기본색 — 예전 파란 기 도는 전용 색(#D8E0F2/#8296C8)을 회색 토큰으로 모았다(디자인 QA G1).
+// 비어 있는 자리를 뜻하는 실루엣이라 브랜드 파랑을 띨 이유가 없다.
+private let AvatarOuter = MoyeotaColor.Border
+private let AvatarInner = MoyeotaColor.TextPlaceholder
 
 // 와이어프레임의 사람 실루엣 아바타 (사진 업로드 없음 — 정책상 미지원)
 private struct ProfileAvatarPlaceholder: View {
@@ -606,8 +608,8 @@ private struct ProfileStepProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(TrackGray)
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }

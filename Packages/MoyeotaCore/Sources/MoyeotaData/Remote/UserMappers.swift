@@ -21,13 +21,19 @@ extension UserProfileResponse {
     /// `UserProfileInfo.noShowCount` 도 같다 — 음수 방어(`max(0, …)`) 같은 걸 넣지 않는다.
     /// 서버 record 가 `count(*)` 결과의 원시 `int` 라 음수가 나올 길이 없고, 넣으면 서버가 틀렸을 때
     /// **틀린 값을 그럴듯한 값으로 가려** 원인을 찾을 수 없게 된다.
+    ///
+    /// ### `UserProfileInfo.loginId` 는 이름과 **같은 공백 정규화**를 건다
+    /// 이쪽의 「없음」은 제재와 달리 사실 판정이 아니라 **「보여 줄 아이디가 없다」**이고, 화면이 하는 일도
+    /// 하나(행을 숨긴다)다. 빈 문자열을 그대로 넘기면 36 이 라벨만 있고 값이 빈 「아이디」 행을 그린다 —
+    /// 그래서 이름·사진과 같이 도메인의 없음을 `nil` 하나로 모은다.
     func toDomain() -> UserProfileInfo {
         UserProfileInfo(
             uuid: uuid,
             name: name?.takeIfNotBlank(),
             imageUrl: imageUrl?.takeIfNotBlank(),
             noShowCount: noShowCount,
-            restrictedUntil: restrictedUntil
+            restrictedUntil: restrictedUntil,
+            loginId: loginId?.takeIfNotBlank()
         )
     }
 }

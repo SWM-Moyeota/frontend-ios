@@ -18,18 +18,17 @@ public struct UpdateRequiredScreen: View {
 
     public var body: some View {
         ZStack {
-            MoyeotaColor.SurfaceSoft
+            MoyeotaColor.SurfaceCanvas
             VStack(spacing: 12) {
-                // 원본은 style 없는 Text 라 테마의 bodyLarge(자간 0.5sp, 줄 상자는 24 또는 한글 대체 글꼴 높이)를 물려받는다.
                 Text("업데이트가 필요해요")
-                    .moyeotaText(inheritedBodyLargeType(22, .bold), color: MoyeotaColor.InkPrimary)
+                    .moyeotaText(MoyeotaType.HeadingXl.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 Text("지금 버전으로는 합승을 이어갈 수 없어요\n스토어에서 최신 버전을 받아 주세요")
-                    .moyeotaText(inheritedBodyLargeType(15, .regular), color: MoyeotaColor.TextBody)
+                    .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
                     .multilineTextAlignment(.center)
                 PrimaryCtaButton(text: "업데이트하러 가기", onClick: { openPlayStoreListing() })
                     .padding(.top, 12)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

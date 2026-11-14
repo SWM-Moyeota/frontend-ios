@@ -6,6 +6,9 @@ import UIKit
 
 // 원본에 없는 테스트. 글자 잉크의 자리를 원본 렌더(상태바 아래 기준)에 맞춰 지킨다.
 // 토큰이 지정 줄 높이로 돌아가면 제목 아래가 약 3pt 위로 올라가고, 잉크를 내리지 않으면 제목이 약 1.5pt 위에 그려진다.
+//
+// 바뀐 기대값은 디자인 다듬기(2026-11) 뒤의 원본 배치에서 셈했다 — 예전 원본 렌더에서 잰 한글 글자 상자
+// (13sp 18.7 · 16sp 23.2 · 24sp 34.6)와 잉크 위치(13sp 3.9 · 15sp 4.2 · 24sp 7.6)에 바뀐 간격을 더한 값이다.
 
 /// 씬이 없는 창에는 안전 영역이 없다. 실기 값(iPhone 17: 위 62, 아래 34)을 흉내 낸다.
 private final class InsetWindow: UIWindow {
@@ -65,30 +68,35 @@ private func inkBands(_ window: UIWindow, x: ClosedRange<CGFloat>, y: ClosedRang
     func loginFormHeadline() async {
         let window = await hosted(LoginFormScreen())
         defer { window.isHidden = true }
-        // 잉크 폭 때문에 위쪽을 잰다. 원본 87.6, 128.8 (상태바 48.76 아래)
+        // 잉크 폭 때문에 위쪽을 잰다. 원본 87.6 (상태바 48.76 아래).
+        // 부제목은 14sp → 13sp(BodySm), 위 간격 10 → 12: 80 + 34.6 + 12 + 3.9 = 130.5
         let bands = inkBands(window, x: 16...300, y: (62 + 70)...(62 + 150))
         #expect(bands.count == 2)
         #expect(abs(bands[0].top - (62 + 87.6)) < 1, "제목 \(bands[0].top - 62)")
-        #expect(abs(bands[1].top - (62 + 128.8)) < 1, "부제목 \(bands[1].top - 62)")
+        #expect(abs(bands[1].top - (62 + 130.5)) < 1, "부제목 \(bands[1].top - 62)")
     }
 
-    @Test("04 첫 줄 위 잉크와 카드 위치는 원본 렌더의 자리에 있다")
+    @Test("04 헤드라인 첫 줄 위 잉크와 부제목 위치는 원본 렌더의 자리에 있다")
     func loginHeadline() async {
         let window = await hosted(LoginScreen(onEmailStart: {}, onLogin: {}))
         defer { window.isHidden = true }
+        // 「모여타」 HeadingMd(16sp 상자 23.2) · 간격 32 · 헤드라인 DisplayMd 두 줄(34.6 + 30) · 간격 16 · 부제목 BodyMd.
+        // 헤드라인 24 + 23.2 + 32 + 7.6 = 86.8, 부제목 79.2 + 64.6 + 16 + 4.2 = 164.0
         let bands = inkBands(window, x: 16...300, y: (62 + 80)...(62 + 200))
         #expect(bands.count == 3)
-        #expect(abs(bands[0].top - (62 + 92.2)) < 1, "헤드라인 \(bands[0].top - 62)")
-        #expect(abs(bands[2].top - (62 + 180.2)) < 1, "부제목 \(bands[2].top - 62)")
+        #expect(abs(bands[0].top - (62 + 86.8)) < 1, "헤드라인 \(bands[0].top - 62)")
+        #expect(abs(bands[2].top - (62 + 164.0)) < 1, "부제목 \(bands[2].top - 62)")
     }
 
     @Test("13 제목과 안내 머리말 잉크는 원본 렌더의 자리에 있다")
     func signupCompleteHeadline() async {
         let window = await hosted(SignupCompleteScreen(onStart: {}))
         defer { window.isHidden = true }
+        // 제목 26sp → DisplayMd(24sp): 224 + 7.6 = 231.6.
+        // 머리말은 `SectionLabel`(13sp SemiBold): 224 + 34.6 + 8 + 21.6 + 40 + 3.9 = 332.1
         let bands = inkBands(window, x: 16...300, y: (62 + 220)...(62 + 360))
         #expect(bands.count == 3)
-        #expect(abs(bands[0].top - (62 + 232.0)) < 1, "제목 \(bands[0].top - 62)")
-        #expect(abs(bands[2].top - (62 + 335.2)) < 1, "머리말 \(bands[2].top - 62)")
+        #expect(abs(bands[0].top - (62 + 231.6)) < 1, "제목 \(bands[0].top - 62)")
+        #expect(abs(bands[2].top - (62 + 332.1)) < 1, "머리말 \(bands[2].top - 62)")
     }
 }

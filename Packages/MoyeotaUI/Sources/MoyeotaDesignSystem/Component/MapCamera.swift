@@ -41,6 +41,150 @@ public func fitMapCamera(
     insetBottomDp: Float = MarkerBottomInsetDp,
     insetSideDp: Float = MarkerSideInsetDp
 ) -> (first: LatLng, second: Double)? {
+    fitCameraTarget(
+        points: points.map { GeoPoint(latitude: $0.latitude, longitude: $0.longitude) },
+        widthDp: widthDp,
+        heightDp: heightDp,
+        insetTopDp: insetTopDp,
+        insetBottomDp: insetBottomDp,
+        insetSideDp: insetSideDp
+    ).map { (first: LatLng($0.latitude, $0.longitude), second: $0.zoom) }
+}
+
+/// 지도 SDK 를 모르는 좌표 한 점. 카메라 계산을 단위 테스트에서 그대로 돌리려고 `LatLng` 대신 쓴다
+/// — 계산 함수가 SDK 타입을 받으면 테스트가 SDK 를 끌어와야 한다(원본 주석: 「JVM 단위 테스트(그리고 iOS 포팅)」).
+public struct GeoPoint: Hashable, Sendable {
+    public var latitude: Double
+    public var longitude: Double
+
+    public init(latitude: Double, longitude: Double) {
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+
+    public init(_ latitude: Double, _ longitude: Double) {
+        self.init(latitude: latitude, longitude: longitude)
+    }
+}
+
+/// 카메라 하나 — 중심과 줌. `GeoPoint` 와 같은 이유로 SDK 타입을 쓰지 않는다.
+public struct CameraTarget: Hashable, Sendable {
+    public var latitude: Double
+    public var longitude: Double
+    public var zoom: Double
+
+    public init(latitude: Double, longitude: Double, zoom: Double) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.zoom = zoom
+    }
+
+    public init(_ latitude: Double, _ longitude: Double, _ zoom: Double) {
+        self.init(latitude: latitude, longitude: longitude, zoom: zoom)
+    }
+}
+
+/// 부산 서면 — 앱의 기본 카메라(`MoyeotaDefaultCamera`)와 같은 점. SDK 기본값(서울)이 아니다.
+public let MoyeotaDefaultGeoPoint = GeoPoint(latitude: 35.1578, longitude: 129.0594)
+
+/// 한 점만 알 때의 줌 — 그 점 주변 블록이 식별되는 정도(16·20·22 가 써 온 값).
+public let SinglePointZoom: Double = 15.0
+
+/// 아는 점이 하나도 없어 「사용자 주변」·기본 카메라를 보여 줄 때의 줌 — 동네가 한눈에 들어오는 정도.
+public let AreaFallbackZoom: Double = 14.0
+
+/// 지도에 **그려도 되는 좌표인가** — 카메라·마커가 믿어도 되는 값만 통과시킨다.
+///
+/// | 거르는 값 | 왜 |
+/// |---|---|
+/// | nil · NaN · 무한대 | 계산이 발산한다 |
+/// | 위도 ±90 · 경도 ±180 밖 | 서버가 위·경도를 **뒤바꿔** 내린 결함(QA D-1)이 이 모양이다(위도 126.97) |
+/// | **(0, 0)** | 값이 빠졌을 때의 기본값이다(서버 record 가 원시 `double` 이라 필드가 빠지면 0.0). 기니만 앞바다라 카메라가 그 점과 국내 점을 함께 담으려다 **최소 줌으로 바다 한가운데**를 비춘다 — 20 합류 확인이 「해외를 보여 준다」던 증상이다 |
+///
+/// 한쪽만 0 인 값은 막지 않는다(적도·본초자오선 위의 실제 좌표일 수 있다 —
+/// `reservationDestinationOrNull` 과 같은 규칙).
+public func isUsableMapCoordinate(latitude: Double?, longitude: Double?) -> Bool {
+    guard let latitude, let longitude else { return false }
+    if !latitude.isFinite || !longitude.isFinite { return false }
+    if latitude < -90.0 || latitude > 90.0 || longitude < -180.0 || longitude > 180.0 { return false }
+    return !(latitude == 0.0 && longitude == 0.0)
+}
+
+public extension GeoPoint {
+    /// `isUsableMapCoordinate` 를 통과한 점만.
+    func usableOrNull() -> GeoPoint? {
+        isUsableMapCoordinate(latitude: latitude, longitude: longitude) ? self : nil
+    }
+}
+
+public extension Optional where Wrapped == GeoPoint {
+    /// `isUsableMapCoordinate` 를 통과한 점만(원본 `GeoPoint?.usableOrNull()`).
+    func usableOrNull() -> GeoPoint? {
+        self?.usableOrNull()
+    }
+}
+
+/// 경로 지도(20 합류 확인 등)의 카메라 — **믿을 수 있는 점들로 맞추고, 못 맞추면 정해진 순서로 물러난다.**
+/// **SDK 기본 카메라(서울)로는 절대 떨어지지 않는다** — 끝까지 아무것도 없으면 앱 기본 카메라
+/// (`MoyeotaDefaultGeoPoint`)다.
+///
+/// | 순서 | 조건 | 카메라 |
+/// |---|---|---|
+/// | 1 | 쓸 수 있는 점(출발·도착·경로선)이 둘 이상이고 서로 다르다 | 그 점들이 **가려지지 않는 영역**에 다 들어오게 맞춘다(`fitCameraTarget` — 최대 줌 16) |
+/// | 2 | 출발지만 쓸 수 있다 | 출발지, 줌 `SinglePointZoom` |
+/// | 3 | 도착지만 쓸 수 있다 | 도착지, 같은 줌 |
+/// | 4 | 둘 다 못 쓴다 | 사용자 주변(`fallback`), 줌 `AreaFallbackZoom` |
+/// | 5 | 그것도 없다 | 앱 기본 카메라, 같은 줌 |
+///
+/// 출발지를 도착지보다 먼저 보는 이유: 20 에서 사용자가 실제로 가야 하는 곳은 **탑승지(출발지)**다.
+///
+/// 경로선의 점도 하나하나 걸러 쓴다 — 정밀도가 다른 폴리라인을 잘못 풀면 범위 밖 좌표가 섞여 들어와
+/// 카메라가 지구 반대편까지 늘어난다.
+///
+/// - Parameter heightDp: 지도 뷰 **전체** 높이. 위·아래에 겹친 UI 는 `insetTopDp`·`insetBottomDp` 에 더해 넘긴다
+///   (그래야 카메라 중심이 가리지 않는 영역의 가운데로 잡힌다)
+public func routeCameraTarget(
+    origin: GeoPoint?,
+    destination: GeoPoint?,
+    route: [GeoPoint],
+    fallback: GeoPoint?,
+    widthDp: Float,
+    heightDp: Float,
+    insetTopDp: Float = MarkerTopInsetDp,
+    insetBottomDp: Float = MarkerBottomInsetDp,
+    insetSideDp: Float = MarkerSideInsetDp
+) -> CameraTarget {
+    let usableOrigin = origin.usableOrNull()
+    let usableDestination = destination.usableOrNull()
+    let points = route.compactMap { $0.usableOrNull() } + [usableOrigin, usableDestination].compactMap { $0 }
+    if let fitted = fitCameraTarget(
+        points: points,
+        widthDp: widthDp,
+        heightDp: heightDp,
+        insetTopDp: insetTopDp,
+        insetBottomDp: insetBottomDp,
+        insetSideDp: insetSideDp
+    ) {
+        return fitted
+    }
+    if let usableOrigin { return CameraTarget(latitude: usableOrigin.latitude, longitude: usableOrigin.longitude, zoom: SinglePointZoom) }
+    if let usableDestination {
+        return CameraTarget(latitude: usableDestination.latitude, longitude: usableDestination.longitude, zoom: SinglePointZoom)
+    }
+    let area = fallback.usableOrNull() ?? MoyeotaDefaultGeoPoint
+    return CameraTarget(latitude: area.latitude, longitude: area.longitude, zoom: AreaFallbackZoom)
+}
+
+/// `points` 가 모두 들어오는 카메라(중심·줌) — `fitMapCamera` 의 계산 본체. SDK 타입을 받지 않아
+/// 단위 테스트에서 그대로 돈다. 점이 둘 미만이거나 모두 같은 점이면 nil.
+public func fitCameraTarget(
+    points: [GeoPoint],
+    widthDp: Float,
+    heightDp: Float,
+    insetTopDp: Float = MarkerTopInsetDp,
+    insetBottomDp: Float = MarkerBottomInsetDp,
+    insetSideDp: Float = MarkerSideInsetDp
+) -> CameraTarget? {
     if points.count < 2 || widthDp <= 0 || heightDp <= 0 { return nil }
 
     let latitudes = points.map(\.latitude)
@@ -82,7 +226,7 @@ public func fitMapCamera(
     let offsetDp = Double(topDp - bottomDp) / 2.0
     let mercatorPerDp = 2 * Double.pi / (WORLD_TILE_DP * pow(2.0, zoom))
     let centerY = (minY + maxY) / 2.0 + offsetDp * mercatorPerDp
-    return (first: LatLng(inverseMercatorY(centerY), (minLng + maxLng) / 2.0), second: zoom)
+    return CameraTarget(latitude: inverseMercatorY(centerY), longitude: (minLng + maxLng) / 2.0, zoom: zoom)
 }
 
 // 반경 원의 외접 사각형을 구하던 circleBoundsPoints 는 지웠다 — 21 매칭 대기의 탐색 반경 원이

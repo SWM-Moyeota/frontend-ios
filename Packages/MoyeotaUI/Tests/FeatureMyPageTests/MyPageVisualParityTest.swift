@@ -47,14 +47,6 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
 @MainActor
 @Suite(.serialized) struct MyPageLineBoxTest {
 
-    @Test("머티리얼 글자의 줄 상자는 16 이하에서 24 이고 그 위로는 원본 UI 트리의 높이를 따른다", arguments: [
-        (CGFloat(11), CGFloat(24)), (12, 24), (13, 24), (15, 24), (18, 26.3), (20, 28.5), (24, 34.6),
-    ])
-    func bodyLarge(fontSize: CGFloat, android: CGFloat) {
-        let height = MaterialTextStyle.bodyLarge(fontSize: fontSize, fontWeight: .bold).lineHeightPoints ?? 0
-        #expect(abs(height - android) < 0.5, "\(fontSize)sp: \(height) 대 \(android)")
-    }
-
     private func textHeight(_ text: String, _ style: MoyeotaType) -> CGFloat {
         UIHostingController(rootView: Text(text).moyeotaText(style).fixedSize())
             .sizeThatFits(in: CGSize(width: 400, height: 400)).height
@@ -82,15 +74,16 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
 
     @Test("34 카드 하나의 글자 줄이 원본 UI 트리와 같다")
     func historyCardRows() {
-        // 원본: 날짜 17.1 + 6 + 경로 23.2 + 10 + 아바타 28 + 12 + 선 1 + 12 + 요금 23.2 + 위아래 32 = 165.3(렌더 165.3)
+        // 원본: 날짜 17.1 + 6 + 경로 23.2 + 12 + 아바타 28 + 12 + 선 1 + 12 + 요금 23.2 + 위아래 32 = 167.3
+        // (디자인 다듬기 전 렌더 165.3 에서 경로 아래 간격만 10 → 12 로 늘었다 — 디자인 QA 2026-11)
         let rows = textHeight("10월 30일 오후 2:00", MoyeotaType.CaptionMd.hangulTrimmed)
             + textHeight("교대역 → 홍대입구역", MoyeotaType.HeadingMd.hangulTrimmed) * 2
-        #expect(abs(rows + 101 - 165.3) < 1.5, "\(rows)")
+        #expect(abs(rows + 103 - 167.3) < 1.5, "\(rows)")
     }
 }
 
 @MainActor
-@Suite(.serialized) struct MaterialDialogGeometryTest {
+@Suite(.serialized) struct ConfirmDialogGeometryTest {
 
     /// 카드 안쪽 세로줄에서 가장 긴 흰 구간.
     private func cardRows(_ window: UIWindow, x: CGFloat) -> (top: Int, bottom: Int) {
@@ -123,7 +116,9 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(abs(cardWidth(window, y: rows.top + 40) - 320) < 1)
     }
 
-    @Test("35 확인창은 내용이 상한보다 짧아 내용 폭이다")
+    /// 공용 확인창(`MoyeotaConfirmDialog`)으로 바뀌며 본문이 14 → 13(BodySm)이 되어 내용이 폭 하한(280 − 48)보다 짧다.
+    /// 원본도 같은 문구·크기라 하한일 것으로 셈했다(다듬은 원본은 렌더해 재지 않았다).
+    @Test("35 확인창은 내용이 짧아 폭 하한 280 이다")
     func logoutConfirm() async {
         let window = await hosted(MyPageScreen().seeded(logoutConfirming: true))
         defer { window.isHidden = true }
@@ -131,7 +126,7 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(rows.bottom - rows.top > 100, "카드를 찾아야 시험이 된다")
         #expect(abs(CGFloat(rows.top + rows.bottom) / 2 - 451) < 1, "\(rows)")
         let width = cardWidth(window, y: rows.top + 40)
-        #expect(width > 280 && width < 319, "\(width)")
+        #expect(abs(width - 280) < 1, "\(width)")
     }
 
     @Test("37 본문은 원본과 같은 자리에서 꺾인다")
@@ -158,10 +153,10 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
             window.layoutIfNeeded()
             try? await Task.sleep(for: .milliseconds(25))
         }
-        // 카드 흰색(255)이 상태바 자리까지 올라오면 바탕색 F5F7FA 와 달라진다. 카드가 지나가는 x 를 세로로 훑는다.
+        // 카드 흰색(255)이 상태바 자리까지 올라오면 바탕색 SurfaceSoft(F4F6FA)와 달라진다. 카드가 지나가는 x 를 세로로 훑는다.
         let drawn = (0..<62).filter {
             let c = pixel(window, x: 200, y: CGFloat($0))
-            return c.r != 0xF5 || c.g != 0xF7 || c.b != 0xFA
+            return c.r != 0xF4 || c.g != 0xF6 || c.b != 0xFA
         }
         #expect(drawn.isEmpty, "상태바 자리에 그려진 줄: \(drawn)")
     }

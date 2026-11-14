@@ -2,13 +2,6 @@ import MoyeotaDesignSystem
 import PresentationCore
 import SwiftUI
 
-// 와이어프레임 그레이 (core token 미정의 색 — 화면 재현용)
-private let CanvasBg = Color(argb: 0xFFF5F7FA)
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let SoftDivider = Color(argb: 0xFFE4E9F0)
-private let CardShadow = Color(argb: 0x0F1B2A4A)
-
 /// 35 · 마이페이지 · 설정 [S24]
 ///
 /// 진입: 하단탭 마이페이지
@@ -22,7 +15,8 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///         노쇼 기록                           ›   ← 2026-11-06 추가
 /// [설정]  알림 설정                          ↗
 /// [안내]  개인정보 처리방침 / 이용약관 / 문의하기   ↗   ← 한 카드, 구분선
-/// [계정]  로그아웃 / 탈퇴하기(빨강)            ›   ← 한 카드, 구분선
+/// [계정]  로그아웃                           ›
+///         탈퇴하기                                ← 카드 밖 회색 글자 링크 (2026-11 디자인 QA M2)
 ///         탈퇴하면 계정과 저장한 정보가 사라지고…
 ///                      v1.0                      ← 가운데
 /// ```
@@ -48,6 +42,14 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 ///    (그전의 오탭 보호는 40pt 간격이었는데, 간격으로 떼어 놓으려면 로그아웃을 작게 둬야 했다.)
 /// 3. **버전은 맨 아래 가운데로.** 로그아웃 줄 오른쪽에 있던 값이라, 로그아웃이 카드로 들어가면서
 ///    같이 들어가면 행 안에 뜻이 다른 두 정보가 섞인다.
+///
+/// ### 2026-11 디자인 QA — 떠 있는 카드를 걷어 냈다
+/// - 카드의 그림자를 없앴다. 회색 바탕 위 흰 카드는 면의 차이만으로 묶음이 읽힌다 — 그림자까지 얹으면
+///   카드마다 떠 있어 화면 전체가 들뜬다(G4). 모서리 18 → 12pt, 안쪽 여백 20 → 16pt, 프로필 카드 104 → 80pt
+/// - **「탈퇴하기」는 카드 밖으로 뗐다**(M2). 위 2번의 「색으로 가른다」는 한 카드 안에 빨간 행을 두는 방식이었는데,
+///   되돌릴 수 없는 동작은 자주 쓰는 행 옆이 아니라 **공간으로도** 떨어져 있어야 한다(destructive-nav-separation).
+///   그래서 로그아웃만 카드에 남기고, 탈퇴는 카드 아래 회색 글자 링크로 둔다 — 37 이 이미 빨간
+///   「탈퇴하기」 버튼과 비밀번호 확인을 갖고 있어 여기서까지 빨강으로 부를 이유가 없다.
 ///
 /// 상태(디스크립션):
 /// - **없는 기능은 행을 만들지 않는다.** 고객센터는 서버 API 가 없어 빠져 있고
@@ -133,98 +135,78 @@ public struct MyPageScreen: View {
         let versionLabel = appVersionName().map { "v\($0)" }
         let groups = myPageGroups(links: links)
 
-        ZStack {
-            VStack(spacing: 0) {
-                StatusBarSpacer()
+        VStack(spacing: 0) {
+            StatusBarSpacer()
 
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Spacer().frame(height: 16)
-                        Text("마이페이지")
-                            .moyeotaText(
-                                MaterialTextStyle.bodyLarge(fontSize: 20, fontWeight: .bold),
-                                color: MoyeotaColor.InkPrimary
-                            )
-                            .padding(.horizontal, 16)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // 탭 첫 화면의 머리줄 — 채팅·동승 탭과 같은 크기·여백이다(G7)
+                    MoyeotaTabHeader(title: "마이페이지")
 
-                        Spacer().frame(height: 17)
-                        profileCard
+                    Spacer().frame(height: 8)
+                    profileCard
 
-                        // 제재 배너는 **프로필 카드 바로 아래**다. 「계정에 무슨 문제가 있나」를 찾아 들어온
-                        // 사람이 스크롤하지 않고 보는 자리이고, 바로 다음 카드의 둘째 행이 「노쇼 기록」이라
-                        // 배너가 가리키는 길이 같은 화면 안에 보인다.
-                        //
-                        // 디자인시스템의 NoticeBanner 를 그대로 쓴다 — 이 앱의 「화면 단위 안내」는 이 컴포넌트
-                        // 하나이고(공통 규칙), 제재를 위해 새 카드 모양을 만들면 이 화면에만 있는 시각 언어가
-                        // 하나 늘어난다. 색은 두 가지뿐이다: 지금 막혀 있으면 error, 횟수만 남았으면 waiting.
-                        if let sanction {
-                            Spacer().frame(height: 12)
-                            NoticeBanner(kind: sanctionNoticeKind(sanction.kind), text: sanction.text)
-                                .padding(.horizontal, 16)
-                        }
-
-                        Spacer().frame(height: 24)
-                        // 머리말 + 흰 카드 + 구분선으로 나뉜 행들. 같은 그룹의 행은 한 카드 안에 묶는다
-                        // — 카드가 그룹의 경계고, 그래서 머리말이 무엇에 걸리는 말인지가 눈에 보인다.
-                        ForEach(groups, id: \.label) { group in
-                            MyPageMenuCard(group: group, onAction: onAction)
-                        }
-
-                        // 버전은 맨 아래 가운데. 사용자가 찾는 값이 아니라 **물어볼 때 읽어 주는** 값이라
-                        // 눈에 걸리지 않는 자리에 둔다(문의 메일에도 같은 값이 자동으로 들어간다).
-                        if let versionLabel {
-                            Text(versionLabel)
-                                .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 11), color: GrayAsh)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                                .padding(.horizontal, 16)
-                        }
-
-                        Spacer().frame(height: 24)
+                    // 제재 배너는 **프로필 카드 바로 아래**다. 「계정에 무슨 문제가 있나」를 찾아 들어온
+                    // 사람이 스크롤하지 않고 보는 자리이고, 바로 다음 카드의 둘째 행이 「노쇼 기록」이라
+                    // 배너가 가리키는 길이 같은 화면 안에 보인다.
+                    //
+                    // 디자인시스템의 NoticeBanner 를 그대로 쓴다 — 이 앱의 「화면 단위 안내」는 이 컴포넌트
+                    // 하나이고(공통 규칙), 제재를 위해 새 카드 모양을 만들면 이 화면에만 있는 시각 언어가
+                    // 하나 늘어난다. 색은 두 가지뿐이다: 지금 막혀 있으면 error, 횟수만 남았으면 waiting.
+                    if let sanction {
+                        Spacer().frame(height: 12)
+                        NoticeBanner(kind: sanctionNoticeKind(sanction.kind), text: sanction.text)
+                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // 원본 `rememberScrollState` 는 저장 상태라 탭을 다녀와도 읽던 자리가 남는다
-                    .savedScrollOffset("mypage.scroll")
+
+                    Spacer().frame(height: 24)
+                    // 머리말 + 흰 카드 + 구분선으로 나뉜 행들. 같은 그룹의 행은 한 카드 안에 묶는다
+                    // — 카드가 그룹의 경계고, 그래서 머리말이 무엇에 걸리는 말인지가 눈에 보인다.
+                    ForEach(groups, id: \.label) { group in
+                        MyPageMenuCard(group: group, onAction: onAction)
+                    }
+
+                    // 버전은 맨 아래 가운데. 사용자가 찾는 값이 아니라 **물어볼 때 읽어 주는** 값이라
+                    // 눈에 걸리지 않는 자리에 둔다(문의 메일에도 같은 값이 자동으로 들어간다).
+                    // 한글이 없는 글이라 한글 글자 상자(`hangulTrimmed`)를 쓰지 않는다.
+                    if let versionLabel {
+                        Text(versionLabel)
+                            .moyeotaText(.CaptionMd, color: MoyeotaColor.TextMute)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    }
+
+                    Spacer().frame(height: 24)
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                // 원본 `verticalScroll` 은 자기 칸에서 잘린다. SwiftUI `ScrollView` 는 안전 영역까지 그려 내용이 상태바에 겹친다.
-                .clipped()
-
-                // 하단탭 홈 / 합승 / 채팅 → 14 / 17 / 24
-                MoyeotaBottomBar(selected: .mypage, onSelect: onTabSelect)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // 원본 `rememberScrollState` 는 저장 상태라 탭을 다녀와도 읽던 자리가 남는다
+                .savedScrollOffset("mypage.scroll")
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CanvasBg)
+            .scrollBounceBehavior(.basedOnSize)
+            // 원본 `verticalScroll` 은 자기 칸에서 잘린다. SwiftUI `ScrollView` 는 안전 영역까지 그려 내용이 상태바에 겹친다.
+            .clipped()
 
+            // 하단탭 홈 / 합승 / 채팅 → 14 / 17 / 24
+            MoyeotaBottomBar(selected: .mypage, onSelect: onTabSelect)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 묶음 목록(inset-grouped) 화면이라 바탕은 SurfaceSoft 다 — 흰 카드가 면의 차이로 묶음이 된다(G2)
+        .background(MoyeotaColor.SurfaceSoft)
+        .overlay {
             if logoutConfirming {
-                MaterialAlertDialog(
-                    onDismissRequest: { logoutConfirming = false },
-                    title: {
-                        Text("로그아웃할까요?")
-                            .moyeotaText(
-                                MaterialTextStyle.headlineSmall(fontSize: 17, fontWeight: .bold),
-                                color: MoyeotaColor.InkPrimary
-                            )
+                // 앱 공용 확인 다이얼로그(G11). 확인 버튼은 예전처럼 빨강 — 세션이 끝나는 이탈이다
+                MoyeotaConfirmDialog(
+                    title: "로그아웃할까요?",
+                    confirmText: "로그아웃",
+                    onConfirm: {
+                        logoutConfirming = false
+                        onLogout()
                     },
-                    text: {
-                        Text("다시 이용하려면 아이디로 로그인해야 해요")
-                            .moyeotaText(MaterialTextStyle.bodyMedium(), color: MoyeotaColor.TextMute)
-                    },
-                    confirmButton: {
-                        MaterialTextButton(
-                            text: "로그아웃",
-                            style: MaterialTextStyle.labelLarge(fontWeight: .bold),
-                            color: MoyeotaColor.Danger500
-                        ) {
-                            logoutConfirming = false
-                            onLogout()
-                        }
-                    },
-                    dismissButton: {
-                        MaterialTextButton(text: "취소", color: GrayMute) {
-                            logoutConfirming = false
-                        }
-                    }
+                    onDismiss: { logoutConfirming = false },
+                    body: "다시 이용하려면 아이디로 로그인해야 해요",
+                    dismissText: "취소",
+                    destructive: true
                 )
             }
         }
@@ -251,19 +233,19 @@ public struct MyPageScreen: View {
                 // label 은 비워 둔다. 이니셜을 깔면 사진 로드에 실패했을 때 옆 18pt 이름과 같은 글자가
                 // 두 번 보인다 — 여기는 이름이 바로 옆에 있는 자리라 이니셜이 주는 정보가 없다.
                 AvatarCircle(size: 56, imageUrl: resolvedImageUrl)
-                Spacer().frame(width: 14, height: 14)
+                Spacer().frame(width: 12, height: 12)
                 VStack(alignment: .leading, spacing: 0) {
                     switch userName {
                     // 조회 전 — 폴백 문구가 스쳐 보이지 않게 자리만 잡아 둔다
                     case .loading:
-                        SoftDivider
+                        MoyeotaColor.Hairline
                             .frame(width: 88, height: 18)
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .circular))
-                    case .resolved(let name, _, _, _):
+                            .clipShape(MoyeotaShape.Small)
+                    case .resolved(let name, _, _, _, _):
                         Text(name ?? "이름 미설정")
                             .moyeotaText(
-                                MaterialTextStyle.bodyLarge(fontSize: 18, fontWeight: .bold),
-                                color: name != nil ? MoyeotaColor.InkPrimary : GrayMute
+                                MoyeotaType.HeadingLg.hangulTrimmed,
+                                color: name != nil ? MoyeotaColor.InkPrimary : MoyeotaColor.TextMute
                             )
                     }
                     Spacer().frame(height: 4)
@@ -277,24 +259,23 @@ public struct MyPageScreen: View {
                     // 세 번째 값이 수정 가능해지면 이 라벨은 더 못 늘어난다. 그때가 「프로필 수정」
                     // 으로 넓힐 자리다.
                     Text("닉네임·사진 바꾸기")
-                        .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 12, fontWeight: .medium), color: GrayMute)
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                ChevronRightIcon()
+                ChevronIcon()
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
-            .frame(height: 104)
+            .frame(height: 80)
             .background(MoyeotaColor.SurfaceCanvas)
         }
         .buttonStyle(PressOverlayStyle(shape: Rectangle()))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .circular))
-        .moyeotaShadow(elevation: 4, shape: RoundedRectangle(cornerRadius: 18, style: .circular), spotColor: CardShadow)
-        .padding(.horizontal, 16)
+        .clipShape(MoyeotaShape.Card)
+        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
     }
 
     private var resolvedImageUrl: String? {
-        if case .resolved(_, let imageUrl, _, _) = userName { imageUrl } else { nil }
+        if case .resolved(_, let imageUrl, _, _, _) = userName { imageUrl } else { nil }
     }
 
     // 제재 배너. 프로필 조회가 끝나기 전(loading)에는 그리지 않는다 — 이름·사진과 같은 이유다
@@ -308,7 +289,7 @@ public struct MyPageScreen: View {
     // 다시 그리는 계기(확인창 열고 닫기 등)에 기한이 이미 지났으면 원본보다 그만큼 일찍 「제한 중」이
     // 내려올 뿐이고 없는 제한을 말하는 일은 없다.
     private var sanction: NoShowSanction? {
-        guard case .resolved(_, _, let noShowCount, let restrictedUntil) = userName else { return nil }
+        guard case .resolved(_, _, let noShowCount, let restrictedUntil, _) = userName else { return nil }
         return noShowSanction(noShowCount: noShowCount, restrictedUntil: restrictedUntil)
     }
 
@@ -321,11 +302,14 @@ public struct MyPageScreen: View {
     }
 }
 
-/// 머리말 + 카드 + (있으면) 카드 아래 한 줄.
+/// 머리말 + 카드 + (있으면) 카드 밖 회색 링크 + (있으면) 그 아래 한 줄.
 ///
-/// 행마다 아이콘을 두지 않는다 — 이 앱에는 아이콘 자산이 없고, 글자 네 개짜리 목록에서 급조한
-/// 아이콘은 구분이 아니라 장식이다. 대신 오른쪽 기호 두 개에만 뜻을 준다
-/// (`MyPageRowMark`: ↗ = 앱 밖, › = 앱 안).
+/// 행마다 아이콘을 두지 않는다 — 글자 네 개짜리 목록에서 행마다 붙인 아이콘은 구분이 아니라 장식이다.
+/// 대신 오른쪽 기호 두 개에만 뜻을 준다(`MyPageRowMark`: 바깥 화살표 = 앱 밖, 꺾쇠 = 앱 안). 두 기호는
+/// 디자인시스템의 그린 아이콘 한 벌(`ExternalLinkIcon`·`ChevronIcon`, 16pt)을 쓴다.
+///
+/// **되돌릴 수 없는 행(`MyPageRow.danger`)은 카드에 넣지 않는다**(디자인 QA M2) — 카드 아래 회색 글자
+/// 링크로 떼어 자주 쓰는 행과 공간으로 떨어뜨린다. 모델(`myPageGroups`)의 행 순서와 동작은 그대로다.
 ///
 /// 빈 그룹은 `myPageGroups` 가 미리 걸러내므로 여기 오지 않는다. 그래도 방어로 한 줄 둔다
 /// — 빈 카드는 "고장난 메뉴"로 보이고, 머리말만 남으면 더 이상하다.
@@ -335,106 +319,64 @@ private struct MyPageMenuCard: View {
 
     var body: some View {
         if !group.rows.isEmpty {
-            Text(group.label)
-                .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 12, fontWeight: .bold), color: GrayAsh)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-            VStack(spacing: 0) {
-                ForEach(Array(group.rows.enumerated()), id: \.offset) { index, row in
-                    if index > 0 {
-                        // 구분선은 글자 시작선에 맞춰 들여 둔다 — 카드 폭을 꽉 채우면 행이 카드에서 떨어져 보인다
-                        SoftDivider
-                            .frame(height: 1)
-                            .padding(.horizontal, 20)
-                    }
-                    Button {
-                        onAction(row.action)
-                    } label: {
-                        HStack(spacing: 0) {
-                            Text(row.text)
-                                .moyeotaText(
-                                    MaterialTextStyle.bodyLarge(fontSize: 15, fontWeight: .medium),
-                                    // 되돌릴 수 없는 행만 색이 다르다. 카드 안에서 유일한 빨강이라야 경고로 읽힌다.
-                                    color: row.danger ? MoyeotaColor.Danger500 : MoyeotaColor.InkPrimary
-                                )
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            switch row.mark {
-                            case .external: ExternalLinkIcon()
-                            case .chevron: ChevronRightIcon()
-                            }
+            let cardRows = group.rows.filter { !$0.danger }
+            let linkRows = group.rows.filter(\.danger)
+            SectionLabel(text: group.label)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+            if !cardRows.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(cardRows.enumerated()), id: \.offset) { index, row in
+                        if index > 0 {
+                            // 구분선은 글자 시작선에 맞춰 들여 둔다 — 카드 폭을 꽉 채우면 행이 카드에서 떨어져 보인다
+                            HorizontalDivider(color: MoyeotaColor.Hairline)
+                                .padding(.horizontal, 16)
                         }
-                        .padding(.horizontal, 20)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .contentShape(Rectangle())
+                        Button {
+                            onAction(row.action)
+                        } label: {
+                            HStack(spacing: 0) {
+                                Text(row.text)
+                                    .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                switch row.mark {
+                                case .external: ExternalLinkIcon()
+                                case .chevron: ChevronIcon()
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressOverlayStyle(shape: Rectangle()))
                     }
-                    .buttonStyle(PressOverlayStyle(shape: Rectangle()))
                 }
+                .frame(maxWidth: .infinity)
+                .background(MoyeotaColor.SurfaceCanvas)
+                .clipShape(MoyeotaShape.Card)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             }
-            .frame(maxWidth: .infinity)
-            .background(MoyeotaColor.SurfaceCanvas)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .circular))
-            .moyeotaShadow(elevation: 4, shape: RoundedRectangle(cornerRadius: 18, style: .circular), spotColor: CardShadow)
-            .padding(.horizontal, 16)
+            ForEach(Array(linkRows.enumerated()), id: \.offset) { _, row in
+                // 글자 링크의 안쪽 여백(8)만큼 덜 들여 글자 시작을 카드 가장자리(16)에 맞춘다
+                TextLinkButton(
+                    text: row.text,
+                    onClick: { onAction(row.action) },
+                    color: MoyeotaColor.TextMute,
+                    style: MoyeotaType.BodySm
+                )
+                .padding(.leading, MoyeotaSpacing.ScreenGutter - 8)
+                .padding(.top, 4)
+            }
             if let caption = group.caption {
-                // 카드 **아래**에 둔다. 행 안에 넣으면 56pt 행이 두 줄로 늘어나 다른 행과 높이가 달라지고,
-                // 카드 위에 두면 머리말과 붙어 무엇에 걸리는 말인지 흐려진다.
+                // 카드(와 탈퇴 링크) **아래**에 둔다. 행 안에 넣으면 56pt 행이 두 줄로 늘어나 다른 행과 높이가
+                // 달라지고, 카드 위에 두면 머리말과 붙어 무엇에 걸리는 말인지 흐려진다.
                 Text(caption)
-                    .moyeotaText(MaterialTextStyle.bodyLarge(fontSize: 11), color: GrayAsh)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 8)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                    .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    .padding(.top, linkRows.isEmpty ? 8 : 0)
             }
             Spacer().frame(height: 24)
         }
-    }
-}
-
-// 아이콘 라이브러리 없이 그리는 꺾쇠(›) — 앱 안에서 다음 화면으로 간다는 표시
-private struct ChevronRightIcon: View {
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            var path = Path()
-            path.move(to: CGPoint(x: w * 0.38, y: h * 0.24))
-            path.addLine(to: CGPoint(x: w * 0.66, y: h * 0.5))
-            path.move(to: CGPoint(x: w * 0.38, y: h * 0.76))
-            path.addLine(to: CGPoint(x: w * 0.66, y: h * 0.5))
-            context.stroke(path, with: .color(GrayAsh), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-        }
-        .frame(width: 18, height: 18)
-        .accessibilityHidden(true)
-    }
-}
-
-/// 외부로 나간다는 표시(↗). 글꼴에 따라 빠질 수 있는 유니코드 화살표 대신 직접 그린다.
-///
-/// 같은 모듈의 37 회원 탈퇴도 이것을 쓴다(「자세히 보기」) — 기호의 뜻이 두 화면에서 어긋나면
-/// 규칙 자체가 무의미해진다. 세 번째 화면이 쓰게 되면 `MoyeotaDesignSystem` 으로 올릴 자리다.
-struct ExternalLinkIcon: View {
-    private let tint: Color
-
-    init(tint: Color = GrayAsh) {
-        self.tint = tint
-    }
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            var path = Path()
-            // 대각선 ↗
-            path.move(to: CGPoint(x: w * 0.22, y: h * 0.78))
-            path.addLine(to: CGPoint(x: w * 0.78, y: h * 0.22))
-            // 화살머리 두 변
-            path.move(to: CGPoint(x: w * 0.42, y: h * 0.22))
-            path.addLine(to: CGPoint(x: w * 0.78, y: h * 0.22))
-            path.move(to: CGPoint(x: w * 0.78, y: h * 0.22))
-            path.addLine(to: CGPoint(x: w * 0.78, y: h * 0.58))
-            context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-        }
-        .frame(width: 16, height: 16)
-        .accessibilityHidden(true)
     }
 }
 

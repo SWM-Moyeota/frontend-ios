@@ -288,15 +288,16 @@ final class HostedGraph {
         return found
     }
 
-    /// 상태바·내비게이션바 여백(`WindowInsetSpacer`)이 잰 자리를 창 좌표로.
-    func insetSpacerFrames(in root: UIView) -> [CGRect] {
-        probeViews(in: root).map { $0.convert($0.bounds, to: window) }
+    /// 상태바·내비게이션바 여백(`WindowInsetSpacer`)이 잰 자리를 창 좌표로. `excluding` 아래의 여백은 빼고 찾는다.
+    func insetSpacerFrames(in root: UIView, excluding skipped: UIView? = nil) -> [CGRect] {
+        probeViews(in: root, excluding: skipped).map { $0.convert($0.bounds, to: window) }
     }
 
-    private func probeViews(in root: UIView) -> [UIView] {
+    private func probeViews(in root: UIView, excluding skipped: UIView?) -> [UIView] {
+        if root === skipped { return [] }
         var found: [UIView] = []
         if String(describing: type(of: root)).contains("WindowInsetProbeView") { found.append(root) }
-        for child in root.subviews { found += probeViews(in: child) }
+        for child in root.subviews { found += probeViews(in: child, excluding: skipped) }
         return found
     }
 

@@ -150,7 +150,7 @@ public struct MemberAvatar: View {
                 if image == nil {
                     Text(user.avatarInitial)
                         .moyeotaText(
-                            MoyeotaType(fontSize: size * 0.4, fontWeight: .bold),
+                            avatarInitialStyle(size: size),
                             color: user.isMe ? MoyeotaColor.Primary600 : MoyeotaColor.TextMute
                         )
                 }
@@ -173,13 +173,21 @@ public struct MemberAvatar: View {
     }
 }
 
+/// 이니셜 글자 — 아바타 크기의 40% 를 **타입 표의 가장 가까운 단계**로 맞춘다(디자인 QA G3: 표 밖 크기 금지).
+/// 예전엔 `size × 0.4` 를 그대로 써서 48 아바타에 19.2 같은 값이 나왔다.
+func avatarInitialStyle(size: CGFloat) -> MoyeotaType {
+    if size >= 72 { return MoyeotaType.DisplayMd.copy(fontWeight: .semibold) }
+    if size >= 48 { return MoyeotaType.HeadingLg }
+    return MoyeotaType.HeadingMd
+}
+
 /// 「나」 배지 — 멤버 목록에서 내 줄을 한눈에 찾게 한다(isMe = publicId == 세션 uuid).
 public struct MeBadge: View {
     public init() {}
 
     public var body: some View {
         Text("나")
-            .moyeotaText(inheritedBodyLargeType(11, .bold), color: MoyeotaColor.Primary600)
+            .moyeotaText(MoyeotaType.CaptionSm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.Primary600)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(MoyeotaColor.Primary50, in: Capsule(style: .circular))
@@ -196,7 +204,7 @@ public struct HostBadge: View {
 
     public var body: some View {
         Text("방장")
-            .moyeotaText(inheritedBodyLargeType(11, .bold), color: MoyeotaColor.TextMute)
+            .moyeotaText(MoyeotaType.CaptionSm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.TextMute)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(MoyeotaColor.SurfaceSoft, in: Capsule(style: .circular))

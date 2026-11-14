@@ -38,19 +38,13 @@ public struct OnboardingSafetyScreen: View {
         VStack(spacing: 0) {
             StatusBarSpacer()
 
-            // 건너뛰기 (우상단)
+            // 건너뛰기 (우상단) — 48 터치 + 눌림 표시(디자인 QA G12). 링크 안쪽 8 만큼 줄 여백을 줄여
+            // 글자 끝이 16 화면 여백에 선다
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                Button(action: onSkip) {
-                    Text("건너뛰기")
-                        .moyeotaText(MoyeotaType.ButtonMd.hangulTrimmed, color: MoyeotaColor.TextMute)
-                        .padding(8)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PressFeedbackStyle())
+                TextLinkButton(text: "건너뛰기", onClick: onSkip, color: MoyeotaColor.TextMute)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
 
             Spacer().frame(height: 24)
 
@@ -64,10 +58,7 @@ public struct OnboardingSafetyScreen: View {
             Text(OnboardingMeetingCopy.headline)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.DisplayMd.copy(fontSize: 26, letterSpacing: -0.52).hangulTrimmed,
-                    color: MoyeotaColor.InkPrimary
-                )
+                .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 12)
@@ -75,10 +66,7 @@ public struct OnboardingSafetyScreen: View {
             Text(OnboardingMeetingCopy.body)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.BodyMd.copy(lineHeight: .sp(22), letterSpacing: -0.3).hangulTrimmed,
-                    color: MoyeotaColor.TextMute
-                )
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 32)
@@ -90,18 +78,9 @@ public struct OnboardingSafetyScreen: View {
             PrimaryCtaButton(text: "시작하기", onClick: onStart)
                 .padding(.horizontal, 16)
 
-            Spacer().frame(height: 18)
+            Spacer().frame(height: 8)
 
-            Button(action: onAlreadyHaveAccount) {
-                Text("이미 계정이 있어요")
-                    .moyeotaText(
-                        MoyeotaType.BodySm.copy(fontWeight: .medium, letterSpacing: -0.26).hangulTrimmed,
-                        color: MoyeotaColor.TextMute
-                    )
-                    .padding(8)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(PressFeedbackStyle())
+            TextLinkButton(text: "이미 계정이 있어요", onClick: onAlreadyHaveAccount, color: MoyeotaColor.TextMute)
 
             Spacer(minLength: 0)
 
@@ -109,15 +88,16 @@ public struct OnboardingSafetyScreen: View {
         }
         // 작은 화면에서 넘치면 원본 Column 처럼 위를 고정하고 아래로 넘긴다(기본값이면 위아래로 나뉜다).
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
-// 일러스트 — 지도(만날 곳: 파란 점 → 빨간 핀). 공유 배지는 보호자 공유 기능이 없어 뺐고, 지도를 카드 가운데에 둔다
+// 일러스트 — 지도(만날 곳: 파란 점 → 빨간 핀). 공유 배지는 보호자 공유 기능이 없어 뺐고, 지도를 가운데에 둔다.
+// 뒤에 깔던 옅은 파란 판(r24)은 걷었다(디자인 QA A3) — 지도 목업이 흰 화면에 바로 선다.
 private struct SafetyIllustration: View {
     var body: some View {
         ZStack {
-            // 지도 목업 (경로 라인) — 배지가 빠진 만큼 키워 카드를 채운다
+            // 지도 목업 (경로 라인) — 배지가 빠진 만큼 키워 자리를 채운다
             Canvas { context, size in
                 let start = CGPoint(x: size.width * 0.16, y: size.height * 0.78)
                 let end = CGPoint(x: size.width * 0.84, y: size.height * 0.24)
@@ -133,7 +113,7 @@ private struct SafetyIllustration: View {
                 )
 
                 // 출발 지점 — 파란 점 (흰 테두리)
-                context.fill(circle(center: start, radius: 9.0 / 2 + 2), with: .color(.white))
+                context.fill(circle(center: start, radius: 9.0 / 2 + 2), with: .color(MoyeotaColor.SurfaceCanvas))
                 context.fill(circle(center: start, radius: 9.0 / 2), with: .color(MoyeotaColor.Primary500))
 
                 // 도착 지점 — 빨간 핀
@@ -146,13 +126,12 @@ private struct SafetyIllustration: View {
                 pinPath.closeSubpath()
                 context.fill(pinPath, with: .color(MoyeotaColor.Danger500))
                 context.fill(circle(center: pinCenter, radius: pinRadius), with: .color(MoyeotaColor.Danger500))
-                context.fill(circle(center: pinCenter, radius: pinRadius * 0.35), with: .color(.white))
+                context.fill(circle(center: pinCenter, radius: pinRadius * 0.35), with: .color(MoyeotaColor.SurfaceCanvas))
             }
             .frame(width: 260, height: 180)
-            .background(Color(argb: 0xFFE2E7EF), in: RoundedRectangle(cornerRadius: 16, style: .circular))
+            .background(MoyeotaColor.Border, in: MoyeotaShape.Card)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.Primary50, in: RoundedRectangle(cornerRadius: 24, style: .circular))
     }
 
     private func circle(center: CGPoint, radius: CGFloat) -> Path {

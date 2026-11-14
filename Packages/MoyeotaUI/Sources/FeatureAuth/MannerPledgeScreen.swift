@@ -54,7 +54,7 @@ public struct MannerPledgeScreen: View {
             StatusBarSpacer()
             MoyeotaTopBar(title: "", onBack: onBack) {
                 Text("2 / 2")
-                    .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .medium), color: Color(argb: 0xFF8A93A0))
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             PledgeStepProgressBar(progress: 1)
 
@@ -63,20 +63,20 @@ public struct MannerPledgeScreen: View {
                     Spacer().frame(height: 24)
                     Text("마지막으로 약속 하나만")
                         .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     Text("모여타는 서로를 믿고 타는 서비스예요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
                     Spacer().frame(height: 24)
                     allAgreeRow(allChecked: allChecked)
 
-                    Spacer().frame(height: 6)
+                    Spacer().frame(height: 8)
                     Text("동의 내용은 가입 시점 기준으로 적용돼요")
-                        .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: Color(argb: 0xFF9AA1AC))
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    Spacer().frame(height: 6)
+                    Spacer().frame(height: 8)
 
-                    pledgeCard
+                    pledgeList
                     Spacer().frame(height: 24)
                 }
                 .padding(.horizontal, 16)
@@ -92,17 +92,11 @@ public struct MannerPledgeScreen: View {
                     NoticeBanner(kind: .error, text: errorMessage)
                     // 10 으로 되돌려야 고칠 수 있는 실패에만 링크가 붙는다. 둘은 동시에 오지 않는다.
                     if let recovery {
-                        Spacer().frame(height: 8)
-                        Button(action: recovery.action) {
-                            Text(recovery.label)
-                                .moyeotaText(
-                                    MoyeotaType.BodySm.copy(fontWeight: .bold).hangulTrimmed,
-                                    color: MoyeotaColor.Primary500
-                                )
-                        }
-                        .buttonStyle(NoIndicationButtonStyle())
+                        // 글자 크기 그대로 눌리던 링크를 48 터치 + 눌림 표시로(디자인 QA G12)
+                        TextLinkButton(text: recovery.label, onClick: recovery.action)
+                    } else {
+                        Spacer().frame(height: 12)
                     }
-                    Spacer().frame(height: 12)
                 }
                 PrimaryCtaButton(
                     text: "동의하고 가입 완료",
@@ -115,7 +109,7 @@ public struct MannerPledgeScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear { checks = Array(repeating: false, count: mannerPledgeItems.count) }
     }
@@ -127,28 +121,31 @@ public struct MannerPledgeScreen: View {
     }
 
     // 「아래 내용에 모두 동의해요」 체크 시 하위 4개 일괄 on/off
+    // 「모두 동의」 줄은 옅은 파랑이 아니라 회색 면이다 — 이 화면의 파랑은 체크 표시와 아래 CTA 에만 둔다
+    // (디자인 QA G1·G8). 줄 전체가 누르는 자리라 눌림 표시가 보이게 모서리에 맞춰 자른다(G12).
     private func allAgreeRow(allChecked: Bool) -> some View {
         Button {
             let target = !allChecked
             for index in checks.indices { checks[index] = target }
         } label: {
             HStack(alignment: .center, spacing: 0) {
-                PledgeCheckCircle(checked: allChecked, size: 26)
-                Spacer().frame(width: 13, height: 0)
+                PledgeCheckCircle(checked: allChecked, size: PledgeCheckSize)
+                // 아래 항목들의 글자 시작선(4 + 48 + 8 = 60)과 맞춘다: 16 + 24 + 20
+                Spacer().frame(width: 20, height: 0)
                 Text("아래 내용에 모두 동의해요")
-                    .moyeotaText(MoyeotaType.BodyMd.copy(fontWeight: .bold).hangulTrimmed, color: MoyeotaColor.Primary600)
+                    .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 17)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(MoyeotaColor.Primary50, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+            .background(MoyeotaColor.SurfaceSoft, in: MoyeotaShape.Card)
         }
-        .buttonStyle(NoIndicationButtonStyle())
+        .buttonStyle(PressOverlayStyle(shape: MoyeotaShape.Card))
     }
 
-    private var pledgeCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
-        return VStack(spacing: 0) {
+    // 흰 화면 위라 그림자 카드 없이 항목을 화면에 바로 놓고 구분선만 둔다(디자인 QA G4)
+    private var pledgeList: some View {
+        VStack(spacing: 0) {
             ForEach(Array(mannerPledgeItems.enumerated()), id: \.offset) { index, item in
                 PledgeItemRow(
                     item: item,
@@ -157,15 +154,11 @@ public struct MannerPledgeScreen: View {
                 )
                 if index != mannerPledgeItems.count - 1 {
                     HorizontalDivider(color: MoyeotaColor.Hairline)
-                        .padding(.leading, 56)
-                        .padding(.trailing, 20)
+                        .padding(.leading, 60)
                 }
             }
         }
-        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
-        .background(MoyeotaColor.SurfaceCanvas, in: shape)
-        .moyeotaShadow(elevation: 4, shape: shape, spotColor: Color(argb: 0x0F1B2A4A))
     }
 }
 
@@ -231,30 +224,41 @@ private struct PledgeItemRow: View {
     // 항목 텍스트 탭 → 해당 정책 상세 (미연결). 원본의 빈 `clickable` 은 눌림 표시도 동작도 없어 옮기지 않는다.
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
+            // 24 원만 눌리던 체크를 48 터치 + 원형 눌림 표시로 넓혔다(디자인 QA G12). 원은 터치 상자 가운데에
+            // 그려져, 4 줄 여백 + 12 = 화면 여백에서 16 안쪽 — 위 「모두 동의」 줄의 원과 같은 세로선이다.
             Button(action: onToggle) {
-                PledgeCheckCircle(checked: checked, size: 24)
+                PledgeCheckCircle(checked: checked, size: PledgeCheckSize)
+                    .frame(width: 48, height: 48)
+                    .contentShape(Circle())
             }
-            .buttonStyle(NoIndicationButtonStyle())
-            Spacer().frame(width: 12, height: 0)
+            .buttonStyle(PressOverlayStyle(shape: Circle()))
+            // 원본 `toggleable(role = Checkbox)` — iOS 에 체크박스 역할이 없어 버튼 + 「선택됨」 특성으로 읽힌다
+            .accessibilityAddTraits(checked ? .isSelected : [])
+            Spacer().frame(width: 8, height: 0)
+            // 첫 줄 가운데(12 + 본문 줄높이 절반)가 48 터치 상자의 가운데(24)에 오도록 위를 띄운다
             VStack(alignment: .leading, spacing: 0) {
                 Text(item.title)
-                    .moyeotaText(MoyeotaType.BodyMd.copy(fontWeight: .bold).hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 // 설명이 없는 항목은 제목만 — 빈 줄을 띄우면 문구가 지워진 자리가 드러난다
                 if let description = item.description {
                     Spacer().frame(height: 2)
                     Text(description)
-                        .moyeotaText(MoyeotaType.CaptionMd.copy(fontWeight: .medium).hangulTrimmed, color: Color(argb: 0xFF8A93A0))
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 }
             }
+            .padding(.top, 12)
+            .padding(.bottom, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(4)
         .frame(maxWidth: .infinity)
     }
 }
 
-// 와이어프레임 모양 그대로의 원형 체크 (체크 시 Primary 채움 + 흰 체크표시)
+/// 「모두 동의」와 항목이 같은 크기의 원을 쓴다 — 크기가 다르면 두 줄의 원이 같은 세로선에 서지 않는다
+private let PledgeCheckSize: CGFloat = 24
+
+// 원형 체크 (체크 시 Primary 채움 + 흰 체크표시). 미체크 테두리는 입력칸과 같은 BorderStrong
 private struct PledgeCheckCircle: View {
     let checked: Bool
     let size: CGFloat
@@ -263,23 +267,10 @@ private struct PledgeCheckCircle: View {
         ZStack {
             if checked {
                 Circle().fill(MoyeotaColor.Primary500)
-                Canvas { context, canvasSize in
-                    let w = canvasSize.width
-                    let h = canvasSize.height
-                    var path = Path()
-                    path.move(to: CGPoint(x: w * 0.08, y: h * 0.55))
-                    path.addLine(to: CGPoint(x: w * 0.38, y: h * 0.85))
-                    var tail = Path()
-                    tail.move(to: CGPoint(x: w * 0.38, y: h * 0.85))
-                    tail.addLine(to: CGPoint(x: w * 0.92, y: h * 0.18))
-                    let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-                    context.stroke(path, with: .color(.white), style: style)
-                    context.stroke(tail, with: .color(.white), style: style)
-                }
-                .frame(width: size / 2, height: size / 2)
+                CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextOnDark)
             } else {
                 Circle().fill(MoyeotaColor.SurfaceCanvas)
-                Circle().strokeBorder(Color(argb: 0xFFD1D5DB), lineWidth: 1.5)
+                Circle().strokeBorder(MoyeotaColor.BorderStrong, lineWidth: 1.5)
             }
         }
         .frame(width: size, height: size)
@@ -292,8 +283,8 @@ private struct PledgeStepProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(Color(argb: 0xFFE6EAF0))
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }

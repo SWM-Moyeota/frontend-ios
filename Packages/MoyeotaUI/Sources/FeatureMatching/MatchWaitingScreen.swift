@@ -3,29 +3,6 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
-// 와이어프레임 그레이 (core token 미정의 색 — 화면 재현용)
-private let CanvasBg = Color(argb: 0xFFF5F7FA)
-private let GraySlate = Color(argb: 0xFF4B5563)
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let CardSoft = Color(argb: 0xFFF6F8FB)
-private let GrayButtonBg = Color(argb: 0xFFEEF1F6)
-private let DividerGray = Color(argb: 0xFFE7EAF0)
-private let ProgressTrack = Color(argb: 0xFFE6EAF0)
-
-/// 원본 `Text(fontSize = …, fontWeight = …)` 의 글자 모양.
-///
-/// `style` 을 주지 않은 Compose `Text` 는 `MaterialTheme` 의 `LocalTextStyle`(M3 기본 `bodyLarge`)에서
-/// **줄 높이 24sp · 자간 0.5sp** 를 물려받는다. 그래서 12sp 글자도 줄 상자는 24 다 — 빼면 이 화면의 세로 간격이
-/// 원본과 어긋난다(스크린샷 `21-match-waiting` 의 닉네임 줄과 탑승 횟수 줄 간격이 24dp 다).
-///
-/// 큰 글자는 24 를 넘는다. 원본의 한글은 대체 폰트로 그려지고 안드로이드 줄 상자가 그 폰트의 어센트·디센트까지 넓어지기
-/// 때문이다. 값은 원본 UI 트리에서 쟀다(17sp 24.4, 18sp 26.3, 19sp 27.1, 20sp 28.5, 22sp 31.6, 24sp 34.6dp).
-/// 16sp 이하는 24 그대로다.
-func inlineType(_ fontSize: CGFloat, _ fontWeight: Font.Weight) -> MoyeotaType {
-    MoyeotaType(fontSize: fontSize, fontWeight: fontWeight, lineHeight: .sp(max(24, fontSize * 1.44)), letterSpacing: 0.5)
-}
-
 /// `remember(key) { … }` 의 자리 — 키가 같으면 다시 계산하지 않는다.
 ///
 /// 시트를 끄는 동안 지도 슬롯이 프레임마다 다시 평가되므로, 폴리라인 해석과 카메라 계산을 그때마다 돌리지 않는다.
@@ -271,66 +248,58 @@ public struct MatchWaitingScreen: View {
             0
         }
 
-        ZStack {
-            VStack(spacing: 0) {
-                StatusBarSpacer()
+        VStack(spacing: 0) {
+            StatusBarSpacer()
 
-                // 헤더 — 뒤로가기는 탐색 취소와 동일 (진행 화면 이탈 = 14 홈)
-                HStack(spacing: 0) {
-                    Button {
-                        if canLeave { cancelConfirming = true } else { onExitKeepingParty() }
-                    } label: {
-                        // 머티리얼 `IconButton` 의 레이아웃 크기는 최소 터치 영역인 48dp 다.
-                        BackArrowIcon()
-                            .frame(width: 48, height: 48)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(IconPressStyle())
-                    Text(headerTitle(finishStage: finishStage))
-                        .moyeotaText(inlineType(18, .bold), color: MoyeotaColor.InkPrimary)
+            // 헤더 — 뒤로가기는 탐색 취소와 동일 (진행 화면 이탈 = 14 홈).
+            //
+            // **제목을 두지 않는다**(디자인 QA W1, 2026-11). 예전엔 지금 단계(「같이 탈 사람 찾는 중」 등)를
+            // 머리줄 · 지도 위 배지 · 시트 헤드라인이 **세 번** 말했다. 단계는 시트 헤드라인 하나가 말하고,
+            // 시트를 접었을 때는 지도 위 배지가 대신한다 — 머리줄은 뒤로가기만 남긴다.
+            MoyeotaTopBar(
+                title: "",
+                onBack: { if canLeave { cancelConfirming = true } else { onExitKeepingParty() } }
+            )
+
+            // 지도(헤더 아래 전부) 위에 드래그 시트 — 16 도착지 확인과 같은 메커니즘
+            MapSheetScaffold(
+                // 16 보다 지도를 더 남긴다. 21 의 펼침 콘텐츠(안내 · 모인 사람 · 조건 카드)는
+                // 16 의 매칭 조건 카드보다 짧아서, 16 과 같은 160dp 로 두면 상세 영역이 남아
+                // 조건 카드와 「그만 찾기」 사이가 휑하게 빈다. 남는 만큼 지도에 준다.
+                // 상세 콘텐츠(안내 배너 · 모인 사람 N줄 · 조건 카드 3줄 · 안내 문구)가 멤버가 늘수록
+                // 길어진다. 실기에서 2명일 때 조건 카드 마지막 줄과 안내 문구가 잘려 나가는 것을 확인해
+                // 16 과 같은 160dp 로 되돌렸다 — 펼침은 정보를 보는 상태이고, 지도는 접힘이 맡는다.
+                // (「탐색 반경」 줄이 빠져 카드가 한 줄 짧아졌다. 여유가 늘었을 뿐이라 값은 그대로 둔다.)
+                mapRevealHeight: 160,
+                // 접힘 = 핸들 + 헤드라인 + 인원 문구 + 진행바 + 「그만 찾기」
+                collapsedSheetHeight: collapsedSheetHeight(stage: stage),
+                background: { sheet in
+                    mapBackground(sheet: sheet, isFull: isFull)
+                },
+                sheetTop: {
+                    sheetTop(isFull: isFull, otherCount: otherCount, arrived: arrived, progress: progress)
+                },
+                sheetDetail: {
+                    sheetDetail(isFull: isFull, canFinish: canFinish, stage: stage)
+                },
+                sheetFooter: {
+                    sheetFooter(
+                        canLeave: canLeave,
+                        finishStage: finishStage,
+                        canFinish: canFinish,
+                        showsFinishNotice: showsFinishNotice,
+                        stage: stage,
+                        meetingTimePassed: meetingTimePassed
+                    )
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 8)
-
-                // 지도(헤더 아래 전부) 위에 드래그 시트 — 16 도착지 확인과 같은 메커니즘
-                MapSheetScaffold(
-                    // 16 보다 지도를 더 남긴다. 21 의 펼침 콘텐츠(안내 · 모인 사람 · 조건 카드)는
-                    // 16 의 매칭 조건 카드보다 짧아서, 16 과 같은 160dp 로 두면 상세 영역이 남아
-                    // 조건 카드와 「그만 찾기」 사이가 휑하게 빈다. 남는 만큼 지도에 준다.
-                    // 상세 콘텐츠(안내 배너 · 모인 사람 N줄 · 조건 카드 3줄 · 안내 문구)가 멤버가 늘수록
-                    // 길어진다. 실기에서 2명일 때 조건 카드 마지막 줄과 안내 문구가 잘려 나가는 것을 확인해
-                    // 16 과 같은 160dp 로 되돌렸다 — 펼침은 정보를 보는 상태이고, 지도는 접힘이 맡는다.
-                    // (「탐색 반경」 줄이 빠져 카드가 한 줄 짧아졌다. 여유가 늘었을 뿐이라 값은 그대로 둔다.)
-                    mapRevealHeight: 160,
-                    // 접힘 = 핸들 + 헤드라인 + 인원 문구 + 진행바 + 「그만 찾기」
-                    collapsedSheetHeight: collapsedSheetHeight(stage: stage),
-                    background: { sheet in
-                        mapBackground(sheet: sheet, isFull: isFull)
-                    },
-                    sheetTop: {
-                        sheetTop(isFull: isFull, otherCount: otherCount, arrived: arrived, progress: progress)
-                    },
-                    sheetDetail: {
-                        sheetDetail(isFull: isFull, canFinish: canFinish, stage: stage)
-                    },
-                    sheetFooter: {
-                        sheetFooter(
-                            canLeave: canLeave,
-                            finishStage: finishStage,
-                            canFinish: canFinish,
-                            showsFinishNotice: showsFinishNotice,
-                            stage: stage,
-                            meetingTimePassed: meetingTimePassed
-                        )
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(CanvasBg)
-
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(MoyeotaColor.SurfaceCanvas)
+        // 확인 다이얼로그는 화면 전체를 덮는 오버레이다(`MoyeotaConfirmDialog` 주석). 다이얼로그가 떠 있는 동안
+        // 시스템 뒤로가기는 다이얼로그만 닫는다 — 그 가로채기는 다이얼로그가 스스로 건다(원본 `onDismissRequest` 의 뒤로가기).
+        .overlay {
             // 「약속 시간 정하기」 확인 — **되돌릴 수 없는 전이**라 반드시 한 번 묻는다.
             //
             // 되돌릴 수 없는 것이 셋이다: 모집이 끝나고 · 아무도 나갈 수 없게 되고 · 시간을 바꿀 수 없다
@@ -340,17 +309,16 @@ public struct MatchWaitingScreen: View {
             // 확인할 기회가 여기 한 번뿐이다. 그래서 **여기 적힌 시각이 그대로 서버로 간다** —
             // 칩을 누른 순간 만든 값(`ConfirmingPreset.departureAt`)을 제목도 요청도 함께 쓴다.
             if let preset = confirmingPreset {
-                ConfirmDialog(
+                MoyeotaConfirmDialog(
                     title: meetingConfirmTitle(timeLabel: meetingTimeLabel(departureAt: preset.departureAt)),
-                    text: MEETING_CONFIRM_DIALOG_BODY,
-                    confirmLabel: "약속 정하기",
-                    confirmColor: MoyeotaColor.Primary600,
-                    dismissLabel: "아직이요",
+                    confirmText: "약속 정하기",
                     onConfirm: {
                         confirmingPreset = nil
                         onConfirmMeeting(preset.departureAt)
                     },
-                    onDismiss: { confirmingPreset = nil }
+                    onDismiss: { confirmingPreset = nil },
+                    body: MEETING_CONFIRM_DIALOG_BODY,
+                    dismissText: "아직이요"
                 )
             }
 
@@ -361,60 +329,50 @@ public struct MatchWaitingScreen: View {
             // **남의 제재**를 만들게 되므로, 숫자를 보여 주지 않으면 그 무게를 알 수 없다.
             // 확인 버튼을 Danger 색으로 두는 이유도 같다 — 되돌릴 수 없고 남에게 손해를 준다.
             if departConfirming {
-                ConfirmDialog(
+                MoyeotaConfirmDialog(
                     title: "지금 출발할까요?",
-                    text: departConfirmMessage(notArrivedCount: notArrivedCount(ride: ride)),
-                    confirmLabel: "출발",
-                    confirmColor: MoyeotaColor.Danger500,
-                    dismissLabel: "아직이요",
+                    confirmText: "출발",
                     onConfirm: {
                         departConfirming = false
                         onDepart()
                     },
-                    onDismiss: { departConfirming = false }
+                    onDismiss: { departConfirming = false },
+                    body: departConfirmMessage(notArrivedCount: notArrivedCount(ride: ride)),
+                    dismissText: "아직이요",
+                    destructive: true
                 )
             }
 
             // 「합승 완료」 확인 — 나 혼자가 아니라 **모두의** 방이 닫히는 행동이라 반드시 한 번 묻는다
             if finishConfirming {
-                ConfirmDialog(
+                MoyeotaConfirmDialog(
                     title: "합승을 완료할까요?",
-                    text: "같이 탄 사람 모두의 방이 종료돼요. 다 타고 나서 눌러 주세요",
-                    confirmLabel: "합승 완료",
-                    confirmColor: MoyeotaColor.Primary600,
-                    dismissLabel: "아직이요",
+                    confirmText: "합승 완료",
                     onConfirm: {
                         finishConfirming = false
                         onFinish()
                     },
-                    onDismiss: { finishConfirming = false }
+                    onDismiss: { finishConfirming = false },
+                    body: "같이 탄 사람 모두의 방이 종료돼요. 다 타고 나서 눌러 주세요",
+                    dismissText: "아직이요"
                 )
             }
 
             // 뒤로가기·「그만 찾기」 공통 확인 — 확인해야만 실제로 방을 나간다
             if cancelConfirming {
-                ConfirmDialog(
+                MoyeotaConfirmDialog(
                     title: "매칭을 그만둘까요?",
-                    text: "지금 나가면 이 방에서 빠지고 처음부터 다시 찾아야 해요",
-                    confirmLabel: "그만 찾기",
-                    confirmColor: MoyeotaColor.Danger500,
-                    dismissLabel: "계속 찾기",
+                    confirmText: "그만 찾기",
                     onConfirm: {
                         cancelConfirming = false
                         onCancelSearch()
                     },
-                    onDismiss: { cancelConfirming = false }
+                    onDismiss: { cancelConfirming = false },
+                    body: "지금 나가면 이 방에서 빠지고 처음부터 다시 찾아야 해요",
+                    dismissText: "계속 찾기",
+                    destructive: true
                 )
             }
-        }
-        // 다이얼로그가 떠 있는 동안 시스템 뒤로가기는 다이얼로그만 닫는다(원본 `onDismissRequest` 의 뒤로가기).
-        .moyeotaBackHandler(
-            enabled: cancelConfirming || finishConfirming || departConfirming || confirmingPreset != nil
-        ) {
-            cancelConfirming = false
-            finishConfirming = false
-            departConfirming = false
-            confirmingPreset = nil
         }
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear {
@@ -423,15 +381,6 @@ public struct MatchWaitingScreen: View {
             departConfirming = false
             confirmingPreset = nil
         }
-    }
-
-    private func headerTitle(finishStage: Bool) -> String {
-        // 확정 뒤에는 모으는 일도 끝났으므로 「만나는 일」을 제목으로 둔다.
-        if ride.isConfirmed { return "출발지에서 만나요" }
-        // 정원이 찼으면 더는 「찾는 중」이 아니다 — 만나는 단계다.
-        // **방장 여부가 아니라 단계**를 본다: 비방장도 같은 방을 보고 있다.
-        if finishStage { return "같이 탈 사람이 모였어요" }
-        return "같이 탈 사람 찾는 중"
     }
 
     /// 약속 흐름의 두 단계는 푸터가 더 길다. **추정치여도 되는 값**이라(`MapSheetDefaults` 주석: 어긋나면
@@ -513,7 +462,7 @@ public struct MatchWaitingScreen: View {
                     steady: isFull || ride.isConfirmed
                 )
             }
-            .padding(16)
+            .padding(MoyeotaSpacing.ScreenGutter)
         }
     }
 
@@ -531,16 +480,16 @@ public struct MatchWaitingScreen: View {
     private func sheetTop(isFull: Bool, otherCount: Int, arrived: Int, progress: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(headline(isFull: isFull))
-                .moyeotaText(inlineType(22, .bold), color: MoyeotaColor.InkPrimary)
+                .moyeotaText(MoyeotaType.HeadingXl.hangulTrimmed, color: MoyeotaColor.InkPrimary)
             Spacer().frame(height: 4)
             Text(countText(otherCount: otherCount, arrived: arrived))
-                .moyeotaText(inlineType(13, .medium), color: GrayMute)
-            Spacer().frame(height: 14)
+                .moyeotaText(MoyeotaType.BodySm.tabularNums().hangulTrimmed, color: MoyeotaColor.TextMute)
+            Spacer().frame(height: MoyeotaSpacing.Sm)
 
-            // 진행 바 — 서버가 내려준 실제 인원/정원 비율
+            // 진행 바 — 서버가 내려준 실제 인원/정원 비율. 바닥은 구분선과 같은 Hairline(W3)
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule(style: .circular).fill(ProgressTrack)
+                    Capsule(style: .circular).fill(MoyeotaColor.Hairline)
                     if progress > 0 {
                         Capsule(style: .circular)
                             .fill(MoyeotaColor.Primary500)
@@ -595,49 +544,43 @@ public struct MatchWaitingScreen: View {
             // 기록될 사람이 누구인지 확인할 수 있는 자리가 여기뿐이고, 확인 다이얼로그가
             // 말하는 숫자(notArrivedCount)도 이 목록에서 나온다 — 눈으로 맞춰 볼 수 있다.
             if !ride.members.isEmpty {
-                HStack(spacing: 0) {
-                    Text("지금 모인 사람")
-                        .moyeotaText(inlineType(13, .medium), color: GrayMute)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                SectionLabel(text: "지금 모인 사람") {
                     // 「도착 2/3」 — 확정 전에는 도착 개념이 없어 nil 이고 그리지 않는다.
                     if let label = arrivalCountLabel(ride: ride) {
                         Text(label)
-                            .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.Success600)
+                            .moyeotaText(
+                                MoyeotaType.BodySm.tabularNums().copy(fontWeight: .semibold).hangulTrimmed,
+                                color: MoyeotaColor.Success600
+                            )
                             .fixedSize()
                     }
                 }
-                Spacer().frame(height: 8)
                 // 빈 id 멤버가 겹칠 수 있어(요약 없음) id 가 아니라 자리로 구별한다 — 원본 forEach 도 키가 없다.
                 ForEach(Array(ride.members.enumerated()), id: \.offset) { _, member in
                     WaitingMemberRow(member: member, confirmed: ride.isConfirmed)
                 }
-                Spacer().frame(height: 14)
+                Spacer().frame(height: MoyeotaSpacing.Md)
             }
 
-            // 조건이 왜 고정인지 한 줄로. **카드 위**에 둔다 — 멤버가 늘면 상세 영역이
-            // 스크롤되는데, 아래에 두면 이 설명이 가장 먼저 화면 밖으로 나가 「수정 버튼이
-            // 왜 없지」에 답할 기회를 잃는다. 접힘 상태에서는 상세 영역째 사라진다.
-            Text("매칭 조건은 방을 만들 때 정해지고 찾는 중엔 바꿀 수 없어요")
-                .moyeotaText(inlineType(12, .medium), color: GrayAsh)
-            Spacer().frame(height: 8)
-            // 조건 카드 — 탭 시 22 탑승 상세
-            let cardShape = RoundedRectangle(cornerRadius: 18, style: .circular)
+            // 조건 — 탭 시 22 탑승 상세.
+            //
+            // 판(배경)을 깔지 않고 시트 위에 바로 줄을 놓는다(디자인 QA W3). 흰 시트 안에 회색 판을 또
+            // 깔면 면이 겹겹이 쌓인다. 「왜 못 바꾸나」를 설명하던 한 줄도 지웠다 — 고칠 곳(연필·
+            // 「수정」)이 없는 줄이라는 것 자체가 그 말을 한다.
             Button(action: onCardClick) {
                 VStack(spacing: 0) {
+                    HorizontalDivider(color: MoyeotaColor.Hairline)
                     ConditionRow(label: "출발지", value: ride.origin)
-                    HorizontalDivider(color: DividerGray)
+                    HorizontalDivider(color: MoyeotaColor.Hairline)
                     ConditionRow(label: "도착지", value: ride.destination)
-                    HorizontalDivider(color: DividerGray)
+                    HorizontalDivider(color: MoyeotaColor.Hairline)
                     ConditionRow(label: "매칭 조건", value: conditionLabel)
                     // 「탐색 반경」 행은 지웠다(2026-10-14) — 서버 고정값이고 매칭이 읽지 않는
                     // 숫자였다(주석 참고). 지금 카드에 남은 건 전부 실제로 방을 정하는 값이다.
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 4)
                 .frame(maxWidth: .infinity)
-                .background(CardSoft, in: cardShape)
             }
-            .buttonStyle(PressOverlayStyle(shape: cardShape))
+            .buttonStyle(PressOverlayStyle(shape: Rectangle()))
             Spacer().frame(height: 16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -672,16 +615,19 @@ public struct MatchWaitingScreen: View {
     ) -> some View {
         if let actionErrorMessage {
             NoticeBanner(kind: .error, text: actionErrorMessage)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                .padding(.vertical, MoyeotaSpacing.Xs)
         }
 
         // 채팅방이 생긴 뒤에만 뜬다. 채팅 **탭**이 아니라 채팅방을 스택에 쌓아 열기 때문에
         // 뒤로가기 한 번이면 이 대기 화면으로 돌아온다.
+        //
+        // 옅은 파랑 알약(`SoftButton`) — 주 CTA(파란 솔리드)와 같은 모양·높이라 한 가족으로 읽히고,
+        // 색은 한 단계 아래라 「합승 완료」·「출발」 같은 주 행동을 가리지 않는다(디자인 QA W2).
         if let onOpenChat {
-            OpenChatButton(onClick: onOpenChat)
-                .padding(.horizontal, 16)
-            Spacer().frame(height: 8)
+            SoftButton(text: "채팅 열기", onClick: onOpenChat)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+            Spacer().frame(height: MoyeotaSpacing.Xs)
         }
 
         // 약속 흐름 — 단계가 **정확히 하나의 블록**을 고른다. `switch` 를 열거형 전체로 두어
@@ -724,13 +670,17 @@ public struct MatchWaitingScreen: View {
         //
         // 숨기지 않고 비활성으로 남기는 이유: 이 자리가 비면 확정된 방에서 뒤로 갈 길이
         // 사라진 것처럼 보인다. 화면을 벗어나는 길은 헤더의 뒤로가기(방 유지)로 열려 있다.
-        GrayActionButton(
+        //
+        // 바탕 없는 빨간 글자 알약(`DangerTextButton`) — 디자인 문서의 「요청 취소」(button-danger).
+        // 예전 회색 r16 상자는 위 파란 알약과 모양이 달라 버튼 셋이 세 모양이었고, 회색은 「되돌리기
+        // 어려운 이탈」을 말하지 못했다(디자인 QA W2). 누르면 늘 확인 다이얼로그가 먼저 뜬다.
+        DangerTextButton(
             text: leaveLabel(canLeave: canLeave, finishStage: finishStage),
             onClick: { cancelConfirming = true },
             enabled: canLeave && !actionInProgress
         )
-        .padding(.horizontal, 16)
-        Spacer().frame(height: 12)
+        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+        Spacer().frame(height: MoyeotaSpacing.Xs)
         NavigationBarSpacer()
     }
 
@@ -751,8 +701,8 @@ public struct MatchWaitingScreen: View {
                     )
                 }
             )
-            .padding(.horizontal, 16)
-            Spacer().frame(height: 10)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+            Spacer().frame(height: MoyeotaSpacing.Xs)
         // 비방장: **비활성 버튼을 두지 않는다.** 누를 수 없는 버튼은 왜 못 누르는지
         // 말해 주지 못하므로, 누가 정하는지와 정해지면 어떻게 되는지를 한 줄로 적는다.
         case .confirmByHost:
@@ -830,14 +780,6 @@ public struct MatchWaitingScreen: View {
     }
 }
 
-/// 머티리얼 잉크 리플 자리의 눌림 표시. 배경이 없는 아이콘 버튼에 쓴다(디자인 시스템의 아이콘 눌림과 같은 60%).
-struct IconPressStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.6 : 1)
-    }
-}
-
 /// 「몇 분 뒤에 만날까요?」 + 프리셋 칩 — **방장에게만** 보이는 약속 확정 블록.
 ///
 /// 칩에는 숫자만 적고(「10분」) 단위는 위의 물음이 말한다 — 393dp 폭에서 「10분 뒤」 다섯 개는 줄을
@@ -856,33 +798,33 @@ private struct MeetingPresetBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 보내는 중에는 물음 대신 진행을 적는다 — 칩은 `MoyeotaChip` 이라 비활성 모양이 없고
-            // (디자인 시스템에 그 상태가 없다) 눌러도 아무 일이 없으면 왜 안 되는지 알 수 없다.
+            // 보내는 중에는 물음 대신 진행을 적는다 — 칩이 흐려지기만 하면 왜 안 눌리는지 알 수 없다.
             // 중복 제출은 `runAction` 이 이미 막으므로, 여기서는 **그 사실을 보여 주기만** 한다.
             Text(enabled ? MEETING_PRESET_PROMPT : "약속 시간을 정하는 중…")
-                .moyeotaText(inlineType(15, .bold), color: MoyeotaColor.InkPrimary)
-            Spacer().frame(height: 4)
+                .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+            Spacer().frame(height: MoyeotaSpacing.Xxs)
             Text(MEETING_CONFIRM_HELP)
-                .moyeotaText(inlineType(12, .medium), color: GrayAsh)
-            Spacer().frame(height: 10)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+            Spacer().frame(height: MoyeotaSpacing.Xxs)
             // 칩을 **자기 폭대로** 두고 줄을 가로 스크롤로 만든다. 다섯 칸을 균등 분할하면 기본
             // 글자 크기에서는 들어맞지만(칩당 ≈67pt), 글자 크기를 키운 기기에서 그만큼 커져
             // 「10분」이 두 줄로 접히거나 잘린다 — 접근성 설정 하나로 깨지는 레이아웃이다.
             // 자기 폭이면 기본에서는 스크롤이 생기지 않고, 커졌을 때만 밀린다.
+            // 칩 사이 8 — 칩은 보이는 높이 36 에 터치 48 이라(공용 칩) 위아래 여백은 칩이 이미 갖는다.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: MoyeotaSpacing.Xs) {
                     ForEach(MEETING_PRESET_MINUTES, id: \.self) { minutes in
                         MoyeotaChip(
                             text: "\(minutes)분",
                             selected: selectedMinutes == minutes,
-                            onClick: { if enabled { onPick(minutes) } }
+                            onClick: { if enabled { onPick(minutes) } },
+                            enabled: enabled
                         )
                     }
                 }
             }
-            Spacer().frame(height: 8)
             Text(MEETING_PRESET_LIMIT_NOTE)
-                .moyeotaText(inlineType(12, .medium), color: GrayMute)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -900,7 +842,7 @@ private struct MeetingPresetBlock: View {
 private struct ArrivedBadge: View {
     var body: some View {
         Text("도착")
-            .moyeotaText(inlineType(11, .bold), color: MoyeotaColor.Success600)
+            .moyeotaText(MoyeotaType.CaptionSm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.Success600)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(MoyeotaColor.Success50, in: Capsule(style: .circular))
@@ -919,25 +861,25 @@ private struct WaitingMemberRow: View {
     var body: some View {
         HStack(spacing: 0) {
             MemberAvatar(user: member, size: 36)
-            Spacer().frame(width: 10)
+            Spacer().frame(width: MoyeotaSpacing.Sm)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Text(member.displayNickname)
                         .moyeotaText(
-                            inlineType(15, .bold),
-                            color: member.isWithdrawn ? GrayMute : MoyeotaColor.InkPrimary
+                            MoyeotaType.BodyStrong.hangulTrimmed,
+                            color: member.isWithdrawn ? MoyeotaColor.TextMute : MoyeotaColor.InkPrimary
                         )
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if member.isMe {
-                        Spacer().frame(width: 6)
+                        Spacer().frame(width: MoyeotaSpacing.Xs)
                         MeBadge()
                             .fixedSize()
                     }
                     // 「방장」 — 서버가 멤버마다 내려 주는 값이다(추정이 아니다). 내 줄에는 붙지 않는다:
                     // 서버가 host 를 빼먹었을 때의 폴백이 내 줄만 true 로 만들기 때문이다(showsHostBadge 주석).
                     if member.showsHostBadge {
-                        Spacer().frame(width: 6)
+                        Spacer().frame(width: MoyeotaSpacing.Xs)
                         HostBadge()
                             .fixedSize()
                     }
@@ -945,19 +887,18 @@ private struct WaitingMemberRow: View {
                     // 방장 배지와 달리 폴백이 만들어 낸 값이 아니라 **서버가 말한 사실**이라
                     // 내 줄에서도 거짓이 될 수 없고, 내가 알렸는지를 확인할 자리가 여기다.
                     if showsArrivedBadge(member: member, confirmed: confirmed) {
-                        Spacer().frame(width: 6)
+                        Spacer().frame(width: MoyeotaSpacing.Xs)
                         ArrivedBadge()
                             .fixedSize()
                     }
                 }
                 // 원본 숫자(Roboto)는 폭이 모두 같아 「탑승 11회」와 「탑승 25회」의 폭이 같다. SF 는 1 이 좁다.
                 Text(member.isWithdrawn ? "탈퇴한 회원" : member.rideCountLabel)
-                    .monospacedDigit()
-                    .moyeotaText(inlineType(12, .medium), color: GrayMute)
+                    .moyeotaText(MoyeotaType.CaptionMd.tabularNums().hangulTrimmed, color: MoyeotaColor.TextMute)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, MoyeotaSpacing.Xxs)
     }
 }
 
@@ -968,13 +909,13 @@ private struct ConditionRow: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(label)
-                .moyeotaText(inlineType(14, .medium), color: MoyeotaColor.TextMute)
+                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                 .fixedSize()
-            Spacer().frame(width: 12)
+            Spacer().frame(width: MoyeotaSpacing.Sm)
             // 출발지·도착지 이름은 16 에서 역지오코딩된 전체 주소일 수 있다(「부산광역시 …63번길 2 …」).
             // 남는 폭을 다 쓰되 라벨을 밀어내지 않도록 폭을 채우고, 넘치면 말줄임한다.
             Text(value)
-                .moyeotaText(inlineType(14, .bold), color: MoyeotaColor.InkPrimary)
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.trailing)
@@ -1021,162 +962,8 @@ private struct SearchingBadgeContent: View {
             }
             Spacer().frame(width: 8)
             Text(text)
-                .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.InkPrimary)
+                .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.InkPrimary)
         }
-    }
-}
-
-// 와이어프레임의 회색 보조 버튼 (그만 찾기)
-private struct GrayActionButton: View {
-    let text: String
-    let onClick: () -> Void
-    let enabled: Bool
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .circular)
-        Button(action: onClick) {
-            Text(text)
-                .moyeotaText(inlineType(15, .bold), color: enabled ? GraySlate : MoyeotaColor.TextAsh)
-                .frame(maxWidth: .infinity)
-                .frame(height: 52)
-                .background(GrayButtonBg, in: shape)
-        }
-        .buttonStyle(PressOverlayStyle(shape: shape))
-        .disabled(!enabled)
-    }
-}
-
-/// 머티리얼 `AlertDialog` 의 자리 — 시스템 알림은 글자 크기·색·버튼 모양을 원본대로 쓸 수 없어 직접 그린다.
-///
-/// 값은 M3 `AlertDialog` 기본값이다: 모서리 28, 안쪽 여백 24, 제목 아래 16, 본문 아래 24, 버튼 사이 8, 폭 최소 280.
-/// 폭 상한 320 은 원본 렌더에서 잰 값이다(화면 폭 411.4dp·401.9dp 에서 모두 320dp).
-/// 제목은 `headlineSmall`(줄 높이 32), 본문은 `bodyMedium`(줄 높이 20 · 자간 0.25 · `onSurfaceVariant`),
-/// 버튼은 `TextButton`(`labelLarge`: 줄 높이 20 · 자간 0.1, 여백 12/8, 최소 58×40, 터치 영역 높이 48)의 글자 모양을 물려받는다.
-private struct ConfirmDialog: View {
-    let title: String
-    let text: String
-    let confirmLabel: String
-    let confirmColor: Color
-    let dismissLabel: String
-    let onConfirm: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        ZStack {
-            // 안드로이드 대화상자 창의 기본 어둡기(0.6)다. 앱의 `Scrim` 토큰(40%)은 시트용이라 쓰지 않는다.
-            Color.black.opacity(0.6)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onDismiss)
-                .accessibilityHidden(true)
-
-            // 원본 대화상자 창은 시스템 바를 뺀 영역의 가운데에 놓인다. 이 오버레이는 화면 전체라 두 바의 높이를 직접 뺀다.
-            VStack(spacing: 0) {
-                StatusBarSpacer()
-                card.frame(maxHeight: .infinity)
-                NavigationBarSpacer()
-            }
-        }
-    }
-
-    private var card: some View {
-        ConfirmDialogLayout(minWidth: 280 - 48, maxWidth: 320 - 48) {
-            Text(title)
-                .moyeotaText(
-                    MoyeotaType(fontSize: 17, fontWeight: .bold, lineHeight: .sp(32)),
-                    color: MoyeotaColor.InkPrimary
-                )
-                .padding(.bottom, 16)
-            Text(text)
-                .moyeotaText(
-                    MoyeotaType(fontSize: 14, fontWeight: .regular, lineHeight: .sp(20), letterSpacing: 0.25),
-                    color: MoyeotaColor.TextMute
-                )
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 24)
-            // 버튼 순서는 원본 그대로 — 닫기가 왼쪽, 확인이 오른쪽.
-            HStack(spacing: 8) {
-                dialogButton(label: dismissLabel, weight: .medium, color: MoyeotaColor.TextMute, action: onDismiss)
-                dialogButton(label: confirmLabel, weight: .bold, color: confirmColor, action: onConfirm)
-            }
-        }
-        .padding(24)
-        .background(MoyeotaColor.SurfaceCanvas, in: RoundedRectangle(cornerRadius: 28, style: .circular))
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityAction(.escape, onDismiss)
-    }
-
-    private func dialogButton(
-        label: String,
-        weight: Font.Weight,
-        color: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(label)
-                .moyeotaText(
-                    MoyeotaType(fontSize: 14, fontWeight: weight, lineHeight: .sp(20), letterSpacing: 0.1),
-                    color: color
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(minWidth: 58, minHeight: 40)
-        }
-        .buttonStyle(DialogButtonStyle())
-    }
-}
-
-/// 제목·본문은 왼쪽, 마지막(버튼 줄)은 오른쪽에 붙인다.
-///
-/// 폭이 **가장 넓은 내용**으로 정해지는 것이 원본과 같은 점이다(원본 로그아웃 확인창 스크린샷: 본문 폭 + 48).
-/// `frame(maxWidth:)` 로 잡으면 짧은 문구에서도 대화상자가 화면 폭까지 늘어난다.
-///
-/// 폭은 줄바꿈 전 너비로 정한다. 본문이 접히면 원본 `Text` 는 상한까지 채우지만 SwiftUI `Text` 는 가장 긴 줄로 줄어들어,
-/// 접힌 뒤의 너비로 정하면 문구마다 대화상자 폭이 달라진다.
-private struct ConfirmDialogLayout: Layout {
-    let minWidth: CGFloat
-    let maxWidth: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let limit = childProposal(proposal)
-        let widest = subviews.map { $0.sizeThatFits(ProposedViewSize(width: nil, height: nil)).width }.max() ?? 0
-        let width = min(max(widest, minWidth), limit.width ?? maxWidth)
-        let children = ProposedViewSize(width: width, height: nil)
-        return CGSize(
-            width: width,
-            height: subviews.map { $0.sizeThatFits(children).height }.reduce(0, +)
-        )
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let limit = childProposal(ProposedViewSize(width: bounds.width, height: nil))
-        var y = bounds.minY
-        for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(limit)
-            let isLast = index == subviews.count - 1
-            let x = isLast ? bounds.maxX - size.width : bounds.minX
-            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: limit)
-            y += size.height
-        }
-    }
-
-    private func childProposal(_ proposal: ProposedViewSize) -> ProposedViewSize {
-        ProposedViewSize(width: min(proposal.width ?? maxWidth, maxWidth), height: nil)
-    }
-}
-
-/// 머티리얼 `TextButton` 의 눌림·터치 영역 자리. 줄 높이는 터치 영역 48 로 잡힌다(원본 스크린샷의 확인창 높이로 확인).
-private struct DialogButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                if configuration.isPressed {
-                    Capsule(style: .circular).fill(Color.black.opacity(0.1))
-                }
-            }
-            .frame(minHeight: 48)
-            .contentShape(Rectangle())
     }
 }
 

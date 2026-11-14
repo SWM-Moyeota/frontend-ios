@@ -72,146 +72,122 @@ public struct AccountDeleteScreen: View {
     public var body: some View {
         let canSubmit = canSubmitAccountDeletion(password: password, submitting: submitting)
 
-        ZStack {
-            VStack(spacing: 0) {
-                StatusBarSpacer()
-                MoyeotaTopBar(title: "회원 탈퇴", onBack: onBack)
+        VStack(spacing: 0) {
+            StatusBarSpacer()
+            MoyeotaTopBar(title: "회원 탈퇴", onBack: onBack)
 
-                ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Spacer().frame(height: 16)
+                    Text("탈퇴하면 되돌릴 수 없어요")
+                        .moyeotaText(MoyeotaType.HeadingLg.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    Spacer().frame(height: 8)
+                    Text("아래 내용을 확인한 뒤 비밀번호를 입력해 주세요")
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
+
+                    Spacer().frame(height: 20)
+                    // 경고를 카드로 묶어 "읽어야 하는 덩어리"로 보이게 한다. 배너(NoticeBanner)로 쓰지 않는 이유는
+                    // 네 줄이라 한 문단으로 뭉쳐 보이고, 줄마다 다른 사실이라는 게 사라지기 때문이다.
                     VStack(alignment: .leading, spacing: 0) {
-                        Spacer().frame(height: 16)
-                        Text("탈퇴하면 되돌릴 수 없어요")
-                            .moyeotaText(MoyeotaType.HeadingLg.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                        Spacer().frame(height: 8)
-                        Text("아래 내용을 확인한 뒤 비밀번호를 입력해 주세요")
-                            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
-
-                        Spacer().frame(height: 20)
-                        // 경고를 카드로 묶어 "읽어야 하는 덩어리"로 보이게 한다. 배너(NoticeBanner)로 쓰지 않는 이유는
-                        // 네 줄이라 한 문단으로 뭉쳐 보이고, 줄마다 다른 사실이라는 게 사라지기 때문이다.
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(AccountDeletionWarnings.enumerated()), id: \.offset) { index, warning in
-                                if index > 0 {
-                                    Spacer().frame(height: 10)
-                                }
-                                WarningLine(text: warning)
+                        ForEach(Array(AccountDeletionWarnings.enumerated()), id: \.offset) { index, warning in
+                            if index > 0 {
+                                Spacer().frame(height: 8)
                             }
+                            WarningLine(text: warning)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(MoyeotaColor.Danger50, in: RoundedRectangle(cornerRadius: 14, style: .circular))
-
-                        // 경고 카드 바로 아래 — 네 줄의 전문으로 가는 한 줄. 입력란보다 위에 둬서 키보드가
-                        // 올라와도 밀려 사라지지 않는다(이 화면을 다이얼로그로 만들지 않은 것과 같은 이유다).
-                        if let guideUrl {
-                            Button {
-                                openWebPage(url: guideUrl)
-                            } label: {
-                                HStack(spacing: 0) {
-                                    Text("지워지는 것과 남는 것 자세히 보기")
-                                        .moyeotaText(
-                                            MoyeotaType.BodySm.copy(fontWeight: .bold).hangulTrimmed,
-                                            color: MoyeotaColor.Link
-                                        )
-                                    Spacer().frame(width: 4, height: 4)
-                                    // ↗ = 앱 밖으로 나간다. 35 마이페이지와 같은 기호를 그대로 쓴다.
-                                    ExternalLinkIcon(tint: MoyeotaColor.Link)
-                                }
-                                // 글자만 눌리면 터치 영역이 20pt 밖에 안 된다 — 위아래로 넓혀 둔다
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 2)
-                            }
-                            .buttonStyle(NoIndicationStyle())
-                            .padding(.top, 12)
-                        }
-
-                        Spacer().frame(height: 24)
-                        MoyeotaTextField(
-                            value: password,
-                            onValueChange: onPasswordChange,
-                            label: "비밀번호",
-                            placeholder: "지금 쓰고 있는 비밀번호",
-                            errorText: passwordError,
-                            helperText: passwordError == nil ? "본인 확인을 위해 한 번 더 입력해요" : nil,
-                            keyboardOptions: KeyboardOptions(keyboardType: .password, imeAction: .done),
-                            visualTransformation: passwordVisible ? .None : PasswordVisualTransformation(),
-                            enabled: !submitting
-                        ) {
-                            // 04a 로그인과 같은 방식 — 비밀번호를 못 보고 치다 틀리는 쪽이 더 흔한 사고다
-                            Button {
-                                passwordVisible.toggle()
-                            } label: {
-                                Text(passwordVisible ? "숨기기" : "보기")
-                                    .moyeotaText(
-                                        MoyeotaType.CaptionMd.copy(fontWeight: .bold),
-                                        color: MoyeotaColor.TextMute
-                                    )
-                            }
-                            .buttonStyle(NoIndicationStyle())
-                        }
-
-                        // 이 화면에서 고칠 수 없는 실패(진행 중 합승·네트워크)는 버튼 위 배너로 둔다 — 입력란을
-                        // 빨갛게 만들면 사용자가 비밀번호를 계속 다시 친다.
-                        if let bannerError {
-                            Spacer().frame(height: 16)
-                            NoticeBanner(kind: .error, text: bannerError)
-                        }
-                        Spacer().frame(height: 24)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16)
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                // 원본 `verticalScroll` 은 자기 칸에서 잘린다.
-                .clipped()
-                // 원본 `verticalScroll` 은 스크롤해도 키보드를 내리지 않는다 — 비밀번호를 치다 경고를 다시 읽어도 입력이 이어진다.
-                .scrollDismissesKeyboard(.never)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(MoyeotaColor.Danger50, in: MoyeotaShape.Card)
 
-                DangerCtaButton(
-                    text: "탈퇴하기",
-                    onClick: { confirming = true },
-                    enabled: canSubmit,
-                    loading: submitting
-                )
-                .padding(.horizontal, 16)
-                Spacer().frame(height: 16)
-                NavigationBarSpacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(MoyeotaColor.SurfaceSoft)
-
-            if confirming {
-                MaterialAlertDialog(
-                    onDismissRequest: { confirming = false },
-                    title: {
-                        Text("정말 탈퇴할까요?")
-                            .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                    },
-                    text: {
-                        // 다이얼로그는 목록을 되풀이하지 않는다 — 바로 위에서 읽은 것을 다시 읽히면
-                        // 사용자는 둘 중 하나만 읽고 넘긴다. 여기서는 "되돌릴 수 없다" 하나만 말한다.
-                        MaterialDialogBodyText(
-                            text: "탈퇴하면 계정과 저장한 정보가 사라지고 되돌릴 수 없어요",
-                            style: MoyeotaType.BodySm.hangulTrimmed,
-                            color: MoyeotaColor.TextBody
-                        )
-                    },
-                    confirmButton: {
-                        MaterialTextButton(
-                            text: "탈퇴하기",
-                            style: MaterialTextStyle.labelLarge(fontWeight: .bold),
-                            color: MoyeotaColor.Danger500
+                    // 경고 카드 바로 아래 — 네 줄의 전문으로 가는 한 줄. 입력란보다 위에 둬서 키보드가
+                    // 올라와도 밀려 사라지지 않는다(이 화면을 다이얼로그로 만들지 않은 것과 같은 이유다).
+                    if let guideUrl {
+                        // 글자 링크는 공용 `TextLinkButton` — 터치 영역 48 + 눌림 표시(디자인 QA G12). 안쪽 여백
+                        // 8 만큼 밖으로 당겨 글자 시작을 경고 카드 가장자리에 맞춘다.
+                        TextLinkButton(
+                            text: "지워지는 것과 남는 것 자세히 보기",
+                            onClick: { openWebPage(url: guideUrl) },
+                            color: MoyeotaColor.Link,
+                            style: MoyeotaType.BodySm.copy(fontWeight: .semibold)
                         ) {
-                            confirming = false
-                            onDelete()
+                            // 바깥 화살표 = 앱 밖으로 나간다. 35 마이페이지와 같은 기호(디자인시스템 아이콘)를 쓴다.
+                            ExternalLinkIcon(tint: MoyeotaColor.Link)
                         }
-                    },
-                    dismissButton: {
-                        MaterialTextButton(text: "취소", color: MoyeotaColor.TextMute) {
-                            confirming = false
-                        }
+                        .padding(.top, 4)
+                        .offset(x: -8)
                     }
+
+                    Spacer().frame(height: 24)
+                    MoyeotaTextField(
+                        value: password,
+                        onValueChange: onPasswordChange,
+                        label: "비밀번호",
+                        placeholder: "지금 쓰고 있는 비밀번호",
+                        errorText: passwordError,
+                        helperText: passwordError == nil ? "본인 확인을 위해 한 번 더 입력해요" : nil,
+                        keyboardOptions: KeyboardOptions(keyboardType: .password, imeAction: .done),
+                        visualTransformation: passwordVisible ? .None : PasswordVisualTransformation(),
+                        enabled: !submitting
+                    ) {
+                        // 04a 로그인과 같은 기능 — 비밀번호를 못 보고 치다 틀리는 쪽이 더 흔한 사고다.
+                        // 글자만 눌리던 것을 48 터치 영역 + 눌림 표시가 있는 공용 글자 버튼으로 바꿨다(G12).
+                        TextLinkButton(
+                            text: passwordVisible ? "숨기기" : "보기",
+                            onClick: { passwordVisible.toggle() },
+                            color: MoyeotaColor.TextMute,
+                            style: MoyeotaType.CaptionMd.copy(fontWeight: .semibold)
+                        )
+                        // 칸 안쪽 여백(16)과 겹치지 않게 글자 끝을 그 선에 맞춘다
+                        .offset(x: 8)
+                    }
+
+                    // 이 화면에서 고칠 수 없는 실패(진행 중 합승·네트워크)는 버튼 위 배너로 둔다 — 입력란을
+                    // 빨갛게 만들면 사용자가 비밀번호를 계속 다시 친다.
+                    if let bannerError {
+                        Spacer().frame(height: 16)
+                        NoticeBanner(kind: .error, text: bannerError)
+                    }
+                    Spacer().frame(height: 24)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            // 원본 `verticalScroll` 은 자기 칸에서 잘린다.
+            .clipped()
+            // 원본 `verticalScroll` 은 스크롤해도 키보드를 내리지 않는다 — 비밀번호를 치다 경고를 다시 읽어도 입력이 이어진다.
+            .scrollDismissesKeyboard(.never)
+
+            DangerCtaButton(
+                text: "탈퇴하기",
+                onClick: { confirming = true },
+                enabled: canSubmit,
+                loading: submitting
+            )
+            .padding(.horizontal, 16)
+            Spacer().frame(height: 16)
+            NavigationBarSpacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 입력 화면은 흰 바탕이다(디자인 QA G2) — 회색 바탕에서는 비활성 버튼과 입력칸 테두리가 바탕에 묻힌다
+        .background(MoyeotaColor.SurfaceCanvas)
+        .overlay {
+            if confirming {
+                MoyeotaConfirmDialog(
+                    title: "정말 탈퇴할까요?",
+                    confirmText: "탈퇴하기",
+                    onConfirm: {
+                        confirming = false
+                        onDelete()
+                    },
+                    onDismiss: { confirming = false },
+                    // 다이얼로그는 목록을 되풀이하지 않는다 — 바로 위에서 읽은 것을 다시 읽히면
+                    // 사용자는 둘 중 하나만 읽고 넘긴다. 여기서는 "되돌릴 수 없다" 하나만 말한다.
+                    body: "탈퇴하면 계정과 저장한 정보가 사라지고 되돌릴 수 없어요",
+                    dismissText: "취소",
+                    destructive: true
                 )
             }
         }
@@ -247,13 +223,5 @@ private struct WarningLine: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// `Modifier.clickable(indication = null)` 자리. 눌러도 아무 표시가 없고, 글자 영역 전체가 탭 영역이다.
-private struct NoIndicationStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .contentShape(Rectangle())
     }
 }

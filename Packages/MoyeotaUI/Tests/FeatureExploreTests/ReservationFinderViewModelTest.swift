@@ -3,8 +3,8 @@ import Foundation
 import MoyeotaDomain
 import Testing
 
-// 원본에는 없는 테스트다. 원본은 요청·재시도를 `combine` + `flatMapLatest` 에 맡겨 따로 시험하지 않는데,
-// iOS 는 그 자리(같은 요청 무시·앞 조회 끊기·늦은 응답 버리기)를 직접 쓰므로 여기서 본다.
+// 원본에는 없는 테스트다. 원본은 시계와 조회 칸(`ExploreRefreshCycle`)을 가상 시간으로만 시험하는데, iOS 는
+// 같은 요청 무시·앞 조회 끊기·늦은 응답 버리기를 태스크로 직접 쓰므로(URLSession 은 취소와 응답이 엇갈린다) 여기서 본다.
 
 private struct TestFailure: Error {}
 
@@ -161,9 +161,15 @@ struct ReservationFinderViewModelTest {
         .byDate(departureLat: 35.23, departureLng: 129.08, date: "2026-11-11", destination: destination)
     }
 
+    /// 「곧 출발」의 15초 주기가 시험 도중에 돌지 않게 한다 — 대기는 시험이 끝나며 화면을 가릴 때 취소된다.
+    private func makeViewModel() -> ReservationFinderViewModel {
+        ReservationFinderViewModel(repository: repository, sleep: { _ in try await Task.sleep(for: .seconds(3_600)) })
+    }
+
     @Test("요청이 없으면 조회하지 않고 비어 있다")
     func nilQueryIsIdle() async {
-        let viewModel = ReservationFinderViewModel(repository: repository)
+        let viewModel = makeViewModel()
+        await viewModel.onScreenStart()?.value
         await viewModel.request(nil)?.value
         await viewModel.retry()?.value
 
@@ -175,25 +181,29 @@ struct ReservationFinderViewModelTest {
     /// 같은 입력으로 다시 읽는 길은 `retry` 하나다.
     @Test("같은 요청은 다시 조회하지 않고 다시 시도만 다시 읽는다")
     func sameQueryIgnoredRetryRefetches() async {
-        let viewModel = ReservationFinderViewModel(repository: repository)
+        let viewModel = makeViewModel()
+        viewModel.onScreenStart()
         repository.enqueueSoon { [reservation("1")] }
-        await viewModel.request(.soon(bounds: bounds))?.value
+        viewModel.request(.soon(bounds: bounds))
+        await eventually("첫 목록") { viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("1"))]) }
         #expect(viewModel.request(.soon(bounds: bounds)) == nil)
         #expect(repository.calls.count == 1)
 
         repository.enqueueSoon { [reservation("2")] }
-        await viewModel.retry()?.value
-
+        viewModel.retry()
+        await eventually("다시 읽은 목록") { viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("2"))]) }
         #expect(repository.calls.count == 2)
-        #expect(viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("2"))]))
+        viewModel.onScreenStop()
     }
 
     /// 「곧 출발」은 실시간 목록과 같은 이유로 넓힌 범위를 묻고, 날짜 검색은 도착지를 **함께** 싣는다.
     @Test("곧 출발은 넓힌 범위로, 날짜 검색은 도착지와 함께 묻는다")
     func fetchParameters() async {
-        let viewModel = ReservationFinderViewModel(repository: repository)
+        let viewModel = makeViewModel()
+        viewModel.onScreenStart()
         repository.enqueueSoon { [reservation("1")] }
-        await viewModel.request(.soon(bounds: bounds))?.value
+        viewModel.request(.soon(bounds: bounds))
+        await eventually("곧 출발 목록") { viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("1"))]) }
         repository.enqueueSearch { [reservation("2")] }
         await viewModel.request(byDate)?.value
 
@@ -207,13 +217,15 @@ struct ReservationFinderViewModelTest {
         #expect(
             viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("2"), destinationNearby: true)])
         )
+        viewModel.onScreenStop()
     }
 
     /// ★ 모드를 바꾸는 순간 앞 조회를 끊는다 — 늦게 끝난 「곧 출발」 응답이 「날짜로 찾기」 목록을
     /// 덮으면 다른 영역의 방이 섞여 보인다(`ReservationFinder.swift` 의 1급 사실).
     @Test("새 요청이 오면 앞 조회의 늦은 응답을 버린다")
     func staleResponseIsDropped() async {
-        let viewModel = ReservationFinderViewModel(repository: repository)
+        let viewModel = makeViewModel()
+        viewModel.onScreenStart()
         let latch = Latch()
         repository.enqueueSoon {
             await latch.wait()
@@ -232,22 +244,85 @@ struct ReservationFinderViewModelTest {
         #expect(
             viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("date"), destinationNearby: true)])
         )
+        viewModel.onScreenStop()
     }
 
     /// 실패는 「예약이 없다」와 다른 상태다. 태스크가 살아 있는 `URLError(.cancelled)` 도 원본에서는 OkHttp
     /// `IOException` 이라 실패다 — 끊긴 요청으로 보고 상태를 안 쓰면 「불러오는 중」에 머문다.
     @Test("조회 실패는 실패 상태이고 다시 시도로 회복한다")
     func failureThenRetry() async {
-        let viewModel = ReservationFinderViewModel(repository: repository)
+        let viewModel = makeViewModel()
+        viewModel.onScreenStart()
         repository.enqueueSoon { throw URLError(.cancelled) }
-        await viewModel.request(.soon(bounds: bounds))?.value
-        #expect(viewModel.uiState == .failed)
+        viewModel.request(.soon(bounds: bounds))
+        await eventually("실패") { viewModel.uiState == .failed }
 
         repository.enqueueSoon { [] }
-        await viewModel.retry()?.value
-        #expect(viewModel.uiState == .success(items: []), "빈 목록은 성공이다")
+        viewModel.retry()
+        await eventually("빈 목록은 성공이다") { viewModel.uiState == .success(items: []) }
 
         await viewModel.request(nil)?.value
         #expect(viewModel.uiState == .idle, "요청이 빠지면 목록을 비운다")
+        viewModel.onScreenStop()
+    }
+
+    // ─── 가시성 게이트 · 「곧 출발」 주기 (2026-11) ─────────────────────────────
+
+    /// 가려진 동안의 요청은 조회하지 않는다 — 보이면 그때 읽는다. 새 목록이라 목록 자리는 그 자리에서 비운다
+    /// (`loading` — 앞 목록의 줄을 남기지 않는다. 가려져 있으니 보이는 것은 없다).
+    @Test("가려진 동안의 요청은 조회하지 않고 보이면 그때 읽는다")
+    func hiddenRequestWaitsForVisibility() async {
+        let viewModel = makeViewModel()
+        repository.enqueueSearch { [reservation("1")] }
+        #expect(viewModel.request(byDate) == nil)
+        #expect(viewModel.uiState == .loading)
+        #expect(repository.calls.isEmpty)
+
+        await viewModel.onScreenStart()?.value
+        #expect(repository.calls.count == 1)
+        #expect(
+            viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("1"), destinationNearby: true)])
+        )
+
+        // 가려지면 보던 목록은 그대로 둔다. 요청이 빠지면 가려져 있어도 비운다
+        viewModel.onScreenStop()
+        #expect(viewModel.uiState != .idle)
+        await viewModel.request(nil)?.value
+        #expect(viewModel.uiState == .idle)
+    }
+
+    /// 실시간 목록과 같은 규칙(`STALE_NOTICE_FAILURES`) — 같은 조회의 갱신이 실패해도 보던 목록을 남기고,
+    /// 연속 두 번부터 「낡음」을 켠다. 성공 한 번이 끈다.
+    @Test("곧 출발 갱신이 연속 두 번 실패하면 목록을 둔 채 낡음을 켜고 성공하면 끈다")
+    func soonStaleAfterTwoFailures() async {
+        let clock = VirtualClock()
+        let viewModel = ReservationFinderViewModel(repository: repository, sleep: { try await clock.sleep($0) })
+        let shown = [ReservationCardUi(ride: reservation("1"))]
+        repository.enqueueSoon { [reservation("1")] }
+        repository.enqueueSoon { throw URLError(.notConnectedToInternet) }
+        repository.enqueueSoon { throw URLError(.notConnectedToInternet) }
+        viewModel.request(.soon(bounds: bounds))
+        // 카운트다운은 조회를 기다리지 않고 다음 칸에 들어간다 — 시계를 민 뒤 나간 조회가 끝나는 것은 따로 본다
+        let idle: @MainActor () -> Bool = { !viewModel.refreshUi.refreshing }
+        await viewModel.onScreenStart()?.value
+        await clock.runCurrent()
+        #expect(viewModel.uiState == .success(items: shown))
+
+        await clock.advance(by: 15_000)
+        await eventually("실패 1회") { repository.calls.count == 2 && idle() }
+        #expect(viewModel.uiState == .success(items: shown), "한 번의 실패로는 알리지 않는다")
+
+        await clock.advance(by: 15_000)
+        await eventually("실패 2회") { repository.calls.count == 3 && idle() }
+        #expect(viewModel.uiState == .success(items: shown, stale: true))
+
+        repository.enqueueSoon { [reservation("2")] }
+        await clock.advance(by: 15_000)
+        await eventually("성공") { repository.calls.count == 4 && idle() }
+        #expect(viewModel.uiState == .success(items: [ReservationCardUi(ride: reservation("2"))]))
+        #expect(repository.calls.count == 4)
+
+        viewModel.onScreenStop()
+        await clock.runCurrent()
     }
 }

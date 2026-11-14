@@ -14,6 +14,14 @@ public enum TextLineHeight: Equatable, Sendable {
 ///
 /// moyeota-figma-tokens.json 의 core.font 값 그대로.
 /// 폰트 패밀리는 Pretendard 지정이지만 초안에서는 시스템 기본 sans 사용.
+///
+/// ### 쓰는 규칙 (디자인 QA G3, 2026-11)
+/// - **크기는 이 표 밖으로 나가지 않는다** — 11(배지만)·12·13·15·16·18·22·24. 화면에서 크기를 직접 정하지 않는다
+///   (`MoyeotaType(fontSize:)`·`.copy(fontSize:)`·`.font(.system(size:))` — `DesignTokenGuardTest` 가 막는다).
+///   예전엔 16가지 크기가 섞여 화면마다 "비슷하지만 다른" 글자가 생겼다
+/// - **굵기는 역할이 정한다** — Bold 는 `ButtonLg` 와 Display 계열만, 제목은 SemiBold, 본문은 Regular.
+///   모든 글자가 굵으면 눈이 쉴 곳이 없어 위계가 사라진다
+/// - 목록 제목은 `BodyStrong`, 메타는 `BodySm`
 public struct MoyeotaType: Equatable, Sendable {
     public var fontSize: CGFloat
     public var fontWeight: Font.Weight
@@ -24,6 +32,8 @@ public struct MoyeotaType: Equatable, Sendable {
     public var color: Color?
     /// 첫 줄 위·끝 줄 아래를 한글 대체 글꼴의 상자로 자르는가. `hangulTrimmed` 참고.
     public var trimsToHangulLineBox: Bool
+    /// 숫자 폭을 고정하는가(원본 `fontFeatureSettings = "tnum"`). `tabularNums()` 참고.
+    public var monospacedDigits: Bool
 
     public init(
         fontSize: CGFloat = 14,
@@ -31,7 +41,8 @@ public struct MoyeotaType: Equatable, Sendable {
         lineHeight: TextLineHeight? = nil,
         letterSpacing: CGFloat = 0,
         color: Color? = nil,
-        trimsToHangulLineBox: Bool = false
+        trimsToHangulLineBox: Bool = false,
+        monospacedDigits: Bool = false
     ) {
         self.fontSize = fontSize
         self.fontWeight = fontWeight
@@ -39,6 +50,7 @@ public struct MoyeotaType: Equatable, Sendable {
         self.letterSpacing = letterSpacing
         self.color = color
         self.trimsToHangulLineBox = trimsToHangulLineBox
+        self.monospacedDigits = monospacedDigits
     }
 
     /// `TextStyle.copy(...)` 자리. 넘긴 값만 바꾼다.
@@ -65,8 +77,11 @@ public struct MoyeotaType: Equatable, Sendable {
     public static let HeadingLg = MoyeotaType(fontSize: 18, fontWeight: .semibold, lineHeight: .em(1.35), letterSpacing: -0.1)
     public static let HeadingMd = MoyeotaType(fontSize: 16, fontWeight: .semibold, lineHeight: .em(1.35), letterSpacing: -0.1)
     public static let BodyMd = MoyeotaType(fontSize: 15, fontWeight: .regular, lineHeight: .em(1.5))
+    /// 목록 제목·장소 이름 — 본문 크기 그대로 굵기만 올린다(디자인 문서 body-strong, 15/600/1.4)
+    public static let BodyStrong = MoyeotaType(fontSize: 15, fontWeight: .semibold, lineHeight: .em(1.4))
     public static let BodySm = MoyeotaType(fontSize: 13, fontWeight: .regular, lineHeight: .em(1.5))
-    public static let CaptionMd = MoyeotaType(fontSize: 12, fontWeight: .regular, lineHeight: .em(1.35), letterSpacing: 0.2)
+    // 디자인 문서 caption-md 는 500 — 12pt 를 400 으로 두면 흰 바탕에서 획이 가늘어 회색 글자가 흐려진다
+    public static let CaptionMd = MoyeotaType(fontSize: 12, fontWeight: .medium, lineHeight: .em(1.35), letterSpacing: 0.2)
     public static let CaptionSm = MoyeotaType(fontSize: 11, fontWeight: .regular, lineHeight: .em(1.35), letterSpacing: 0.2)
     public static let ButtonLg = MoyeotaType(fontSize: 16, fontWeight: .bold)
     public static let ButtonMd = MoyeotaType(fontSize: 14, fontWeight: .semibold)
@@ -80,6 +95,7 @@ public struct MoyeotaType: Equatable, Sendable {
     public static var headingLg: MoyeotaType { HeadingLg }
     public static var headingMd: MoyeotaType { HeadingMd }
     public static var bodyMd: MoyeotaType { BodyMd }
+    public static var bodyStrong: MoyeotaType { BodyStrong }
     public static var bodySm: MoyeotaType { BodySm }
     public static var captionMd: MoyeotaType { CaptionMd }
     public static var captionSm: MoyeotaType { CaptionSm }
@@ -89,12 +105,23 @@ public struct MoyeotaType: Equatable, Sendable {
 }
 
 public extension MoyeotaType {
+    /// 숫자 폭을 고정한다(tabular figures) — 시각·요금처럼 **값이 바뀌어도 자리가 흔들리면 안 되는** 숫자에 쓴다.
+    /// 「오후 7:51」→「오후 8:16」에서 글자 폭이 달라 오른쪽 끝이 출렁이지 않게 한다. 원본 `TextStyle.tabularNums()` 자리.
+    func tabularNums() -> MoyeotaType {
+        var result = self
+        result.monospacedDigits = true
+        return result
+    }
+
     var font: Font {
-        .system(size: fontSize, weight: fontWeight)
+        let base = Font.system(size: fontSize, weight: fontWeight)
+        return monospacedDigits ? base.monospacedDigit() : base
     }
 
     var uiFont: UIFont {
-        .systemFont(ofSize: fontSize, weight: fontWeight.uiFontWeight)
+        monospacedDigits
+            ? .monospacedDigitSystemFont(ofSize: fontSize, weight: fontWeight.uiFontWeight)
+            : .systemFont(ofSize: fontSize, weight: fontWeight.uiFontWeight)
     }
 
     /// 지정한 줄 높이(pt). 지정이 없으면 nil.
@@ -146,21 +173,6 @@ public extension MoyeotaType {
     /// 위 패딩에 더하고 아래 패딩에서 뺄 값. 상자 높이는 그대로 두고 글자만 내린다.
     var inkDrop: CGFloat {
         trimsToHangulLineBox ? fontSize * Self.hangulInkDropRatio : 0
-    }
-
-    /// Compose `Text` 가 `style` 을 받지 않았을 때 물려받는 머티리얼 3 `bodyLarge` — 자간 0.5.
-    ///
-    /// 머티리얼 스타일은 줄을 자르지 않아(`Trim.None`) 16sp 이하의 줄 상자는 24 다. 그 위로는 한글 대체 글꼴이 줄을 밀어 올린다
-    /// (원본 UI 트리: 18sp 26.3, 20sp 28.5, 24sp 34.6).
-    static func inheritedBodyLarge(fontSize: CGFloat, fontWeight: Font.Weight = .regular) -> MoyeotaType {
-        let hangulBox = fontSize * hangulLineBoxRatio
-        return MoyeotaType(
-            fontSize: fontSize,
-            fontWeight: fontWeight,
-            lineHeight: .sp(max(24, hangulBox)),
-            letterSpacing: 0.5,
-            trimsToHangulLineBox: hangulBox > 24
-        )
     }
 }
 

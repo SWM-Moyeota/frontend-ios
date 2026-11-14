@@ -2,11 +2,6 @@ import MoyeotaDesignSystem
 import PresentationCore
 import SwiftUI
 
-private let ScreenBackground = Color(argb: 0xFFF5F7FA)
-private let TextSlate = Color(argb: 0xFF4B5563)
-private let TextFaint = Color(argb: 0xFF9AA1AC)
-private let CardShadow = Color(argb: 0x0F1B2A4A)
-
 /// 04 시작 화면의 신뢰 불릿 두 줄. 둘 다 서버 동작으로 확인한 사실이다.
 ///
 /// - 휴대폰 인증: 문자 인증 토큰이 없으면 서버가 가입을 `USER207 PHONE_NOT_VERIFIED` 로 거절한다
@@ -20,7 +15,9 @@ private let CardShadow = Color(argb: 0x0F1B2A4A)
 /// - 「운행 중 위치를 지인과 공유할 수 있어요」 — **위치 공유 기능이 없다**
 ///   (`docs/BACKEND-GAP-CLEANUP.md` §1 에서 보호자 공유·동승자 위치 보고를 전부 제거했다).
 ///
-/// 불릿은 **두 줄로 유지한다** — 카드 여백이 두 줄 기준으로 맞춰져 있다(아래 주석 참고).
+/// 불릿은 **두 줄로 유지한다** — 화면 높이가 두 줄 기준으로 맞춰져 있다.
+/// (2026-11 디자인 QA A1: 그림자 카드를 걷어내고 페이지 위에 바로 놓았다 — 카드 하나에 두 줄을 담으면
+/// "강조 상자"가 되어 바로 아래 CTA 와 시선을 다툰다.)
 let LoginTrustBullets = [
     "휴대폰 인증을 마친 사람만 가입해요",
     "함께 탈 사람의 탑승 횟수가 보여요",
@@ -64,7 +61,7 @@ func signupConsentNotice(
     return SignupConsentNotice(attributed: notice, onOpen: onOpen)
 }
 
-/// 주소가 있으면 링크로, 없으면 그냥 글자로 붙인다. 11pt 회색 문장에서 링크만 파랑 + 밑줄이다.
+/// 주소가 있으면 링크로, 없으면 그냥 글자로 붙인다. 12pt 회색 문장에서 링크만 파랑 + 밑줄이다.
 /// 링크 글자색은 `Text` 가 `tint` 로 칠하므로 그리는 쪽에서 `MoyeotaColor.Link` 를 준다.
 private func legalDocument(label: String, url: String?) -> AttributedString {
     var document = AttributedString(label)
@@ -104,49 +101,28 @@ public struct LoginScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer().frame(height: 24)
                     Text("모여타")
-                        // 원본은 줄 높이를 주지 않아 MaterialTheme 의 bodyLarge 줄 높이(24sp)를 물려받는다.
-                        .moyeotaText(
-                            MoyeotaType(fontSize: 15, fontWeight: .bold, lineHeight: .sp(24), letterSpacing: -0.3),
-                            color: MoyeotaColor.InkPrimary
-                        )
+                        .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
 
-                    Spacer().frame(height: 36)
+                    Spacer().frame(height: 32)
                     Text("믿을 수 있는 사람과\n택시를 나눠 타요")
-                        .moyeotaText(
-                            MoyeotaType(fontSize: 26, fontWeight: .bold, lineHeight: .sp(36), letterSpacing: -0.52).hangulTrimmed,
-                            color: MoyeotaColor.InkPrimary
-                        )
+                        .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
 
-                    Spacer().frame(height: 18)
+                    Spacer().frame(height: 16)
                     // 학교 이메일 인증은 가입 필수 경로가 아니다(마이페이지에서 나중에 추가하는 컨셉).
                     // 「학생만 · 학교 이메일로 확인」은 이제 사실이 아니라 지웠다.
                     Text("아이디로 간편하게 가입해요")
-                        .moyeotaText(
-                            MoyeotaType(fontSize: 14, lineHeight: .sp(20), letterSpacing: -0.28).hangulTrimmed,
-                            color: MoyeotaColor.TextMute
-                        )
+                        .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-                    Spacer().frame(height: 26)
-                    // 불릿이 3개에서 2개로 줄어 카드가 세로로 납작해졌다 —
-                    // 행 간격·상하 여백을 함께 줄여 예전 비율(여백 ≒ 행 간격)을 유지한다
-                    VStack(alignment: .leading, spacing: 20) {
+                    Spacer().frame(height: 24)
+                    VStack(alignment: .leading, spacing: 12) {
                         // 「학교 인증을 마친 학생만 매칭돼요」는 삭제 — 가입에 학교 인증 단계가 없어 사실이 아니다
                         ForEach(LoginTrustBullets, id: \.self) { TrustBulletRow(text: $0) }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 20)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .circular))
-                    .moyeotaShadow(
-                        elevation: 3,
-                        shape: RoundedRectangle(cornerRadius: 18, style: .circular),
-                        ambientColor: CardShadow,
-                        spotColor: CardShadow
-                    )
 
                     Spacer().frame(height: 24)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollIndicators(.hidden)
@@ -162,68 +138,57 @@ public struct LoginScreen: View {
                     onClick: onEmailStart
                 )
 
-                Spacer().frame(height: 18)
+                Spacer().frame(height: 4)
                 HStack(alignment: .center, spacing: 0) {
                     Text("이미 계정이 있어요")
-                        .moyeotaText(
-                            MoyeotaType(fontSize: 13, fontWeight: .medium, lineHeight: .sp(19), letterSpacing: -0.26),
-                            color: MoyeotaColor.TextMute
-                        )
-                    Spacer().frame(width: 12, height: 12)
-                    Button(action: onLogin) {
-                        Text("로그인")
-                            .moyeotaText(
-                                MoyeotaType(fontSize: 13, fontWeight: .bold, lineHeight: .sp(19), letterSpacing: -0.26),
-                                color: MoyeotaColor.Primary500
-                            )
-                    }
-                    .buttonStyle(NoIndicationButtonStyle())
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
+                    Spacer().frame(width: 4, height: 4)
+                    // 글자 크기 그대로 눌리던 링크(≈19, 눌림 표시 없음)를 48 터치 + 눌림 표시로 바꿨다(디자인 QA G12)
+                    TextLinkButton(
+                        text: "로그인",
+                        onClick: onLogin,
+                        color: MoyeotaColor.Primary600
+                    )
                 }
                 .frame(maxWidth: .infinity)
 
-                Spacer().frame(height: 11)
+                Spacer().frame(height: 4)
                 // 문구가 두 문서를 **이름으로** 부르므로 그 두 조각만 링크로 만든다. 2026-10-14 까지는
                 // 줄 전체에 아무 일도 하지 않는 clickable 이 걸려 있었다(주소가 없어 열 곳이 없었다).
                 // 이제 주소가 생겼고, 동의를 안내하는 자리에서 그 문서에 닿지 못하면 안내가 반쪽이다.
+                // 11pt `#9AA1AC`(2.6:1)는 읽혀야 하는 동의 고지에 너무 흐렸다 — 캡션 크기·TextMute 로 올린다
                 Text(consentNotice.attributed)
-                    .moyeotaText(
-                        MoyeotaType(fontSize: 11, lineHeight: .sp(16), letterSpacing: -0.22),
-                        color: TextFaint
-                    )
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                     .tint(MoyeotaColor.Link)
                     .environment(\.openURL, OpenURLAction { url in
                         consentNotice.onOpen(url.absoluteString)
                         return .handled
                     })
-                Spacer().frame(height: 28)
+                Spacer().frame(height: 24)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             .frame(maxWidth: .infinity)
 
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(ScreenBackground)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
-// 파란 체크 원 + 안내 문구 한 줄
+/// 회색 체크 + 안내 문구 한 줄.
+///
+/// 예전엔 22 파란 원 안의 흰 체크였다 — 화면 아래 파란 CTA 와 같은 색 덩어리가 두 개 더 생겨
+/// "어디를 눌러야 하나"가 흐려졌다. 불릿은 누르는 것이 아니라 읽는 것이라 회색 선 아이콘으로 낮춘다.
 private struct TrustBulletRow: View {
     let text: String
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            ZStack {
-                Circle().fill(MoyeotaColor.Primary500)
-                CheckMarkIcon(iconSize: 12, color: Color.white)
-            }
-            .frame(width: 22, height: 22)
-            Spacer().frame(width: 12, height: 12)
+            CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextMute)
+            Spacer().frame(width: 8, height: 8)
             Text(text)
-                .moyeotaText(
-                    MoyeotaType(fontSize: 14, fontWeight: .medium, lineHeight: .sp(20), letterSpacing: -0.28).hangulTrimmed,
-                    color: TextSlate
-                )
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
         }
     }
 }

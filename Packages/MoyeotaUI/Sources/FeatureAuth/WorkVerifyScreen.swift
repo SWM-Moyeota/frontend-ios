@@ -13,12 +13,6 @@ let FreeMailDomains: Set<String> = [
     "nate.com", "outlook.com", "hotmail.com", "yahoo.com", "icloud.com",
 ]
 
-private let LabelGray = Color(argb: 0xFF8A93A0)
-private let SlateGray = Color(argb: 0xFF4B5563)
-private let FooterGray = Color(argb: 0xFF9AA1AC)
-private let InfoCardBlue = Color(argb: 0xFFF1F5FD)
-private let DocCardGray = Color(argb: 0xFFF6F8FB)
-
 /// 회사 이메일 판정. 원본은 화면 본문 안의 지역 값들이고, 뷰 없이 확인하려고 값으로 모았다.
 struct WorkEmailValidation: Equatable {
     let emailValid: Bool
@@ -69,7 +63,7 @@ public struct WorkVerifyScreen: View {
             MoyeotaTopBar(title: "", onBack: onBack) {
                 // 08 은 학생 경로의 06·07 과 같은 「인증」 1단계다 — 09 가 2단계이므로 여기는 1/5
                 Text("1 / 5")
-                    .moyeotaText(.BodySm, color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             WorkVerifyProgressBar(progress: 1.0 / 5.0)
 
@@ -78,13 +72,13 @@ public struct WorkVerifyScreen: View {
                     Spacer().frame(height: 24)
                     Text("신원을 확인할게요")
                         .moyeotaText(.DisplayMd, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     Text("재직 정보로 직장인 인증을 진행해요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14), color: MoyeotaColor.TextMute)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
                     Spacer().frame(height: 24)
                     Text("직장인 재직 인증 · 05 계정 유형 선택에서 선택함")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .bold), color: MoyeotaColor.Primary500)
-                    Spacer().frame(height: 28)
+                        .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold), color: MoyeotaColor.Primary600)
+                    Spacer().frame(height: 24)
 
                     MoyeotaTextField(
                         value: email,
@@ -97,49 +91,40 @@ public struct WorkVerifyScreen: View {
                     )
 
                     Spacer().frame(height: 24)
+                    // 필드 라벨은 MoyeotaTextField 의 라벨과 같은 모양(BodySm · TextBody)이어야 한 화면에서 같은 층으로 읽힌다
                     Text("재직 서류 (선택)")
-                        .moyeotaText(.BodySm, color: LabelGray)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
                     Spacer().frame(height: 8)
                     // 미연결: 재직 서류 탭 → 파일/카메라 선택 시트 — 클릭해도 동작 없음
                     HStack(alignment: .center, spacing: 0) {
+                        // 아이콘 바탕은 흰색 — 회색 면 위에 옅은 파랑을 또 깔면 면이 세 겹이 된다
                         ZStack {
-                            RoundedRectangle(cornerRadius: 12, style: .circular).fill(MoyeotaColor.Primary50)
+                            MoyeotaShape.Card.fill(MoyeotaColor.SurfaceCanvas)
                             WorkVerifyCameraIcon()
                         }
                         .frame(width: 44, height: 44)
                         Spacer().frame(width: 16, height: 0)
                         VStack(alignment: .leading, spacing: 0) {
                             Text("재직증명서 · 사원증 촬영")
-                                .moyeotaText(
-                                    MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold),
-                                    color: MoyeotaColor.InkPrimary
-                                )
+                                .moyeotaText(.BodyStrong, color: MoyeotaColor.InkPrimary)
                             Spacer().frame(height: 4)
                             Text("회사 메일이 없으면 서류로 인증할 수 있어요")
-                                .moyeotaText(.CaptionMd, color: LabelGray)
+                                .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
                         }
                     }
-                    .padding(20)
+                    .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DocCardGray, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+                    .background(MoyeotaColor.SurfaceSoft, in: MoyeotaShape.Card)
 
                     Spacer().frame(height: 24)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("이렇게 보호해요")
-                            .moyeotaText(
-                                MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold),
-                                color: MoyeotaColor.InkPrimary
-                            )
-                        Spacer().frame(height: 13)
+                    // 이렇게 보호해요 — 파란 상자를 걷고 머리말 + 체크 목록으로 화면에 바로 놓는다(디자인 QA G8).
+                    // 세 줄짜리라 한 문장용 NoticeBanner 에는 담기지 않고, 04 시작 화면의 신뢰 불릿(A1)과 같은 모양이다.
+                    SectionLabel(text: "이렇게 보호해요")
+                    VStack(alignment: .leading, spacing: 8) {
                         WorkVerifyProtectRow(text: "회사명과 서류는 인증 후 즉시 삭제해요")
-                        Spacer().frame(height: 5)
                         WorkVerifyProtectRow(text: "직업은 「직장인 인증」 배지로만 표시돼요")
-                        Spacer().frame(height: 5)
                         WorkVerifyProtectRow(text: "동료에게 가입 사실이 알려지지 않아요")
                     }
-                    .padding(20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(InfoCardBlue, in: RoundedRectangle(cornerRadius: 18, style: .circular))
                     Spacer().frame(height: 24)
                 }
                 .padding(.horizontal, 16)
@@ -159,9 +144,9 @@ public struct WorkVerifyScreen: View {
                     enabled: ctaEnabled,
                     loading: submitting
                 )
-                Spacer().frame(height: 14)
+                Spacer().frame(height: 12)
                 Text("재직 확인은 보통 1일 안에 끝나요")
-                    .moyeotaText(.CaptionMd, color: FooterGray)
+                    .moyeotaText(.CaptionMd, color: MoyeotaColor.TextMute)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -170,7 +155,7 @@ public struct WorkVerifyScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear {
             email = ""
@@ -194,8 +179,8 @@ private struct WorkVerifyProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(Color(argb: 0xFFE6EAF0))
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }
@@ -205,40 +190,25 @@ private struct WorkVerifyProgressBar: View {
     }
 }
 
+// 체크 + 안내 한 줄 — 체크는 「확인된 사실」 표시라 회색 선 아이콘이다(04 신뢰 불릿과 같은 모양)
 private struct WorkVerifyProtectRow: View {
     let text: String
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            WorkVerifyCheckIcon()
+            CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextMute)
             Text(text)
-                .moyeotaText(.BodySm, color: SlateGray)
+                .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
         }
-    }
-}
-
-private struct WorkVerifyCheckIcon: View {
-    var body: some View {
-        Canvas { context, size in
-            let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-            var head = Path()
-            head.move(to: CGPoint(x: size.width * 0.1, y: size.height * 0.55))
-            head.addLine(to: CGPoint(x: size.width * 0.4, y: size.height * 0.85))
-            context.stroke(head, with: .color(MoyeotaColor.Primary500), style: style)
-            var tail = Path()
-            tail.move(to: CGPoint(x: size.width * 0.4, y: size.height * 0.85))
-            tail.addLine(to: CGPoint(x: size.width * 0.9, y: size.height * 0.2))
-            context.stroke(tail, with: .color(MoyeotaColor.Primary500), style: style)
-        }
-        .frame(width: 14, height: 14)
     }
 }
 
 private struct WorkVerifyCameraIcon: View {
     var body: some View {
         Canvas { context, size in
-            let stroke: CGFloat = 1.5
-            let color = MoyeotaColor.Primary500
+            // 공용 아이콘과 같은 선 굵기(24 기준 1.75 를 20 으로 비례)
+            let stroke = IconStrokeWidth * (MoyeotaIconSize.Md / MoyeotaIconSize.Lg)
+            let color = MoyeotaColor.TextBody
             let bodyTop = size.height * 0.25
             context.stroke(
                 Path(
@@ -279,6 +249,6 @@ private struct WorkVerifyCameraIcon: View {
                 style: StrokeStyle(lineWidth: stroke)
             )
         }
-        .frame(width: 20, height: 20)
+        .frame(width: MoyeotaIconSize.Md, height: MoyeotaIconSize.Md)
     }
 }
