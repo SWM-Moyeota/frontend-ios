@@ -780,7 +780,7 @@ private struct MainNavContent: View {
                 noticeMessage: signOutNotice
             )
 
-        // B · 계정 찾기 04b · 04c (2026-11 신규 — 원본에 아직 없다)
+        // B · 계정 찾기 04b · 04c (2026-11 신규)
         case .findId:
             FindIdRoute(
                 repository: authRepository,

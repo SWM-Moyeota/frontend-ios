@@ -129,7 +129,7 @@ public struct LoginFormScreen: View {
                     )
 
                     // 로그인이 막힌 사람이 찾는 자리다 — 버튼 바로 아래, 가입 유도보다 위에 둔다.
-                    // 원본(Android)에 아직 없는 줄이다: 백엔드 #314·#331 이 올라온 뒤 iOS 가 먼저 붙였다.
+                    // 이 줄은 iOS 가 먼저 붙였고 원본이 따라왔다(백엔드 #314·#331, Android frontend #100).
                     Spacer().frame(height: 18)
                     HStack(alignment: .center, spacing: 0) {
                         recoveryLink("아이디 찾기", action: onFindId)
