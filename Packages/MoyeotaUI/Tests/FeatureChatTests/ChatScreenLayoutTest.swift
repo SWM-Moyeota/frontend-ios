@@ -171,7 +171,7 @@ private final class HostedScreen {
     @Test("호스트가 탭 상태를 들고 있으면 탭을 떠났다 돌아와도 같은 방의 쓰던 입력이 남는다")
     func hostHeldTabStateSurvivesViewRemoval() async {
         let repository = ScriptedChatRepository()
-        let state = ChatTabState(repository: repository)
+        let state = ChatTabState(repository: repository, rideRepository: FakeChatListRideRepository())
         state.openedRoom = ChatRoom(id: 7, partyId: 0, departure: "출발", destination: "도착", createdAt: "2026-10-28T02:00:00Z", status: .active)
         state.openedMuted = true
         let roomViewModel = state.roomViewModel

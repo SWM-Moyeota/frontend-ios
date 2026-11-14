@@ -9,23 +9,39 @@ let ChatListScrollKey = "chat.list"
 ///
 /// 이동:
 /// - 방 행 탭 → 24 채팅방 (onRoomClick)
+/// - 방 행 길게 누르기 → 알림 끄기/켜기 · 나가기 (onToggleMuted · onLeave)
 /// - 하단탭 → 14/17/35 (onTabSelect)
 ///
 /// 제목은 **참여자 닉네임**(`ChatRoomListItem.peerTitle` · `chatRoomPeerTitle`), 부제는 **마지막 메시지**
 /// (없으면 「출발지:」·「도착지:」 두 줄 — `chatRoomSubtitle`), 우측에 마지막 메시지 시각과 안읽음 점.
 /// 정렬은 Route 가 이미 마친 상태로 넘어온다(`chatRoomSortKey` — 마지막 활동 시각 내림차순).
+/// 알림을 끈 방은 제목 옆에 사선 그은 종이 붙는다(`MutedMark`) — 켜진 방은 아무것도 붙지 않는다.
+///
+/// 길게 누르기 메뉴는 **iOS 기본 메뉴**(`contextMenu`)다 — 원본은 아래쪽 카드(`ChatRoomActionSheet`)를
+/// 그리지만, iOS 사용자는 길게 누르면 행이 떠오르며 메뉴가 붙는 모양에 익숙하다(docs/IOS-DIFFERENCES.md).
+///
+/// - Parameter notice: 길게 누르기 메뉴의 동작이 실패했을 때 목록 위에 띄우는 한 줄
 public struct ChatListScreen: View {
     private let rooms: [ChatRoomListItem]
+    private let notice: String?
     private let onRoomClick: (MyChatRoom) -> Void
+    private let onToggleMuted: (ChatRoomListItem) -> Void
+    private let onLeave: (ChatRoomListItem) -> Void
     private let onTabSelect: (MoyeotaTab) -> Void
 
     public init(
         rooms: [ChatRoomListItem] = [],
+        notice: String? = nil,
         onRoomClick: @escaping (MyChatRoom) -> Void = { _ in },
+        onToggleMuted: @escaping (ChatRoomListItem) -> Void = { _ in },
+        onLeave: @escaping (ChatRoomListItem) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         self.rooms = rooms
+        self.notice = notice
         self.onRoomClick = onRoomClick
+        self.onToggleMuted = onToggleMuted
+        self.onLeave = onLeave
         self.onTabSelect = onTabSelect
     }
 
@@ -40,6 +56,11 @@ public struct ChatListScreen: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer().frame(height: MoyeotaSpacing.Xs)
+                    if let notice {
+                        NoticeBanner(kind: .error, text: notice)
+                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                            .padding(.vertical, MoyeotaSpacing.Xs)
+                    }
                     if rooms.isEmpty {
                         Text("아직 참여 중인 채팅방이 없어요. 동승에 합류하면 채팅방이 열려요")
                             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
@@ -48,6 +69,19 @@ public struct ChatListScreen: View {
                     } else {
                         ForEach(Array(rooms.enumerated()), id: \.offset) { index, item in
                             ChatRoomRow(item: item, onClick: { onRoomClick(item.room) })
+                                .contextMenu {
+                                    let muted = item.room.membership.notificationMuted
+                                    Button {
+                                        onToggleMuted(item)
+                                    } label: {
+                                        Label(chatMuteActionLabel(muted: muted), systemImage: muted ? "bell" : "bell.slash")
+                                    }
+                                    Button(role: .destructive) {
+                                        onLeave(item)
+                                    } label: {
+                                        Label("나가기", systemImage: "rectangle.portrait.and.arrow.right")
+                                    }
+                                }
                             if index != rooms.count - 1 {
                                 // 글 시작선(여백 16 + 아바타 48 + 간격 12)에 맞춘다 — 아바타 열은 끊김 없이 이어진다
                                 HorizontalDivider(color: MoyeotaColor.Hairline)
@@ -149,10 +183,16 @@ private struct ChatRoomRow: View {
                 // 글이 위에 붙도록 묶음에 아바타 높이를 최소 높이로 주고 그 안의 위에 둔다.
                 HStack(alignment: .firstTextBaseline, spacing: 0) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(title)
-                            .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        // 제목이 길어도 종이 밀려나지 않게 제목만 줄어든다 — 짧은 제목 바로 옆에 붙는다
+                        HStack(alignment: .center, spacing: 0) {
+                            Text(title)
+                                .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            if membership.notificationMuted {
+                                MutedMark().fixedSize()
+                            }
+                        }
                         Spacer().frame(height: 2)
                         switch subtitle {
                         case .line(let text):

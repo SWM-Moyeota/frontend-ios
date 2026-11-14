@@ -370,7 +370,7 @@ import UIKit
         let nav = try graph.nav
         nav.navigateTab(.chat)
         await graph.settle(8)
-        let tab = nav.retained(for: nav.backStack[1]) { ChatTabState(repository: graph.chat) }
+        let tab = nav.retained(for: nav.backStack[1]) { ChatTabState(repository: graph.chat, rideRepository: graph.rides) }
         tab.openedRoom = ChatRoom(id: 5, partyId: 0, departure: "부산대", destination: "서면", createdAt: "", status: .active)
         await graph.waitUntil("방 5 구독") { graph.chat.observedRooms.contains(5) }
         nav.navigateTab(.home)

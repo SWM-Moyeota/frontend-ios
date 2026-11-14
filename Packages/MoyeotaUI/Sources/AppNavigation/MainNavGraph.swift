@@ -1027,7 +1027,7 @@ private struct MainNavContent: View {
         // G · 채팅 24
         case .chat:
             ChatRoute(
-                state: navController.retained(for: entry) { ChatTabState(repository: chatRepository) },
+                state: navController.retained(for: entry) { ChatTabState(repository: chatRepository, rideRepository: rideRepository) },
                 // 열린 방이 진행 중인 그 방이면 헤더에 「매칭 화면으로」 줄이 뜨고 「나가기」가 사라진다.
                 // **판정의 1순위는 채팅방 id 다** — 이 경로의 방은 목록 응답(`GET /chat-rooms/me`)으로
                 // 만든 것이어서 partyId 가 0(모름)이고, 그걸로 비교하면 늘 "내 방이 아니다"가 됐다.
@@ -1038,6 +1038,18 @@ private struct MainNavContent: View {
                     // 나간 방 id 를 진행 화면이 들고 있으면 「채팅 열기」가 죽은 방으로 간다 — 캐시를 버린다
                     activePartyViewModel.forgetChatRoom()
                     navigateTab(.home)
+                },
+                // 목록 길게 누르기로 동승에서 나갔다 — 그 방이 진행 중인 방이면 기억을 지우고, 아니면(예약 방 등)
+                // 진행 중인 방을 다시 찾는다. 홈 배너와 「채팅 열기」가 나간 방을 붙들고 있지 않게 한다
+                onLeftParty: { partyId in
+                    if activePartyViewModel.ride?.id == String(partyId) {
+                        activePartyViewModel.clearParty()
+                    } else {
+                        activePartyViewModel.refresh()
+                    }
+                },
+                onLeftChatRoom: { chatRoomId in
+                    if chatRoomId == activePartyViewModel.chatRoomId { activePartyViewModel.forgetChatRoom() }
                 },
                 onTabSelect: navigateTab,
                 onNotParticipant: { activePartyViewModel.forgetChatRoom() }

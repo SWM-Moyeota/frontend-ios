@@ -241,6 +241,67 @@ public struct ChatBubbleIcon: View {
     }
 }
 
+/// 사선 그은 종 — 「알림 꺼짐」. 켜진 상태에는 짝이 되는 아이콘을 두지 않는다(채팅 목록 — 켜진 게 기본이다).
+///
+/// - `background`: 아이콘이 놓이는 면의 색. 사선을 이 색으로 한 번 넓게 그어 종 윤곽을 끊는다 —
+///   끊지 않으면 16 에서 사선이 윤곽에 묻혀 「그냥 종」으로 읽힌다
+public struct BellOffIcon: View {
+    private let size: CGFloat
+    private let tint: Color
+    private let background: Color
+
+    public init(
+        size: CGFloat = MoyeotaIconSize.Sm,
+        tint: Color = MoyeotaColor.TextPlaceholder,
+        background: Color = MoyeotaColor.SurfaceCanvas
+    ) {
+        self.size = size
+        self.tint = tint
+        self.background = background
+    }
+
+    public var body: some View {
+        let tint = tint
+        let background = background
+        return GridIcon(size: size) { context, u, stroke in
+            var bell = Path()
+            bell.move(to: CGPoint(x: 6 * u, y: 16.5 * u))
+            bell.addLine(to: CGPoint(x: 6 * u, y: 11 * u))
+            bell.addCurve(
+                to: CGPoint(x: 12 * u, y: 4.5 * u),
+                control1: CGPoint(x: 6 * u, y: 7.4 * u),
+                control2: CGPoint(x: 8.7 * u, y: 4.5 * u)
+            )
+            bell.addCurve(
+                to: CGPoint(x: 18 * u, y: 11 * u),
+                control1: CGPoint(x: 15.3 * u, y: 4.5 * u),
+                control2: CGPoint(x: 18 * u, y: 7.4 * u)
+            )
+            bell.addLine(to: CGPoint(x: 18 * u, y: 16.5 * u))
+            context.stroke(bell, with: .color(tint), style: stroke)
+            context.stroke(gridPolyline([(4.5, 16.5), (19.5, 16.5)], u), with: .color(tint), style: stroke)
+            var clapper = Path()
+            clapper.move(to: CGPoint(x: 10 * u, y: 19.5 * u))
+            clapper.addCurve(
+                to: CGPoint(x: 12 * u, y: 21.2 * u),
+                control1: CGPoint(x: 10.4 * u, y: 20.6 * u),
+                control2: CGPoint(x: 11.1 * u, y: 21.2 * u)
+            )
+            clapper.addCurve(
+                to: CGPoint(x: 14 * u, y: 19.5 * u),
+                control1: CGPoint(x: 12.9 * u, y: 21.2 * u),
+                control2: CGPoint(x: 13.6 * u, y: 20.6 * u)
+            )
+            context.stroke(clapper, with: .color(tint), style: stroke)
+            let slash = gridPolyline([(3.5, 3.5), (20.5, 20.5)], u)
+            var halo = stroke
+            halo.lineWidth = stroke.lineWidth * 3
+            context.stroke(slash, with: .color(background), style: halo)
+            context.stroke(slash, with: .color(tint), style: stroke)
+        }
+    }
+}
+
 // ─── 그리기 도구 ──────────────────────────────────────────────────────────────
 
 /// 24 격자 단위 `u` 와 크기에 비례한 선을 넘겨 그린다
