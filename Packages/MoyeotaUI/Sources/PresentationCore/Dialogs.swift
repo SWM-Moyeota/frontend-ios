@@ -105,19 +105,21 @@ private let ConfirmDialogMinWidth: CGFloat = 280
 /// 대화상자 내용의 최대 폭(320 − 좌우 여백 24 둘).
 private let ConfirmDialogContentMaxWidth: CGFloat = 320 - 48
 
-/// 접힐 수 있는 본문. 원본처럼 줄 끝까지 채우고(`softWrappedLines`), 접히면 폭 상한을 다 쓴다.
-/// 그냥 `Text` 면 마지막 줄이 짧아지지 않게 앞 줄의 어절을 밀어 내려 원본과 다른 자리에서 꺾인다.
+/// 접힐 수 있는 본문. **어절 단위로** 꺾고(그냥 `Text` — iOS 한글 줄바꿈은 어절 우선이다), 접히면 폭 상한을 다 쓴다.
+///
+/// 예전엔 원본의 글자 단위 줄바꿈을 따라 `softWrappedLines` 로 줄을 직접 나눠 「없/어요」·「1/명은」처럼 어절 한가운데서
+/// 꺾였다(QA M5). 원본도 어절 단위(`KoreanBodyText`)로 바꿨다. 접혔는지는 여전히 `softWrappedLines` 로 잰다 —
+/// 한 줄에 다 들어가는지는 꺾는 단위와 상관없이 같다.
 private struct ConfirmDialogBodyText: View {
     let text: String
 
     var body: some View {
         let style = MoyeotaType.BodySm.hangulTrimmed
-        let lines = style.softWrappedLines(text, width: ConfirmDialogContentMaxWidth)
-        Text(lines.text)
+        let wrapped = style.softWrappedLines(text, width: ConfirmDialogContentMaxWidth).wrapped
+        Text(text)
             .moyeotaText(style, color: MoyeotaColor.TextBody)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(width: lines.wrapped ? ConfirmDialogContentMaxWidth : nil, alignment: .leading)
-            .accessibilityLabel(text)
+            .frame(width: wrapped ? ConfirmDialogContentMaxWidth : nil, alignment: .leading)
     }
 }
 
