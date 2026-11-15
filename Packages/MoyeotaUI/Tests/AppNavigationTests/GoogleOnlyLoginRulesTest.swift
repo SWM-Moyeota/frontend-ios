@@ -47,8 +47,9 @@ import Testing
         let route = try #require(SourceTree.read("FeatureAuth/SocialLoginRoute.swift"))
         #expect(route.contains("social.loginGoogle(idToken: native.google())"))
         let methods = try #require(SourceTree.read("FeatureMyPage/LoginMethodsScreen.swift"))
-        #expect(methods.contains("Button(\"Google 연결\") { connectGoogle() }"))
-        #expect(methods.contains("repository.linkGoogle(idToken: native.google(), verificationToken: token)"))
+        #expect(methods.contains("\"Google 계정 연결\", onClick: onGoogle"))
+        #expect(methods.contains("idToken = try await native.google()"))
+        #expect(methods.contains("repository.linkGoogle(idToken: idToken, verificationToken: token)"))
         // 연결 버튼은 Google 하나뿐이다 — provider 를 돌며 버튼을 만드는 구조로 되돌아가지 않는다.
         #expect(!methods.contains("SocialProvider.allCases"))
     }

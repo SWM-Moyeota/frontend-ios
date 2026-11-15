@@ -50,6 +50,9 @@ enum MyPageAction: Equatable, Sendable {
     /// 잘못 찍혀도 다툴 길이 없었다.**
     case noShowRecords
 
+    /// 로그인 수단 관리 — 아이디·비밀번호와 구글 연결 (앱 안). 원본 `MyPageAction.LoginMethods`(Android #103)
+    case loginMethods
+
     /// 확인 다이얼로그 → 세션 정리 → 04a 로그인 (앱 안).
     case logout
 
@@ -157,6 +160,7 @@ func myPageGroups(links: SupportLinkTargets) -> [MyPageGroup] {
                 // 기능이 더 작아 위계가 뒤집혀 있었다. 이제 로그아웃은 56pt 카드 행이고, 탈퇴는
                 // danger 라서 화면이 카드 밖 회색 링크로 뗀다(디자인 QA M2). 오탭 보호는 그 거리와 확인
                 // 단계가 맡는다: 로그아웃은 확인 다이얼로그, 탈퇴는 37 에서 비밀번호 + 또 한 번의 다이얼로그다.
+                MyPageRow(text: "로그인 수단 관리", action: .loginMethods, mark: .chevron),
                 MyPageRow(text: "로그아웃", action: .logout, mark: .chevron),
                 MyPageRow(text: "탈퇴하기", action: .deleteAccount, mark: .chevron, danger: true),
             ],

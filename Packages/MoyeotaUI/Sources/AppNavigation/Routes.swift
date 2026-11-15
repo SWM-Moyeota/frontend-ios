@@ -91,6 +91,9 @@ public enum Routes {
     /// 성공 뒤의 이동을 이 라우트가 하지 않는다 — 세션이 사라지면 `MainNavGraph` 의 로그인 전이
     /// 감지가 04a 로 보내면서 스택을 통째로 비운다(이 화면도 그때 사라진다).
     public static let ACCOUNT_DELETE = "mypage/account-delete"       // 37 신규 (회원 탈퇴)
+
+    /// 로그인 수단 관리 — 아이디·비밀번호와 구글 연결(2026-11 소셜 로그인). 원본 `Routes.LOGIN_METHODS`
+    public static let LOGIN_METHODS = "mypage/login-methods"
 }
 
 /// 그래프에 **등록된** 목적지. 원본 `NavHost { composable(…) }` 의 목록이다.
@@ -106,7 +109,7 @@ public enum Route: Hashable, Sendable {
     case matchWaiting, rideDetail, partnerProfile
     case chat
     case chatRoom(roomId: Int64)
-    case mypage, profileEdit, rideHistory, noShowRecords, accountDelete
+    case mypage, profileEdit, rideHistory, noShowRecords, accountDelete, loginMethods
 
     /// 원본 `NavDestination.route` — 인자를 채우기 **전**의 패턴이다. 목적지가 같은지는 이 값으로 가른다
     /// (`popBackStack` · `launchSingleTop` · 저장된 스택의 열쇠가 모두 목적지 단위다).
@@ -137,6 +140,7 @@ public enum Route: Hashable, Sendable {
         case .rideHistory: Routes.RIDE_HISTORY
         case .noShowRecords: Routes.NO_SHOW_RECORDS
         case .accountDelete: Routes.ACCOUNT_DELETE
+        case .loginMethods: Routes.LOGIN_METHODS
         }
     }
 

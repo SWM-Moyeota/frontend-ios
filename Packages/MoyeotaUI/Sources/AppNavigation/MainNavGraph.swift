@@ -1166,8 +1166,8 @@ private struct MainNavContent: View {
                     let authRepository = self.authRepository
                     Task { try? await authRepository.logout() }
                 },
+                onLoginMethods: { navController.navigate(.loginMethods) },
                 onDeleteAccount: { navController.navigate(.accountDelete) },
-                socialRepository: authRepository as? any SocialAuthRepository,
                 onTabSelect: navigateTab
             )
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })
@@ -1211,6 +1211,13 @@ private struct MainNavContent: View {
             NoShowRecordsRoute(
                 repository: noShowRepository,
                 onBack: back
+            )
+        case .loginMethods:
+            // 로그인 수단 관리 — 원본 `composable(Routes.LOGIN_METHODS)`. 「비밀번호 재설정」은 04c 로 간다
+            LoginMethodsRoute(
+                repository: authRepository as? any SocialAuthRepository,
+                onBack: back,
+                onPasswordReset: { navController.navigate(.passwordReset) }
             )
         case .accountDelete:
             // 37 회원 탈퇴 — DELETE /api/v1/users/me.
