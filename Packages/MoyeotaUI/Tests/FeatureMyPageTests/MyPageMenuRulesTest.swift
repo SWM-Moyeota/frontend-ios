@@ -57,7 +57,7 @@ import Testing
         // 주소와 무관한 세 그룹은 그대로 있어야 한다 — 로그아웃·탈퇴가 사라지면 갇힌다.
         #expect(groups.rowTexts(MyPageGroupLabel.RIDES) == ["지난 탑승 기록", "노쇼 기록"])
         #expect(groups.rowTexts(MyPageGroupLabel.SETTINGS) == ["알림 설정"])
-        #expect(groups.rowTexts(MyPageGroupLabel.ACCOUNT) == ["로그아웃", "탈퇴하기"])
+        #expect(groups.rowTexts(MyPageGroupLabel.ACCOUNT) == ["로그인 수단 관리", "로그아웃", "탈퇴하기"])
     }
 
     /// 세 행은 서로 독립이다 — 하나가 비어도 나머지는 남는다.
@@ -136,6 +136,7 @@ import Testing
             case .notificationSettings, .openWeb, .sendMail: true
             case .rideHistory,
                  .noShowRecords,
+                 .loginMethods,
                  .logout,
                  .deleteAccount: false
             }
@@ -152,9 +153,10 @@ import Testing
     func accountCardOrder() throws {
         let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.ACCOUNT)).rows
 
-        #expect(rows.map(\.text) == ["로그아웃", "탈퇴하기"])
-        #expect(rows[0].action == .logout)
-        #expect(rows[1].action == .deleteAccount)
+        #expect(rows.map(\.text) == ["로그인 수단 관리", "로그아웃", "탈퇴하기"])
+        #expect(rows[0].action == .loginMethods)
+        #expect(rows[1].action == .logout)
+        #expect(rows[2].action == .deleteAccount)
     }
 
     /// 되돌릴 수 없는 행은 탈퇴 하나뿐이다 — 화면은 이 행만 카드 밖 링크로 뗀다(디자인 QA M2).
@@ -197,8 +199,9 @@ import Testing
     /// 그래서 「지난 탑승 기록」 행이 들어왔고(34 재도입, `docs/BACKEND-GAP-CLEANUP.md` §6)
     /// 이 목록에 그 말이 남아 있으면 **행을 추가하는 순간 이 테스트가 빨개진다.**
     ///
-    /// 나머지 다섯은 **여전히 서버에 없다** — 고객센터(문의 접수 API), 매너 점수·마일리지(평가 API),
-    /// 결제(요금 확정·결제 API), 로그인 수단. 그쪽은 계속 막는다.
+    /// 나머지 넷은 **여전히 서버에 없다** — 고객센터(문의 접수 API), 매너 점수·마일리지(평가 API),
+    /// 결제(요금 확정·결제 API). 그쪽은 계속 막는다. 「로그인 수단」은 서버가 생겨(Backend #340 소셜 로그인)
+    /// 금지어에서 뺐다 — 원본 테스트(Android #103)와 같다.
     ///
     /// 반대로 `AccountDeleteRulesTest` 의 「탑승 기록」 금지는 **성격이 다르니 건드리지 마라** —
     /// 그건 탈퇴 경고가 「탑승 기록도 지워진다」고 거짓말하지 못하게 막는 것이고, 서버는 실제로
@@ -207,7 +210,7 @@ import Testing
     func noRowsWithoutServerSupport() {
         let texts = myPageGroups(links: allLinks).flatMap(\.rows).map(\.text)
 
-        for absent in ["고객센터", "매너 점수", "마일리지", "결제", "로그인 수단"] {
+        for absent in ["고객센터", "매너 점수", "마일리지", "결제"] {
             #expect(!texts.contains { $0.contains(absent) }, "없는 기능 행이 생겼다: \(absent)")
         }
         // 행 이름이 겹치면 사용자가 같은 것을 두 군데서 찾는다

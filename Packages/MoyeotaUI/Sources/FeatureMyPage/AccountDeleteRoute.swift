@@ -18,7 +18,7 @@ import SwiftUI
 /// 진행 중인 합승 제약은 경고가 아니라 **실패 사유**라 여기 넣지 않는다
 /// (서버에 물어봐야 아는 값이고, 눌렀을 때 `AuthError.ongoingPartyExists` 로 온다).
 let AccountDeletionWarnings: [String] = [
-    "지금 아이디와 비밀번호로는 다시 로그인할 수 없어요",
+    "지금 계정으로는 다시 로그인할 수 없어요",
     "참여 중인 채팅방에서 모두 나가고, 함께 탄 사람들에게는 「탈퇴한 사용자」로 보여요",
     "저장해 둔 자주 가는 곳이 지워져요",
     "같은 휴대폰 번호로는 \(AuthPolicy.REJOIN_RESTRICTED_DAYS)일 동안 다시 가입할 수 없어요",
@@ -242,14 +242,19 @@ public struct AccountDeleteRoute: View {
             },
             onBack: onBack
         ) } else {
-            VStack { Text(loadError ?? "로그인 수단 확인 중")
-                Button("다시 확인") { Task { await loadMethods() } }
-                Button("뒤로") { onBack() }
+            // 비밀번호가 있는 계정인지 확인하는 동안 — 원본(Android #103)처럼 앱의 상단바·로딩·오류 화면을 쓴다
+            BackStateScaffold(title: "회원 탈퇴", onBack: onBack) {
+                if let loadError {
+                    ErrorBox(message: loadError, onRetry: { Task { await loadMethods() } })
+                } else {
+                    LoadingBox()
+                }
             }
         } }.task { await loadMethods() }
     }
     private func loadMethods() async {
-        do { hasPassword = try await (repository as? any SocialAuthRepository)?.loginMethods().hasPassword ?? true; loadError = nil }
+        loadError = nil
+        do { hasPassword = try await (repository as? any SocialAuthRepository)?.loginMethods().hasPassword ?? true }
         catch { loadError = error.authUserMessage() }
     }
 

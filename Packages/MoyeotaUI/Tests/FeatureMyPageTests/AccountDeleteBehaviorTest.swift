@@ -298,7 +298,7 @@ private final class SignalLog {
     @Test("경고 네 줄은 원본과 글자까지 같다")
     func warningsExact() {
         #expect(AccountDeletionWarnings == [
-            "지금 아이디와 비밀번호로는 다시 로그인할 수 없어요",
+            "지금 계정으로는 다시 로그인할 수 없어요",
             "참여 중인 채팅방에서 모두 나가고, 함께 탄 사람들에게는 「탈퇴한 사용자」로 보여요",
             "저장해 둔 자주 가는 곳이 지워져요",
             "같은 휴대폰 번호로는 30일 동안 다시 가입할 수 없어요",

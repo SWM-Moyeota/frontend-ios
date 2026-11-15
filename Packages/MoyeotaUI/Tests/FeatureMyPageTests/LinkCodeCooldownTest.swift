@@ -60,13 +60,12 @@ import Testing
         #expect(cooldown.remainingSeconds(now: now) == 0)
     }
 
-    @Test("잠긴 동안 발송 버튼에 남은 초가 보인다")
+    @Test("잠긴 동안 발송 버튼에 남은 초가 보인다 — 원본(Android #103)과 같은 문구")
     func titleShowsRemainingSeconds() {
-        #expect(linkCodeSendTitle(sent: false, remainingSeconds: 0) == "등록된 휴대폰으로 인증번호 받기")
-        #expect(linkCodeSendTitle(sent: true, remainingSeconds: 0) == "인증번호 다시 받기")
-        #expect(linkCodeSendTitle(sent: true, remainingSeconds: 42) == "인증번호 다시 받기 (42초)")
+        #expect(linkCodeSendTitle(remainingSeconds: 0) == "인증번호 받기")
+        #expect(linkCodeSendTitle(remainingSeconds: 42) == "다시 받기 (42초)")
         // 가입 직후처럼 이 화면에서 한 번도 보내지 못한 채 429 를 받은 경우에도 남은 시간이 보여야 한다.
-        #expect(linkCodeSendTitle(sent: false, remainingSeconds: 60) == "등록된 휴대폰으로 인증번호 받기 (60초)")
+        #expect(linkCodeSendTitle(remainingSeconds: 60) == "다시 받기 (60초)")
         // 안내 문구가 버튼의 남은 시간을 가리킨다 — 둘이 함께 있어야 말이 된다.
         #expect(authErrorMessage(error: .smsCooldown).contains("버튼의 남은 시간"))
     }
