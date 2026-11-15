@@ -43,7 +43,8 @@ func linkCodeSendTitle(remainingSeconds: Int) -> String {
 let LINK_VERIFICATION_TTL_SECONDS: TimeInterval = 300
 
 /// 로그인 수단 관리 — 상태와 서버 호출. 원본 `LoginMethodsViewModel`(Android #103)과 같은 흐름이다:
-/// 목록 조회 → (구글 미연결이면) 등록된 휴대폰 문자 인증 → 5분 안에 구글 계정 연결.
+/// 목록 조회 → (미연결 수단이 있으면) 등록된 휴대폰 문자 인증 → 5분 안에 구글·애플 계정 연결.
+/// 애플 연결은 iOS 에만 있다(원본에는 Apple 로그인이 없다).
 @MainActor
 @Observable
 final class LoginMethodsViewModel {
@@ -111,7 +112,7 @@ final class LoginMethodsViewModel {
             self.verifiedAt = self.now()
             self.verified = true
             self.code = ""
-            self.notice = "5분 안에 연결할 구글 계정을 선택해 주세요"
+            self.notice = "5분 안에 연결할 계정을 선택해 주세요"
         }
     }
 
@@ -127,6 +128,23 @@ final class LoginMethodsViewModel {
 
     /// 구글 SDK 가 준 idToken 으로 연결한다. 공급자 토큰은 호출 인자로만 존재하고 상태에는 넣지 않는다.
     func linkGoogle(idToken: String) async {
+        await link(done: "구글 계정을 연결했어요") { token in
+            try await self.repository.linkGoogle(idToken: idToken, verificationToken: token)
+        }
+    }
+
+    /// 애플 계정을 연결한다 — 서버가 준 일회성 nonce 를 그대로 Apple 인증창에 싣는다(`authorize`).
+    /// Apple 인증창을 닫으면 `CancellationError` 라 안내 없이 그대로 남는다.
+    func linkApple(authorize: @escaping @MainActor (String) async throws -> AppleCredential) async {
+        await link(done: "애플 계정을 연결했어요") { token in
+            let challenge = try await self.repository.appleChallenge(linking: true)
+            let credential = try await authorize(challenge.nonce)
+            try await self.repository.linkApple(
+                credential: credential, challengeToken: challenge.challengeToken, verificationToken: token)
+        }
+    }
+
+    private func link(done: String, _ operation: @MainActor (String) async throws -> Void) async {
         guard !busy else { return }
         expireVerification()
         guard let token = verificationToken else { return }
@@ -134,11 +152,11 @@ final class LoginMethodsViewModel {
         error = nil
         defer { busy = false }
         do {
-            try await repository.linkGoogle(idToken: idToken, verificationToken: token)
+            try await operation(token)
             verificationToken = nil
             verified = false
             codeSent = false
-            notice = "구글 계정을 연결했어요"
+            notice = done
             methods = try await repository.loginMethods()
         } catch is CancellationError {
         } catch {
@@ -219,7 +237,8 @@ public struct LoginMethodsRoute: View {
                         viewModel: viewModel,
                         sdkBusy: sdkBusy,
                         onPasswordReset: onPasswordReset,
-                        onGoogle: { connectGoogle(viewModel) }
+                        onGoogle: { connectGoogle(viewModel) },
+                        onApple: { connectApple(viewModel) }
                     )
                 }
             } else {
@@ -246,6 +265,15 @@ public struct LoginMethodsRoute: View {
             await viewModel.linkGoogle(idToken: idToken)
         }
     }
+
+    private func connectApple(_ viewModel: LoginMethodsViewModel) {
+        guard !sdkBusy, let native else { return }
+        sdkBusy = true
+        Task { @MainActor in
+            defer { sdkBusy = false }
+            await viewModel.linkApple(authorize: { try await native.apple($0) })
+        }
+    }
 }
 
 struct LoginMethodsScreen: View {
@@ -253,11 +281,13 @@ struct LoginMethodsScreen: View {
     let sdkBusy: Bool
     let onPasswordReset: () -> Void
     let onGoogle: () -> Void
+    let onApple: () -> Void
 
     var body: some View {
         if let methods = viewModel.methods {
             let busy = viewModel.busy || sdkBusy
             let googleActive = methods.methods.contains { $0.provider == .google && $0.status == "ACTIVE" }
+            let appleActive = methods.methods.contains { $0.provider == .apple && $0.status == "ACTIVE" }
             ScrollView {
                 VStack(alignment: .leading, spacing: MoyeotaSpacing.Md) {
                     Text("연결된 로그인 수단")
@@ -273,8 +303,8 @@ struct LoginMethodsScreen: View {
                     }
                     if let error = viewModel.error { NoticeBanner(kind: .error, text: error) }
                     if let notice = viewModel.notice { NoticeBanner(kind: .info, text: notice) }
-                    if !googleActive {
-                        Text("등록된 휴대폰으로 본인을 확인한 뒤 구글 계정을 연결해요. 연결된 계정은 교체하거나 합칠 수 없어요.")
+                    if !googleActive || !appleActive {
+                        Text("등록된 휴대폰으로 본인을 확인한 뒤 구글·애플 계정을 연결해요. 연결된 계정은 교체하거나 합칠 수 없어요.")
                             .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
                             .fixedSize(horizontal: false, vertical: true)
                         if !viewModel.verified {
@@ -303,7 +333,12 @@ struct LoginMethodsScreen: View {
                                 )
                             }
                         } else {
-                            PrimaryCtaButton(text: busy ? "연결 중…" : "Google 계정 연결", onClick: onGoogle, enabled: !busy)
+                            if !appleActive {
+                                AppleSignInButton(text: busy ? "연결 중…" : "Apple 계정 연결", onClick: onApple, enabled: !busy)
+                            }
+                            if !googleActive {
+                                PrimaryCtaButton(text: busy ? "연결 중…" : "Google 계정 연결", onClick: onGoogle, enabled: !busy)
+                            }
                         }
                     }
                 }
@@ -318,10 +353,11 @@ struct LoginMethodsScreen: View {
         }
     }
 
-    /// 연결 수단은 Google 하나다. 서버가 다른 provider 를 보내도 디코딩에서 걸러져 여기 오지 않는다.
+    /// 연결 수단은 Google·Apple 이다. 서버가 다른 provider 를 보내도 디코딩에서 걸러져 여기 오지 않는다.
     private func providerLabel(_ provider: SocialProvider) -> String {
         switch provider {
         case .google: return "Google"
+        case .apple: return "Apple"
         }
     }
 }

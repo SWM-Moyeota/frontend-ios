@@ -220,6 +220,48 @@ public struct SecondaryButton: View {
 ///
 /// 왜 두 번째 파란 솔리드가 아닌가: 한 화면에 솔리드 파랑이 둘이면 무엇이 주 행동인지 눈이 고르지 못한다.
 /// 모양·높이는 `PrimaryCtaButton` 과 같게 둬서 나란히 놓였을 때 "같은 가족"으로 읽히게 한다.
+/// 「Apple로 계속하기」 — Sign in with Apple 버튼. Apple 디자인 지침대로 **검은 바탕 · 흰 글자 · Apple 로고**다
+/// (지침이 정한 색이라 디자인 토큰이 아니라 순수 검정·흰색을 쓴다). 크기·모서리는 옆의 「Google로 계속하기」
+/// (`SecondaryButton`, 52 알약)와 같다 — 심사 지침 4.8 이 두 외부 로그인을 **동등한 선택지**로 두라고 한다.
+/// iOS 에만 있다(Android 에는 Apple 로그인이 없다 — `docs/IOS-DIFFERENCES.md`).
+public struct AppleSignInButton: View {
+    private let text: String
+    private let onClick: () -> Void
+    private let enabled: Bool
+
+    public init(text: String = "Apple로 계속하기", onClick: @escaping () -> Void, enabled: Bool = true) {
+        self.text = text
+        self.onClick = onClick
+        self.enabled = enabled
+    }
+
+    public var body: some View {
+        Button(action: onClick) {
+            HStack(spacing: 10) {
+                Image(systemName: "apple.logo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+                    .accessibilityHidden(true)
+                Text(text)
+                    .moyeotaText(MoyeotaType.ButtonLg.hangulTrimmed)
+            }
+            .padding(.horizontal, 24)
+        }
+        .buttonStyle(
+            CtaButtonStyle(
+                containerColor: .black,
+                contentColor: .white,
+                disabledContainerColor: Color.black.opacity(0.38),
+                disabledContentColor: Color.white.opacity(0.7)
+            )
+        )
+        .disabled(!enabled)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+    }
+}
+
 public struct SoftButton: View {
     private let text: String
     private let onClick: () -> Void

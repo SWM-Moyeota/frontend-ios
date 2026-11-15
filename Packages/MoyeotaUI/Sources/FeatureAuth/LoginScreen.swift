@@ -85,11 +85,19 @@ public struct LoginScreen: View {
     private let onEmailStart: () -> Void
     private let onLogin: () -> Void
     private let onGoogle: (() -> Void)?
+    private let onApple: (() -> Void)?
 
     /// - Parameter onEmailStart: 「일반 회원가입」 → 10 프로필 설정 (가입 1단계)
     /// - Parameter onLogin: 「로그인」(이미 계정이 있어요) → 04a 아이디 로그인
-    public init(onEmailStart: @escaping () -> Void, onLogin: @escaping () -> Void, onGoogle: (() -> Void)? = nil) {
+    /// - Parameter onApple: 「Apple로 계속하기」 — iOS 에만 있다(심사 지침 4.8: Google 과 함께 Sign in with Apple 을 준다)
+    public init(
+        onEmailStart: @escaping () -> Void,
+        onLogin: @escaping () -> Void,
+        onGoogle: (() -> Void)? = nil,
+        onApple: (() -> Void)? = nil
+    ) {
         self.onGoogle = onGoogle
+        self.onApple = onApple
         self.onEmailStart = onEmailStart
         self.onLogin = onLogin
     }
@@ -136,6 +144,11 @@ public struct LoginScreen: View {
             // 본문이 짧아 고정 Spacer 로 CTA 위치를 잡으면 본문 아래에 빈 공간이 남는다.
             // 하단 고정이면 남는 높이를 스크롤 영역이 흡수한다.
             VStack(spacing: 0) {
+                // Apple 을 Google 위에, 같은 크기로 둔다 — 두 외부 로그인이 같은 무게로 보여야 한다(심사 지침 4.8)
+                if let onApple {
+                    AppleSignInButton(onClick: onApple)
+                    Spacer().frame(height: 12)
+                }
                 if let onGoogle {
                     // Android 시작 화면과 같은 테두리 알약(SecondaryButton) + 왼쪽 Google 로고.
                     // 로고는 앱 번들의 자산(Moyeota/Assets.xcassets/GoogleLogo)이다.
