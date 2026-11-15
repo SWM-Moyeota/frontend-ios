@@ -660,14 +660,15 @@ private let c = LatLng(35.10, 129.03)
         #expect(routeSummaryLabel(routePreview: RoutePreviewUi(estimatedFare: 7900), locale: locale) == nil)
     }
 
+    /// 「1인 예상 요금」 이름표 옆 금액 칸(디자인 QA S16-3) — 예전 한 줄 「예상 요금 1인 2,630원」을 둘로 나눴다.
     @Test("요금 안내는 인원으로 나눈 값을 쓰고 추정이 없으면 줄표다")
     func fareFooter() {
         let locale = Locale(identifier: "ko_KR")
         let estimated = RoutePreviewUi(estimatedMinutes: 12, estimatedFare: 7900)
-        #expect(fareFooterText(routePreview: RoutePreviewUi(loading: true), peopleCount: 3, locale: locale) == "예상 요금 계산 중이에요")
-        #expect(fareFooterText(routePreview: estimated, peopleCount: 3, locale: locale) == "예상 요금 1인 2,630원")
-        #expect(fareFooterText(routePreview: estimated, peopleCount: 1, locale: locale) == "예상 요금 1인 7,900원")
-        #expect(fareFooterText(routePreview: RoutePreviewUi(), peopleCount: 3, locale: locale) == "예상 요금 —")
+        #expect(fareFooterValue(routePreview: RoutePreviewUi(loading: true), peopleCount: 3, locale: locale) == "계산 중")
+        #expect(fareFooterValue(routePreview: estimated, peopleCount: 3, locale: locale) == "2,630원")
+        #expect(fareFooterValue(routePreview: estimated, peopleCount: 1, locale: locale) == "7,900원")
+        #expect(fareFooterValue(routePreview: RoutePreviewUi(), peopleCount: 3, locale: locale) == "—")
     }
 
     @Test("주소 칸이 비면 구분자를 남기지 않는다")

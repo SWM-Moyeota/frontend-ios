@@ -5,46 +5,43 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
-// 와이어프레임 그레이 (core token 미정의 색 — 화면 재현용)
-private let CanvasBg = Color(argb: 0xFFF5F7FA)
-private let HeroBg = Color(argb: 0xFFF1F5FD)
-private let GraySlate = Color(argb: 0xFF4B5563)
-private let GrayDeep = Color(argb: 0xFF54637D)
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let RowDot = Color(argb: 0xFFC3CCDA)
-private let CardShadow = Color(argb: 0x1A1B2A4A)
-
 /// 첫 실위치로 옮길 때의 줌 — 동네 단위가 보이는 수준(26 운행 중과 같은 값)
 private let HomeMyLocationZoom = 15.0
 
 /// 펼친 시트 위로 남기는 지도 높이 — 예전 홈의 「화면 약 30%」 지도 노출과 비슷한 값
 private let HomeMapRevealHeight: CGFloat = 200
 
-/// 접힘 높이 추정치 = 핸들(36) + HeroSection(인사 18 + 제목·부제 ~70 + 검색 바 64 + 여백 40 ≈ 190).
-/// 드래그 앵커·카메라 계산에만 쓰인다(실제 높이는 콘텐츠가 정한다 — MapSheetDefaults 설명 참고).
-private let HomeCollapsedSheetHeight: CGFloat = 226
+/// 접힘 높이 추정치 = 손잡이 줄(28) + `HomeSearchHeader`(위 4 + 제목 30 + 간격 12 + 검색 바 52 + 아래 16 = 114)
+/// = 142. 드래그 앵커·카메라 계산에만 쓰인다(실제 높이는 콘텐츠가 정한다 — MapSheetDefaults 설명 참고).
+///
+/// 예전 226 은 인사말·27pt 제목·설명 한 줄·64 검색 카드를 담던 값이다. 그 셋을 걷어내(디자인 QA H1)
+/// 접힘에서도 지도가 84 더 보인다. 손잡이만 남기는 세 번째 앵커는 위·아래를 **실측**해 거리를 정하므로
+/// 이 값과 무관하게 그대로 동작한다.
+private let HomeCollapsedSheetHeight: CGFloat = 142
 
 /// 14 · 홈 — 어디로 갈까요 [S09]
 ///
 /// 이동(디스크립션):
-/// - 상단 「{단계} · {목적지} 보기 ›」 배너 → 진행 중인 방의 단계 화면 21/25/26 (onActiveRideClick)
+/// - 상단 「{단계} · {목적지} 보기」 배너 → 진행 중인 방의 단계 화면 21/25/26 (onActiveRideClick)
 ///   — 진행 중인 방이 없으면(`activeRide` nil) 배너 자체가 없다
 /// - 「목적지 검색」 바 탭 → 15 (onSearchClick)
 /// - 「즐겨찾기」 행 탭 → 15, 도로명주소로 검색어 자동 입력 (onFavoritePlaceClick)
 /// - 하단탭 합승/채팅/마이 → 17/24/35 (onTabSelect)
 ///
 /// 상태:
-/// - 즐겨찾기는 서버 목록(`favoritePlaces`)을 sequence 순으로 전부 세로 카드에 그린다.
+/// - 즐겨찾기는 서버 목록(`favoritePlaces`)을 sequence 순으로 전부 세로 목록에 그린다.
 ///   행 = 이름 · 도로명주소 · 내 위치 기준 직선 거리(`myLocation` 이 nil 이면 거리 생략)
-/// - 비어 있으면 카드 대신 「즐겨찾기를 등록하면…」 안내 문구 (등록은 15 의 ★)
+/// - 비어 있으면 목록 대신 「즐겨찾기를 등록하면…」 안내 문구 (등록은 15 의 ★)
 ///
 /// 레이아웃: 와이어프레임 B1「풀스크린 지도」 — 네이버 지도가 배경 레이어이고
-/// 홈 UI 는 그 위 **드래그 시트**(`MapSheetScaffold`)다. 핸들·검색 카드는 항상 보이고,
-/// 아래로 내리면 즐겨찾기 목록이 접혀 지도가 검색 카드 위까지 전부 드러난다.
+/// 홈 UI 는 그 위 **드래그 시트**(`MapSheetScaffold`)다. 앵커가 **셋**이다:
+/// - 펼침(기본) — 「어디로 갈까요?」·검색 바 + 즐겨찾기 목록
+/// - 접힘 — 즐겨찾기가 접혀 지도가 검색 바 위까지 드러난다
+/// - **손잡이만**(2026-11, 오너 UX 피드백) — 한 번 더 끌어내리면 시트가 하단탭 뒤로 내려가고 손잡이 줄만
+///   남아 **지도가 전부** 보인다. 예전에는 제목·검색 바가 늘 떠 있어 지도를 다 볼 길이 없었다.
+///   손잡이를 끌어올리거나 **누르면** 접힘으로 돌아온다(누르기는 끌 수 없는 사용자를 위한 길이다).
+///   검색 진입(「목적지 검색」 바 → 15)은 그대로다 — 손잡이만 남은 동안에는 바가 보이지 않을 뿐이다.
 public struct HomeScreen: View {
-    // 로그인 사용자의 실명. 아직 못 받았거나 서버에 이름이 없으면 nil — 인사말에서 이름을 뺀다.
-    private let userName: String?
     /// 지금 진행 중인 내 방. nil 이면 지도 위 배너를 그리지 않는다
     private let activeRide: Ride?
     /// 기기 실위치. nil(권한 없음·아직 fix 없음)이면 파란 점을 그리지 않고 카메라도 옮기지 않는다
@@ -89,7 +86,6 @@ public struct HomeScreen: View {
     @State private var confirming: FavoriteDeleteKind?
 
     public init(
-        userName: String? = nil,
         activeRide: Ride? = nil,
         myLocation: UserCoordinates? = nil,
         favoritePlaces: [FavoritePlace] = [],
@@ -109,7 +105,6 @@ public struct HomeScreen: View {
         onDeleteAll: @escaping () -> Void = {},
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
-        self.userName = userName
         self.activeRide = activeRide
         self.myLocation = myLocation
         self.favoritePlaces = favoritePlaces
@@ -133,11 +128,15 @@ public struct HomeScreen: View {
     public var body: some View {
         VStack(spacing: 0) {
             // 배경 = 풀스크린 지도, 그 위에 **드래그로 접었다 펴는** 시트(16·21 과 같은 MapSheetScaffold).
-            // 펼침(기본)에서는 예전 홈처럼 지도 약 200dp + 검색·즐겨찾기,
-            // 핸들을 내리면 상세(즐겨찾기)가 접혀 **지도가 검색 카드 위까지 전부** 보인다.
+            // 펼침(기본)에서는 예전 홈처럼 지도 약 200 + 검색·즐겨찾기,
+            // 핸들을 내리면 상세(즐겨찾기)가 접혀 **지도가 검색 바 위까지 전부** 보인다.
             MapSheetScaffold(
                 mapRevealHeight: HomeMapRevealHeight,
                 collapsedSheetHeight: HomeCollapsedSheetHeight,
+                // 손잡이 줄만 남기는 세 번째 앵커 — 지도를 다 보고 싶은 사람의 길(위 설명). 지도의
+                // contentPadding 은 시트가 손잡이 줄 높이를 알려 주므로(settledSheetHeight) 따로 손대지 않는다.
+                hideable: true,
+                hiddenHandleLabel: "검색 패널 펼치기",
                 background: { sheet in
                     HomeMapBackground(
                         sheet: sheet,
@@ -146,9 +145,9 @@ public struct HomeScreen: View {
                         onActiveRideClick: onActiveRideClick
                     )
                 },
-                // 항상 보이는 줄 = 인사 + 「어디로 갈까요?」 + 검색 바 (핸들과 함께 드래그 타깃)
+                // 항상 보이는 줄 = 「어디로 갈까요?」 + 검색 바 (핸들과 함께 드래그 타깃)
                 sheetTop: {
-                    HeroSection(userName: userName, onSearchClick: onSearchClick)
+                    HomeSearchHeader(onSearchClick: onSearchClick)
                 },
                 // 접히면 사라지는 상세 = 즐겨찾기 목록
                 sheetDetail: {
@@ -175,13 +174,14 @@ public struct HomeScreen: View {
             MoyeotaBottomBar(selected: .home, onSelect: onTabSelect)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBg)
-        // 되돌릴 수 없는 삭제라 확인을 받는다(탈퇴·로그아웃과 같은 모양).
+        .background(MoyeotaColor.SurfaceCanvas)
+        // 되돌릴 수 없는 삭제라 확인을 받는다(탈퇴·로그아웃과 같은 모양 — 앱 공용 확인 다이얼로그, G11).
         // 다이얼로그는 목록을 되풀이하지 않는다 — 「되돌릴 수 없다」 한 가지만 말한다.
         .overlay {
             if let pending = confirming {
-                FavoriteDeleteDialog(
-                    kind: pending,
+                MoyeotaConfirmDialog(
+                    title: pending.title,
+                    confirmText: "삭제",
                     onConfirm: {
                         confirming = nil
                         switch pending {
@@ -189,15 +189,15 @@ public struct HomeScreen: View {
                         case .all: onDeleteAll()
                         }
                     },
-                    onDismiss: { confirming = nil }
+                    onDismiss: { confirming = nil },
+                    body: pending.message,
+                    destructive: true
                 )
             }
         }
         // 편집 모드가 바뀌면 열려 있던 다이얼로그를 닫는다 — 안 닫으면 「완료」를 누른 뒤에
         // 확인 창만 떠 있어 무엇에 대한 확인인지 알 수 없다.
         .onChange(of: editingFavorites) { _, _ in confirming = nil }
-        // 원본 다이얼로그의 뒤로가기 닫기 자리.
-        .moyeotaBackHandler(enabled: confirming != nil) { confirming = nil }
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear { confirming = nil }
     }
@@ -287,7 +287,7 @@ private struct HomeMapBackground: View {
                     StatusBarSpacer()
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { statusBarHeight = $0 }
                     ActiveRideBanner(ride: activeRide, onClick: onActiveRideClick)
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
                         .padding(.top, homeBannerTopPadding(statusBarHeight: statusBarHeight))
                         .padding(.bottom, 8)
                 }
@@ -308,6 +308,7 @@ private struct HomeMapBackground: View {
     }
 }
 
+
 // ─── 시트 상세: 즐겨찾기 ────────────────────────────────────────────────────
 
 struct FavoritesDetail: View {
@@ -326,37 +327,30 @@ struct FavoritesDetail: View {
     let onConfirm: (FavoriteDeleteKind) -> Void
 
     var body: some View {
+        // 시트 안에 회색 띠를 깔지 않는다(디자인 QA G2·H3) — 예전엔 흰 시트 → 파란 띠 → 회색 띠 →
+        // 그림자 카드로 한 시트에 바탕색이 넷이었다. 목록은 흰 시트 위에 바로 놓이고 줄 사이만 선으로 나눈다.
         VStack(alignment: .leading, spacing: 0) {
-            Spacer().frame(height: 24)
+            // 검색 바 아래 16(sheetTop) + 8 = 묶음 간격 24
+            Spacer().frame(height: 8)
 
             // 즐겨찾기 — 서버 등록 순서(sequence) 그대로 전부
-            HStack(alignment: .center, spacing: 0) {
-                Text("즐겨찾기")
-                    .moyeotaText(inlineType(13, .bold), color: GrayMute)
-                Spacer(minLength: 0)
-                // 아이콘 자산이 없어 글자로 둔다(마이페이지의 ↗/› 방침과 같다).
+            SectionLabel(text: "즐겨찾기") {
                 // **목록이 비어 보여도 숨기지 않는다** — 그때가 「전체 삭제」가 유일한
                 // 탈출구인 경우(매퍼가 버린 레거시 행)라서 숨기면 탈출구가 함께 사라진다.
-                Button(action: onEditFavoritesToggle) {
-                    Text(editingFavorites ? "완료" : "편집")
-                        .moyeotaText(
-                            inlineType(13, .bold),
-                            color: deletingFavorites ? GrayAsh : MoyeotaColor.Primary500
-                        )
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(PressOverlayStyle(shape: RoundedRectangle(cornerRadius: 8, style: .circular)))
-                .disabled(deletingFavorites)
+                TextLinkButton(
+                    text: editingFavorites ? "완료" : "편집",
+                    onClick: onEditFavoritesToggle,
+                    enabled: !deletingFavorites
+                )
             }
-            .padding(.horizontal, 16)
-
-            Spacer().frame(height: 10)
+            // 「편집」 글자 끝을 16 화면 여백에 맞춘다(TextLinkButton 안쪽 여백 8 만큼 덜 띄운다)
+            .padding(.leading, MoyeotaSpacing.ScreenGutter)
+            .padding(.trailing, 8)
 
             if favoritePlaces.isEmpty {
                 emptyFavorites
             } else {
-                favoritesCard
+                favoritesList
             }
 
             // ★ 「전체 삭제」는 **조회에 한 번이라도 성공했을 때만** 그린다.
@@ -382,20 +376,19 @@ struct FavoritesDetail: View {
                         onClick: { onConfirm(.all) }
                     )
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             }
 
             if let favoriteErrorMessage {
                 Spacer().frame(height: 8)
                 Text(favoriteErrorMessage)
-                    .moyeotaText(inlineType(12, .medium), color: MoyeotaColor.Danger600)
-                    .padding(.horizontal, 16)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Danger600)
+                    .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             }
 
             Spacer().frame(height: 16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CanvasBg)
     }
 
     // ★ 「못 받았다」와 「없다」를 절대 같게 그리지 않는다.
@@ -407,17 +400,13 @@ struct FavoritesDetail: View {
         if favoritesLoadFailed {
             VStack(alignment: .leading, spacing: 0) {
                 Text("즐겨찾기를 불러오지 못했어요")
-                    .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                    .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                 Spacer().frame(height: 4)
-                Button(action: onRetryFavorites) {
-                    Text("다시 시도")
-                        .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.Primary500)
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 48)
-                }
-                .buttonStyle(PressOverlayStyle(shape: RoundedRectangle(cornerRadius: 10, style: .circular)))
+                // 글자 시작을 위 문장과 맞춘다(안쪽 여백 8 만큼 바깥으로)
+                TextLinkButton(text: "다시 시도", onClick: onRetryFavorites)
+                    .offset(x: -8)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
         } else {
             // 편집 중에 비어 보이는 목록은 「등록해 보세요」로 끝낼 수 없다 —
             // 서버에 남은 안 보이는 행을 치우려고 편집에 들어온 경우가 그 자리다.
@@ -428,14 +417,14 @@ struct FavoritesDetail: View {
                     // 등록은 15 목적지 화면에서 ★ 로 한다
                     : "즐겨찾기를 등록하면 여기서 바로 부를 수 있어요"
             )
-            .moyeotaText(inlineType(12, .medium), color: GrayAsh)
-            .padding(.horizontal, 16)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
         }
     }
 
-    private var favoritesCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
-        return VStack(spacing: 0) {
+    // 그림자 카드 없이 시트 위에 바로 — 줄 사이만 화면 여백 안쪽의 Hairline 으로 나눈다
+    private var favoritesList: some View {
+        VStack(spacing: 0) {
             ForEach(Array(favoritePlaces.enumerated()), id: \.element.id) { index, place in
                 FavoritePlaceRow(
                     place: place,
@@ -454,82 +443,55 @@ struct FavoritesDetail: View {
                 )
                 if index != favoritePlaces.count - 1 {
                     HorizontalDivider(color: MoyeotaColor.Hairline)
-                        .padding(.leading, 42)
-                        .padding(.trailing, 18)
+                        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .background(MoyeotaColor.SurfaceCanvas)
-        .clipShape(shape)
-        .moyeotaShadow(elevation: 4, shape: shape, spotColor: CardShadow)
-        .padding(.horizontal, 16)
     }
 }
 
-struct HeroSection: View {
-    let userName: String?
+/// 시트의 늘 보이는 줄 — 「어디로 갈까요?」 한 줄 + 검색 바.
+///
+/// 예전엔 인사말(「○○님, 반가워요」) · 27pt 제목 · 설명 한 줄이 옅은 파란 띠 위에 세 줄로 쌓여 있었다
+/// (디자인 QA H1 — 오너 결정으로 「최소안」). 제목 하나만 남기고 `MoyeotaType.HeadingXl`(22/600)로 내린다:
+/// 지도 앱의 첫 화면에서 말이 많으면 지도가 그만큼 가려진다.
+///
+/// 검색 바는 카드가 아니라 **입력칸**이다(H2): 높이 52, 옅은 면(`MoyeotaColor.SurfaceSoft`), 그림자·테두리
+/// 없음. 오른쪽 끝의 파란 화살표 타일을 지웠다 — 바 전체가 이미 누르는 자리라 타일은 장식이었고, 이 화면의
+/// 두 번째 솔리드 파랑이었다.
+struct HomeSearchHeader: View {
     let onSearchClick: () -> Void
 
     var body: some View {
-        let searchShape = RoundedRectangle(cornerRadius: 18, style: .circular)
+        let shape = MoyeotaShape.Card
         VStack(alignment: .leading, spacing: 0) {
-            // 시트 핸들(하단 8dp 여백)과 합쳐 인사말 위 여백을 만든다.
-            // 18.5: 코드 값은 18 이고, 원본 렌더의 핸들 시작에서 인사말까지 46.5dp 는 물리 픽셀 반올림이 쌓인 값이라 맞췄다.
-            // 시트는 아래에 붙어 있어 이 값이 시트 위 끝을 정하고, 시트가 가리는 로고·축척 글자의 양이 여기서 갈린다.
-            Spacer().frame(height: 18.5)
-            Text(homeGreeting(userName: userName))
-                .moyeotaText(inlineType(15, .medium), color: GraySlate)
-                .padding(.horizontal, 20)
+            // 손잡이 줄(아래 12)과 합쳐 제목 위 여백이 된다
+            Spacer().frame(height: 4)
             Text("어디로 갈까요?")
-                .moyeotaText(
-                    // 원본은 물려받은 스타일에서 줄 높이만 34sp 로 덮어쓴다. 자간 0.5 는 그대로 남는다.
-                    // 다만 한글 대체 폰트의 줄 상자가 34sp 를 넘어 원본의 실제 높이는 38.86dp 다(102px, UI 트리 실측).
-                    inlineType(27, .bold).copy(lineHeight: .sp(38.86)),
-                    color: MoyeotaColor.InkPrimary
-                )
-                .padding(.horizontal, 20)
-            Spacer().frame(height: 6)
-            Text("목적지를 넣으면 같은 방향 사람을 찾아드려요")
-                .moyeotaText(inlineType(13, .medium), color: GrayDeep)
-                .padding(.horizontal, 20)
-
-            Spacer().frame(height: 20)
+                .moyeotaText(MoyeotaType.HeadingXl.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                .accessibilityAddTraits(.isHeader)
+            Spacer().frame(height: 12)
             // 목적지 검색 바 → 15
             Button(action: onSearchClick) {
                 HStack(alignment: .center, spacing: 0) {
-                    SearchIcon()
-                    Spacer().frame(width: 10, height: 10)
+                    SearchIcon(size: MoyeotaIconSize.Md, tint: MoyeotaColor.TextMute)
+                    Spacer().frame(width: 8)
                     Text("목적지 검색")
-                        .moyeotaText(inlineType(16, .bold), color: GrayMute)
+                        .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextPlaceholder)
                     Spacer(minLength: 0)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .circular)
-                            .fill(MoyeotaColor.Primary500)
-                        ArrowRightIcon(color: MoyeotaColor.TextOnDark)
-                    }
-                    .frame(width: 44, height: 44)
                 }
-                .padding(.leading, 18)
-                .padding(.trailing, 10)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
                 .frame(maxWidth: .infinity)
-                .frame(height: 64)
-                .background(MoyeotaColor.SurfaceCanvas, in: searchShape)
+                .frame(height: 52)
+                .background(MoyeotaColor.SurfaceSoft, in: shape)
             }
-            .buttonStyle(PressOverlayStyle(shape: searchShape))
-            .moyeotaShadow(elevation: 8, shape: searchShape, spotColor: Color(argb: 0x29085AF5))
-            .padding(.horizontal, 20)
-
-            Spacer().frame(height: 20)
+            .buttonStyle(PressOverlayStyle(shape: shape))
+            Spacer().frame(height: 16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HeroBg)
+        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
     }
-}
-
-/// 이름을 모르면 "OO님" 자리를 통째로 빼고 인사만 남긴다 — 빈 이름이 드러나지 않는다.
-func homeGreeting(userName: String?) -> String {
-    if let userName { "\(userName)님, 반가워요" } else { "반가워요" }
 }
 
 /// 어떤 삭제의 확인을 받는 중인지. 다이얼로그 제목·본문·동작이 전부 이 값으로 갈린다
@@ -551,7 +513,10 @@ enum FavoriteDeleteKind {
     }
 }
 
-/// 즐겨찾기 한 행 — 점 · 이름/도로명주소 · (실위치가 있을 때만) 직선 거리.
+/// 즐겨찾기 한 행 — 이름/도로명주소 · (실위치가 있을 때만) 직선 거리.
+///
+/// 행 앞의 회색 점은 지웠다(디자인 QA H3) — 아무것도 구분하지 않는 장식이었다. 이름은 `MoyeotaType.BodyStrong`,
+/// 주소·거리는 `MoyeotaType.BodySm` `MoyeotaColor.TextMute`(예전 `#8A93A0` 은 흰 바탕 대비 3.1:1 이었다).
 ///
 /// 편집 모드(`editing`)에서는 거리 라벨 자리를 체크박스가 대신한다. **제스처는 쓰지 않는다** —
 /// 이 목록은 세로로 드래그되는 시트 안이고 그 배경은 패닝되는 지도라, 행 위 가로 스와이프가
@@ -567,34 +532,30 @@ struct FavoritePlaceRow: View {
     var body: some View {
         Button(action: onClick) {
             HStack(alignment: .center, spacing: 0) {
-                Circle()
-                    .fill(RowDot)
-                    .frame(width: 8, height: 8)
-                Spacer().frame(width: 16, height: 16)
                 VStack(alignment: .leading, spacing: 0) {
-                    // 도로명이 빈 장소가 있다. Compose 의 빈 `Text` 는 한 줄 높이를 차지하지만 SwiftUI 는 0 이라 하한을 준다.
                     Text(place.name)
-                        .moyeotaText(inlineType(14, .bold), color: MoyeotaColor.InkPrimary)
-                        .frame(minHeight: 24)
-                    Text(place.roadName)
-                        .moyeotaText(inlineType(12, .medium), color: GrayMute)
-                        .frame(minHeight: 24)
+                        .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    // 도로명이 빈 장소가 있다(지번만 있는 건물·역) — 빈 줄을 세우지 않는다(15 검색 결과와 같은 규칙)
+                    if !place.roadName.isBlank {
+                        Text(place.roadName)
+                            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
+                    }
                 }
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if editing {
-                    Spacer().frame(width: 12, height: 12)
+                    Spacer().frame(width: 12)
                     SelectBox(selected: selected)
                 } else if let distanceLabel {
-                    Spacer().frame(width: 12, height: 12)
+                    Spacer().frame(width: 12)
                     Text(distanceLabel)
-                        .moyeotaText(inlineType(13, .bold), color: GrayMute)
+                        .moyeotaText(MoyeotaType.BodySm.tabularNums(), color: MoyeotaColor.TextMute)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             .padding(.vertical, 12)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, minHeight: 56)
         }
         .buttonStyle(PressOverlayStyle(shape: Rectangle()))
         // 삭제가 날아간 동안 탭을 막는다 — 단건·다건 삭제가 멱등이 아니라서(두 번째가 404)
@@ -613,36 +574,37 @@ private struct DangerTextRow: View {
     let onClick: () -> Void
 
     var body: some View {
+        let shape = MoyeotaShape.Small
         Button(action: onClick) {
             Text(text)
                 .moyeotaText(
-                    inlineType(13, .bold),
-                    color: enabled ? MoyeotaColor.Danger500 : GrayAsh
+                    MoyeotaType.ButtonMd.hangulTrimmed,
+                    color: enabled ? MoyeotaColor.Danger500 : MoyeotaColor.TextPlaceholder
                 )
-                .padding(.vertical, 10)
-                // 되돌릴 수 없는 동작이라 터치 타깃을 48dp 로 채운다. 세로 패딩만으로는 38dp 였고,
+                .padding(.vertical, 12)
+                // 되돌릴 수 없는 동작이라 터치 타깃을 48 로 채운다. 세로 패딩만으로는 38 이었고,
                 // 바로 아래 「전체 삭제」와 맞닿아 손가락이 옆 줄을 집었다.
                 .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
         }
-        .buttonStyle(PressOverlayStyle(shape: RoundedRectangle(cornerRadius: 10, style: .circular)))
+        .buttonStyle(PressOverlayStyle(shape: shape))
         .disabled(!enabled)
     }
 }
 
-/// 편집 모드의 선택 상자 — 테두리는 도형, 체크는 로그인 화면 것을 쓴다
+/// 편집 모드의 선택 상자 — 체크는 공용 아이콘 세트(`CheckIcon`)를 쓴다
 private struct SelectBox: View {
     let selected: Bool
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .circular)
+        let shape = MoyeotaShape.Small
         ZStack {
             if selected {
-                CheckMarkIcon(iconSize: 14, color: MoyeotaColor.TextOnDark)
+                CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextOnDark)
             }
         }
         .frame(width: 20, height: 20)
         .background(selected ? MoyeotaColor.Primary500 : MoyeotaColor.SurfaceCanvas, in: shape)
-        .overlay(shape.strokeBorder(selected ? MoyeotaColor.Primary500 : RowDot, lineWidth: 1.5))
+        .overlay(shape.strokeBorder(selected ? MoyeotaColor.Primary500 : MoyeotaColor.BorderStrong, lineWidth: 1.5))
     }
 }
 
@@ -669,137 +631,3 @@ func distanceLabel(meters: Float) -> String? {
     return "\(tenths / 10).\(tenths % 10)km"
 }
 
-// ─── 삭제 확인 다이얼로그 (머티리얼 AlertDialog 자리) ─────────────────────────
-
-/// 머티리얼 `AlertDialog` 의 시각 값을 그대로 옮긴 오버레이.
-/// 카드 모서리 28, 안쪽 여백 24, 제목 아래 16, 본문 아래 24, 버튼 사이 8, 폭 최소 280.
-private struct FavoriteDeleteDialog: View {
-    let kind: FavoriteDeleteKind
-    let onConfirm: () -> Void
-    let onDismiss: () -> Void
-
-    var body: some View {
-        ZStack {
-            // 플랫폼 대화상자의 뒤 어둡기(`android:Theme.Material.Light` 의 backgroundDimAmount)
-            Color.black.opacity(0.6)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onDismiss)
-                .accessibilityHidden(true)
-
-            // 원본 대화상자 창은 시스템 바를 뺀 영역의 가운데에 놓인다. 이 오버레이는 화면 전체라 두 바의 높이를 직접 뺀다.
-            VStack(spacing: 0) {
-                StatusBarSpacer()
-                card.frame(maxHeight: .infinity)
-                NavigationBarSpacer()
-            }
-        }
-        .accessibilityAddTraits(.isModal)
-    }
-
-    private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(kind.title)
-                .moyeotaText(.HeadingMd, color: MoyeotaColor.InkPrimary)
-                .padding(.bottom, 16)
-            Text(kind.message)
-                .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
-                .padding(.bottom, 24)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                DialogTextButton(
-                    text: "취소",
-                    fontWeight: .medium,
-                    color: MoyeotaColor.TextMute,
-                    onClick: onDismiss
-                )
-                DialogTextButton(
-                    text: "삭제",
-                    fontWeight: .bold,
-                    color: MoyeotaColor.Danger500,
-                    onClick: onConfirm
-                )
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .frame(minWidth: 232, alignment: .leading)
-        .padding(24)
-        .fixedSize()
-        .background(MoyeotaColor.SurfaceCanvas, in: RoundedRectangle(cornerRadius: 28, style: .circular))
-        // 카드 안쪽 탭이 뒤 어둠으로 새어 다이얼로그를 닫지 않게 받아 둔다.
-        .contentShape(RoundedRectangle(cornerRadius: 28, style: .circular))
-        .onTapGesture {}
-    }
-}
-
-/// 머티리얼 `TextButton` 자리. 라벨 14/20, 안쪽 여백 12·8, 최소 58×40 이고 레이아웃은 터치 타깃 48 까지 잡는다.
-private struct DialogTextButton: View {
-    let text: String
-    let fontWeight: Font.Weight
-    let color: Color
-    let onClick: () -> Void
-
-    var body: some View {
-        Button(action: onClick) {
-            Text(text)
-                .moyeotaText(
-                    MoyeotaType(fontSize: 14, fontWeight: fontWeight, lineHeight: .sp(20), letterSpacing: 0.1),
-                    color: color
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(minWidth: 58, minHeight: 40)
-        }
-        .buttonStyle(PressOverlayStyle(shape: Capsule(style: .circular)))
-        .frame(minHeight: 48)
-    }
-}
-
-// ─── 아이콘 (Canvas 직접 드로잉) ─────────────────────────────────────────────
-
-private func line(_ from: CGPoint, _ to: CGPoint) -> Path {
-    var path = Path()
-    path.move(to: from)
-    path.addLine(to: to)
-    return path
-}
-
-private struct SearchIcon: View {
-    var color = Color(argb: 0xFF54637D)
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let radius = w * 0.26
-            let center = w * 0.42
-            context.stroke(
-                Path(ellipseIn: CGRect(x: center - radius, y: center - radius, width: radius * 2, height: radius * 2)),
-                with: .color(color),
-                style: StrokeStyle(lineWidth: 2)
-            )
-            context.stroke(
-                line(CGPoint(x: w * 0.62, y: w * 0.62), CGPoint(x: w * 0.86, y: w * 0.86)),
-                with: .color(color),
-                style: StrokeStyle(lineWidth: 2, lineCap: .round)
-            )
-        }
-        .frame(width: 22, height: 22)
-    }
-}
-
-private struct ArrowRightIcon: View {
-    var color = Color.white
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            let stroke = StrokeStyle(lineWidth: 2, lineCap: .round)
-            let tip = CGPoint(x: w * 0.85, y: h * 0.5)
-            context.stroke(line(CGPoint(x: w * 0.12, y: h * 0.5), tip), with: .color(color), style: stroke)
-            context.stroke(line(tip, CGPoint(x: w * 0.52, y: h * 0.2)), with: .color(color), style: stroke)
-            context.stroke(line(tip, CGPoint(x: w * 0.52, y: h * 0.8)), with: .color(color), style: stroke)
-        }
-        .frame(width: 20, height: 20)
-    }
-}

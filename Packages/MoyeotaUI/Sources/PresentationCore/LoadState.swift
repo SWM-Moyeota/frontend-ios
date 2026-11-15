@@ -6,6 +6,8 @@ import SwiftUI
 // LoadingBox/ErrorBox 는 화면 전체를 채운다. 탭바를 각 화면이 직접 그리는 구조에서
 // 이걸 Route 최상단에 그대로 두면 로딩·에러 동안 탭바가 통째로 사라져 인앱 이동이 끊긴다(QA F-1).
 // 그래서 탭바는 항상 남기고 콘텐츠 영역만 상태에 따라 바꾼다.
+//
+// 바탕은 흰색이다 — 앱의 기본 화면 바탕(디자인 QA G2). 회색은 묶음 목록 화면만 쓴다.
 public struct TabStateScaffold<Content: View>: View {
     private let selectedTab: MoyeotaTab
     private let onTabSelect: (MoyeotaTab) -> Void
@@ -29,7 +31,7 @@ public struct TabStateScaffold<Content: View>: View {
             MoyeotaBottomBar(selected: selectedTab, onSelect: onTabSelect)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
@@ -62,7 +64,7 @@ public struct BackStateScaffold<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
@@ -74,15 +76,6 @@ public struct LoadingBox: View {
         CircularProgressIndicator(color: MoyeotaColor.Primary500)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
-
-/// 스타일 없는 원본 `Text(fontSize = …, fontWeight = …)` 의 글자 모양.
-///
-/// `MoyeotaTheme` 이 타이포그래피를 넘기지 않아 `LocalTextStyle` 은 M3 기본 `bodyLarge` 이고, 글자는 거기서
-/// **줄 높이 24sp · 자간 0.5sp** 를 물려받는다. 그래서 11sp 배지도 줄 상자는 24 다 — 빼면 공용 부품의 높이가 원본과 어긋난다.
-/// 16sp 위로는 한글 대체 글꼴이 줄을 밀어 올린다(`UpdateRequiredScreen` 22sp 제목은 원본에서 약 32).
-func inheritedBodyLargeType(_ fontSize: CGFloat, _ fontWeight: Font.Weight) -> MoyeotaType {
-    MoyeotaType.inheritedBodyLarge(fontSize: fontSize, fontWeight: fontWeight)
 }
 
 public struct ErrorBox: View {
@@ -106,25 +99,23 @@ public struct ErrorBox: View {
     }
 
     public var body: some View {
-        VStack(spacing: 12) {
+        // 34 지난 탑승 기록 · 38 노쇼 기록의 실패 상태와 같은 모양이다 — 가운데 회색 문장 + 테두리 알약 버튼.
+        // 예전엔 이 자리에만 r12 · 40 솔리드 파란 상자가 있어 앱의 CTA 모양이 하나 더 늘었다(디자인 QA G5).
+        VStack(spacing: 0) {
             Text(message)
-                .moyeotaText(inheritedBodyLargeType(15, .bold), color: MoyeotaColor.InkPrimary)
-            Button(action: onRetry) {
-                Text(actionLabel)
-                    .moyeotaText(inheritedBodyLargeType(13, .bold), color: MoyeotaColor.TextOnDark)
-                    .padding(.horizontal, 20)
-                    .frame(height: 40)
-                    .background(MoyeotaColor.Primary500, in: RoundedRectangle(cornerRadius: 12, style: .circular))
-            }
-            .buttonStyle(PressOverlayStyle(shape: RoundedRectangle(cornerRadius: 12, style: .circular)))
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                .multilineTextAlignment(.center)
+            Spacer().frame(height: 16)
+            SecondaryButton(text: actionLabel, onClick: onRetry)
         }
+        .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 /// `Modifier.clip(shape).clickable { }` 의 눌림 표시. 머티리얼 상태 레이어처럼 모양 안에 10% 를 덮는다.
 ///
-/// 배경이 칠해진 눌림 영역(배너·재시도 버튼)에 쓴다. 배경이 없는 아이콘·탭은 `MoyeotaDesignSystem` 의 투명도 표시를 쓴다.
+/// 배경이 칠해진 눌림 영역(배너)에 쓴다. 배경이 없는 아이콘·탭은 `MoyeotaDesignSystem` 의 투명도 표시를 쓴다.
 public struct PressOverlayStyle<S: Shape>: ButtonStyle {
     private let shape: S
 

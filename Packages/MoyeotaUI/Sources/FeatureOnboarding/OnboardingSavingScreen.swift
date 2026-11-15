@@ -28,19 +28,13 @@ public struct OnboardingSavingScreen: View {
         VStack(spacing: 0) {
             StatusBarSpacer()
 
-            // 건너뛰기 (우상단)
+            // 건너뛰기 (우상단) — 48 터치 + 눌림 표시(디자인 QA G12). 링크 안쪽 8 만큼 줄 여백을 줄여
+            // 글자 끝이 16 화면 여백에 선다
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                Button(action: onSkip) {
-                    Text("건너뛰기")
-                        .moyeotaText(MoyeotaType.ButtonMd.hangulTrimmed, color: MoyeotaColor.TextMute)
-                        .padding(8)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PressFeedbackStyle())
+                TextLinkButton(text: "건너뛰기", onClick: onSkip, color: MoyeotaColor.TextMute)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
 
             Spacer().frame(height: 24)
 
@@ -54,10 +48,7 @@ public struct OnboardingSavingScreen: View {
             Text(OnboardingSavingCopy.headline)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.DisplayMd.copy(fontSize: 26, letterSpacing: -0.52).hangulTrimmed,
-                    color: MoyeotaColor.InkPrimary
-                )
+                .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 12)
@@ -65,10 +56,7 @@ public struct OnboardingSavingScreen: View {
             Text(OnboardingSavingCopy.body)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.BodyMd.copy(lineHeight: .sp(22), letterSpacing: -0.3).hangulTrimmed,
-                    color: MoyeotaColor.TextMute
-                )
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 32)
@@ -86,62 +74,29 @@ public struct OnboardingSavingScreen: View {
         }
         // 작은 화면에서 넘치면 원본 Column 처럼 위를 고정하고 아래로 넘긴다(기본값이면 위아래로 나뉜다).
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
-// 일러스트 — 원 안의 ₩ + 요금 비교 (9,600원 → 3,200원)
+/// 일러스트 — 요금 비교 (9,600원 → 3,200원) 두 알약만.
+///
+/// 예전엔 옅은 파란 판 위에 44pt 「₩」 글자를 담은 원이 있었다(디자인 QA A3). 글자를 그림 대신 쓴 장식이고,
+/// 판까지 더해 파랑이 화면을 덮었다. 메시지는 두 금액이 전부 말하므로 그것만 흰 바탕에 남긴다.
+/// 높이는 호출부가 주는 그대로 두어(다른 두 장과 같은 330) 페이지를 넘겨도 제목 자리가 흔들리지 않는다.
 private struct SavingIllustration: View {
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 72)
-
-            ZStack {
-                Circle().fill(Color(argb: 0xFFDCE7FB))
-                Circle().strokeBorder(MoyeotaColor.Primary500.opacity(0.35), lineWidth: 2)
-                WonGlyphShape()
-                    .fill(MoyeotaColor.Primary500)
-                    .frame(width: WonGlyphShape.width, height: WonGlyphShape.height)
-                    .offset(y: WonGlyphShape.centerOffsetY)
-                    .accessibilityElement()
-                    .accessibilityLabel(Text("₩"))
-            }
-            .frame(width: 140, height: 140)
-
-            Spacer().frame(height: 22)
-
-            HStack(alignment: .center, spacing: 12) {
-                FarePill(text: "9,600원", background: MoyeotaColor.SurfaceCanvas, textColor: MoyeotaColor.InkPrimary)
-                PlusIcon()
-                FarePill(text: "3,200원", background: MoyeotaColor.Primary500, textColor: MoyeotaColor.TextOnDark)
-            }
+        HStack(alignment: .center, spacing: 12) {
+            FarePill(
+                text: "9,600원",
+                background: MoyeotaColor.SurfaceCanvas,
+                textColor: MoyeotaColor.InkPrimary,
+                outlined: true
+            )
+            // 「→」 — 예전엔 더하기 기호였는데 두 금액은 더하는 관계가 아니라 줄어드는 관계다
+            ChevronIcon(size: MoyeotaIconSize.Md, tint: MoyeotaColor.TextMute)
+            FarePill(text: "3,200원", background: MoyeotaColor.Primary500, textColor: MoyeotaColor.TextOnDark)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MoyeotaColor.Primary50, in: RoundedRectangle(cornerRadius: 24, style: .circular))
-    }
-}
-
-/// 원 안의 ₩. 원본은 44sp 굵은 글자(`Text("₩")`)지만 그림처럼 보이는 자리이고, iOS 시스템 글꼴의 ₩ 는 가로줄이 하나에
-/// 획도 가늘어 모양이 다르다. 그래서 원본 스크린샷(2.625배)에서 잰 윤곽을 그린다. 좌표 단위는 그 스크린샷의 픽셀이다.
-private struct WonGlyphShape: Shape {
-    private static let scale: CGFloat = 2.625
-    static let width: CGFloat = 90 / scale
-    static let height: CGFloat = 83 / scale
-    /// 원 가운데에서 글자 윤곽 가운데까지(원본 스크린샷에서 쟀다).
-    static let centerOffsetY: CGFloat = -1.5 / scale
-
-    func path(in rect: CGRect) -> Path {
-        let unit = rect.width / 90
-        let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: rect.minX + x * unit, y: rect.minY + y * unit) }
-        var path = Path()
-        path.addLines([
-            point(5, 1), point(22, 1), point(29.5, 54), point(37, 1), point(52, 1), point(60.5, 54),
-            point(68, 1), point(85, 1), point(69, 83), point(52, 83), point(45, 38), point(38, 83), point(21, 83),
-        ])
-        path.closeSubpath()
-        path.addRect(CGRect(x: rect.minX, y: rect.minY + 18 * unit, width: rect.width, height: 9 * unit))
-        path.addRect(CGRect(x: rect.minX, y: rect.minY + 35 * unit, width: rect.width, height: 9 * unit))
-        return path
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -149,39 +104,19 @@ private struct FarePill: View {
     let text: String
     let background: Color
     let textColor: Color
+    var outlined = false
 
     var body: some View {
         Text(text)
-            .moyeotaText(inheritedBodyLarge(fontSize: 16), color: textColor)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(background, in: RoundedRectangle(cornerRadius: 14, style: .circular))
-    }
-}
-
-/// 원본 `Text(fontSize = …, fontWeight = Bold)` 의 실제 스타일. `style` 을 주지 않으면 머티리얼 테마의
-/// `bodyLarge` 를 물려받아 줄 높이 24sp·자간 0.5sp 가 남는다. 요금 알약의 높이 44dp 가 여기서 나온다.
-private func inheritedBodyLarge(fontSize: CGFloat) -> MoyeotaType {
-    MoyeotaType(fontSize: fontSize, fontWeight: .bold, lineHeight: .sp(24), letterSpacing: 0.5)
-}
-
-private struct PlusIcon: View {
-    var body: some View {
-        // 둥근 끝이 14pt 밖으로 1.25pt 나온다. 원본 Canvas 는 자르지 않지만 SwiftUI `Canvas` 는 잘라서 Shape 로 그린다.
-        PlusShape()
-            .stroke(Color(argb: 0xFF8A93A0), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-            .frame(width: 14, height: 14)
-    }
-}
-
-private struct PlusShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let c = rect.width / 2
-        var path = Path()
-        path.move(to: CGPoint(x: 0, y: c))
-        path.addLine(to: CGPoint(x: rect.width, y: c))
-        path.move(to: CGPoint(x: c, y: 0))
-        path.addLine(to: CGPoint(x: c, y: rect.height))
-        return path
+            .moyeotaText(MoyeotaType.HeadingLg.tabularNums().hangulTrimmed, color: textColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(background, in: MoyeotaShape.Card)
+            // 흰 알약은 흰 화면에서 모양이 사라지므로 테두리로 선다(디자인 QA G4)
+            .overlay {
+                if outlined {
+                    MoyeotaShape.Card.strokeBorder(MoyeotaColor.Border, lineWidth: 1)
+                }
+            }
     }
 }

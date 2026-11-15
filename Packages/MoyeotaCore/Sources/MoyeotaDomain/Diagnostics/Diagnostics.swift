@@ -75,6 +75,10 @@ public enum FailureSite: String, CaseIterable, Sendable {
     /// 탑승 기록 조회 실패.
     case rideHistory = "RIDE_HISTORY"
 
+    /// 17 탐색 목록 갱신 시계(`ExploreRefreshCycle`)의 조회가 **약속을 어기고 던졌다** — 조회 실패는 안에서 처리하게
+    /// 돼 있으므로 여기 오는 것은 앱 결함뿐이다. 시계는 삼키고 계속 돈다.
+    case exploreRefresh = "EXPLORE_REFRESH"
+
     /// Kotlin `enum.name` — 원본 상수 이름 그대로. 대시보드 키로 쓴다.
     public var name: String { rawValue }
 }

@@ -89,7 +89,7 @@ public struct PasswordResetScreen: View {
                     } else {
                         verifyForm
                     }
-                    Spacer().frame(height: 28)
+                    Spacer().frame(height: 24)
                 }
                 .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -101,7 +101,7 @@ public struct PasswordResetScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 인증이 풀리면(토큰 만료로 되돌림) 적어 둔 새 비밀번호를 남기지 않는다.
         .onChange(of: verify.stage) { _, stage in
             if stage != .verified {
@@ -122,11 +122,11 @@ public struct PasswordResetScreen: View {
         Spacer().frame(height: 24)
         Text("비밀번호를 새로 만들어요")
             .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-        Spacer().frame(height: 10)
+        Spacer().frame(height: 12)
         Text("아이디와 가입한 휴대폰 번호를 확인할게요")
-            .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         MoyeotaTextField(
             value: loginId,
             onValueChange: { new in
@@ -138,15 +138,15 @@ public struct PasswordResetScreen: View {
             keyboardOptions: KeyboardOptions(keyboardType: .ascii, imeAction: .next),
             enabled: !verify.verifying
         )
-        Spacer().frame(height: 10)
+        // 48 터치 링크(디자인 QA G12)라 원본처럼 입력란에 바로 붙이고 아래 간격을 줄인다
         HStack(alignment: .center, spacing: 0) {
             Text("아이디가 기억나지 않아요")
                 .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
-            Spacer().frame(width: 10, height: 10)
-            RecoveryTextLink(text: "아이디 찾기", action: onFindId)
+            Spacer().frame(width: 2, height: 2)
+            TextLinkButton(text: "아이디 찾기", onClick: onFindId, style: .ButtonSm)
         }
 
-        Spacer().frame(height: 20)
+        Spacer().frame(height: 8)
         MoyeotaTextField(
             value: phoneDigits,
             onValueChange: { new in
@@ -199,11 +199,11 @@ public struct PasswordResetScreen: View {
         Spacer().frame(height: 24)
         Text("새 비밀번호를 정해 주세요")
             .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-        Spacer().frame(height: 10)
+        Spacer().frame(height: 12)
         Text("휴대폰 인증이 끝났어요. 10분 안에 새 비밀번호를 저장해 주세요")
-            .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14).hangulTrimmed, color: MoyeotaColor.TextMute)
+            .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         MoyeotaTextField(
             value: newPassword,
             onValueChange: { new in
@@ -218,16 +218,14 @@ public struct PasswordResetScreen: View {
             visualTransformation: passwordVisible ? .None : PasswordVisualTransformation(),
             enabled: !submitting
         ) {
-            Button {
-                passwordVisible.toggle()
-            } label: {
-                Text(passwordVisible ? "숨기기" : "보기")
-                    .moyeotaText(
-                        MoyeotaType.CaptionMd.copy(fontWeight: .bold).hangulTrimmed,
-                        color: MoyeotaColor.TextMute
-                    )
-            }
-            .buttonStyle(NoIndicationButtonStyle())
+            // 04a 와 같은 48 터치 토글(디자인 QA G12). 글자 끝은 필드 안쪽 여백에 맞춘다
+            TextLinkButton(
+                text: passwordVisible ? "숨기기" : "보기",
+                onClick: { passwordVisible.toggle() },
+                color: MoyeotaColor.TextMute,
+                style: .ButtonSm
+            )
+            .offset(x: 8)
         }
 
         Spacer().frame(height: 20)
@@ -250,7 +248,7 @@ public struct PasswordResetScreen: View {
             NoticeBanner(kind: .error, text: bannerMessage)
         }
 
-        Spacer().frame(height: 28)
+        Spacer().frame(height: 32)
         PrimaryCtaButton(
             text: "비밀번호 변경",
             onClick: { onConfirm(loginId, newPassword, newPasswordConfirm) },

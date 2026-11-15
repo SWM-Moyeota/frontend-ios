@@ -235,9 +235,6 @@ func favoritePlaceQuery(_ place: FavoritePlace) -> String {
 
 // 14 홈 — 즐겨찾기 목록을 서버에서 채운다(domain FavoritePlace 그대로, sequence 순).
 public struct HomeRoute: View {
-    // 이름은 NavHost 의 공용 홀더(UserProfileViewModel)가 세션당 한 번 받아 내려보낸다
-    // — 홈 진입마다 다시 조회하지 않는다.
-    private let userName: String?
     /// 지금 진행 중인 내 방(ActivePartyViewModel.resolve 결과). 있으면 지도 위에 복귀 배너를 띄운다
     private let activeRide: Ride?
     private let onSearchClick: () -> Void
@@ -253,14 +250,12 @@ public struct HomeRoute: View {
 
     public init(
         repository: any PlaceRepository,
-        userName: String? = nil,
         activeRide: Ride? = nil,
         onSearchClick: @escaping () -> Void = {},
         onActiveRideClick: @escaping () -> Void = {},
         onPlaceQuery: @escaping (String) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
-        self.userName = userName
         self.activeRide = activeRide
         self.onSearchClick = onSearchClick
         self.onActiveRideClick = onActiveRideClick
@@ -280,14 +275,12 @@ public struct HomeRoute: View {
     /// 뷰 수명 동안 처음 받은 인스턴스를 쓴다.
     public init(
         viewModel: HomeViewModel,
-        userName: String? = nil,
         activeRide: Ride? = nil,
         onSearchClick: @escaping () -> Void = {},
         onActiveRideClick: @escaping () -> Void = {},
         onPlaceQuery: @escaping (String) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
-        self.userName = userName
         self.activeRide = activeRide
         self.onSearchClick = onSearchClick
         self.onActiveRideClick = onActiveRideClick
@@ -300,7 +293,6 @@ public struct HomeRoute: View {
         let viewModel = self.viewModel
         let editState = viewModel.editState
         HomeScreen(
-            userName: userName,
             activeRide: activeRide,
             myLocation: myLocation.coordinates,
             favoritePlaces: viewModel.favorites,

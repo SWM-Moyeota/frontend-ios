@@ -184,7 +184,8 @@ struct NoShowRecordsScreen: View {
                 // (커서도 개수 파라미터도 없다). 판정은 `noShowHistoryCapNotice`.
                 if let notice = noShowHistoryCapNotice(size: items.count) {
                     Text(notice)
-                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextAsh)
+                        // 읽어야 하는 사실(「최근 N건만 보여요」)이라 장식 회색이 아니라 보조 글자색이다
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 }
             }
             .padding(16)
@@ -263,7 +264,7 @@ private struct NoShowCard: View {
             }
 
             if let note = item.note {
-                Spacer().frame(height: 10)
+                Spacer().frame(height: 8)
                 Text(note)
                     .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
             }
@@ -278,7 +279,7 @@ private struct NoShowCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(MoyeotaColor.SurfaceCard, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+        .background(MoyeotaColor.SurfaceCard, in: MoyeotaShape.Card)
     }
 }
 
@@ -289,7 +290,7 @@ private struct TimeRow: View {
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
             Text(label)
-                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextAsh)
+                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                 .frame(width: 64, alignment: .leading)
             Text(value)
                 .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextBody)
@@ -344,7 +345,7 @@ private struct ObjectionSheet: View {
     @State private var contentHeight: CGFloat = 0
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
+        let shape = MoyeotaShape.Dialog
         ZStack {
             MoyeotaColor.Scrim
                 .ignoresSafeArea()
@@ -407,14 +408,14 @@ private struct ObjectionSheet: View {
                 )
                 if reason.isEmpty {
                     Text(OBJECTION_INPUT_PLACEHOLDER)
-                        .moyeotaText(.BodyMd, color: MoyeotaColor.TextAsh)
+                        .moyeotaText(.BodyMd, color: MoyeotaColor.TextPlaceholder)
                         .allowsHitTesting(false)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-            .background(MoyeotaColor.SurfaceSoft, in: RoundedRectangle(cornerRadius: 12, style: .circular))
+            .background(MoyeotaColor.SurfaceSoft, in: MoyeotaShape.Card)
             Spacer().frame(height: 6)
             Text(input.counter)
                 .moyeotaText(
@@ -432,7 +433,7 @@ private struct ObjectionSheet: View {
             }
 
             Spacer().frame(height: 20)
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 SecondaryButton(
                     text: terminal ? "닫기" : "취소",
                     onClick: onDismiss,

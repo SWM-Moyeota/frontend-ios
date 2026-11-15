@@ -33,7 +33,33 @@ public enum UserNameState: Hashable, Sendable {
     ///   서버의 제재 검사는 그 셋에만 있다 — `UserProfileInfo.restrictedUntil` 주석). 제한이 없으면 nil.
     ///   서버 관례대로 ISO-8601 문자열이고, 표기·만료 판정은 화면 쪽(`noShowSanction`)이 기기 시간대로
     ///   한다 — 문자열을 자르면 KST 오후가 오전으로 보인다.
-    case resolved(name: String?, imageUrl: String? = nil, noShowCount: Int = 0, restrictedUntil: String? = nil)
+    /// - `loginId`: 로그인 아이디. 로컬 로그인이 없는 계정이거나 조회에 실패했거나 구버전 서버면 nil 이고,
+    ///   그때 36 프로필 수정은 「아이디」 행을 숨긴다(`profileLoginIdOrNull`).
+    ///   이름·사진과 **같은 한 번의 조회**에서 오므로 같은 상태에 싣는다(위 「노쇼 제재」 단락과 같은 근거).
+    case resolved(
+        name: String?,
+        imageUrl: String? = nil,
+        noShowCount: Int = 0,
+        restrictedUntil: String? = nil,
+        loginId: String? = nil
+    )
+}
+
+/// 36 프로필 수정의 「아이디」 행에 **보여 줄 값** — nil 이면 행을 통째로 숨긴다.
+///
+/// 숨기는 경우가 셋이다: 로컬 로그인이 없는 계정(서버가 null 을 준다), 조회 실패·로딩 중, 그리고
+/// 공백뿐인 값. 셋째는 매퍼가 이미 걸러 오지만(`UserMappers`) 화면 쪽에서도 한 번 더 본다 —
+/// 라벨만 있고 값이 빈 행은 「아이디가 지워졌다」로 읽힌다.
+///
+/// 비활성 입력칸으로 그리지 않는다. 회색 입력칸은 「지금은 못 바꾸지만 언젠가 눌러서 바꾼다」로 읽히는데,
+/// 아이디는 바꾸는 경로 자체가 없다(서버에 수정 API 가 없다) — 그래서 행은 **라벨 + 값** 모양이다.
+///
+/// 원본은 `internal` 이다. 36 이 FeatureMyPage 모듈에 있어 공개한다.
+public func profileLoginIdOrNull(state: UserNameState) -> String? {
+    guard case .resolved(_, _, _, _, let loginId) = state, let trimmed = loginId?.trim(), !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
 }
 
 /// 세션당 한 번만 이름을 받아 오는 공용 홀더.
@@ -135,7 +161,9 @@ public final class UserProfileViewModel {
                     // 실시간 생성·합류는 원본처럼 일반 문구로 떨어진다 — 그 사람이 이유를 알 곳은
                     // 35 배너뿐이다.
                     noShowCount: info?.noShowCount ?? 0,
-                    restrictedUntil: info?.restrictedUntil
+                    restrictedUntil: info?.restrictedUntil,
+                    // 조회 실패면 nil — 36 은 그때 「아이디」 행을 숨긴다(없는 값을 지어내지 않는다).
+                    loginId: info?.loginId
                 )
             }
         }

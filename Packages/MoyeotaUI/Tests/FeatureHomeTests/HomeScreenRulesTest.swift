@@ -10,12 +10,6 @@ import Testing
         FavoritePlace(id: 1, name: name, roadName: roadName, latitude: latitude, longitude: longitude, sequence: 1)
     }
 
-    @Test("이름이 없으면 인사말에서 이름 자리를 뺀다")
-    func greeting() {
-        #expect(homeGreeting(userName: "민준") == "민준님, 반가워요")
-        #expect(homeGreeting(userName: nil) == "반가워요")
-    }
-
     @Test("도로명이 비면 장소 이름으로 검색한다")
     func queryFallsBackToName() {
         let spot = { (road: String) in FavoritePlace(id: 1, name: "부산대역", roadName: road, latitude: 35, longitude: 129, sequence: 1) }

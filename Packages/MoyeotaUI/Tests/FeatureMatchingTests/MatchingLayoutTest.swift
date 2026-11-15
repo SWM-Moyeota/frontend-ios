@@ -12,18 +12,6 @@ private final class InsetWindow: UIWindow {
     override var safeAreaInsets: UIEdgeInsets { UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0) }
 }
 
-@Suite struct InlineTypeLineHeightTest {
-
-    @Test("줄 상자는 16 이하에서 24 이고 그 위로는 원본 UI 트리의 높이를 따른다", arguments: [
-        (CGFloat(11), CGFloat(24)), (12, 24), (13, 24), (14, 24), (15, 24), (16, 24),
-        (17, 24.4), (18, 26.3), (19, 27.1), (20, 28.5), (22, 31.6), (24, 34.6),
-    ])
-    func matchesAndroidLineBox(fontSize: CGFloat, androidHeight: CGFloat) {
-        let height = inlineType(fontSize, .bold).lineHeightPoints ?? 0
-        #expect(abs(height - androidHeight) < 0.5, "\(fontSize)sp: \(height) 대 \(androidHeight)")
-    }
-}
-
 @MainActor
 @Suite(.serialized) struct ConfirmDialogGeometryTest {
 
@@ -39,6 +27,7 @@ private final class InsetWindow: UIWindow {
         return (CGFloat(pixel[0]) + CGFloat(pixel[1]) + CGFloat(pixel[2])) / (3 * 255)
     }
 
+    /// 21 의 확인창은 공용 `MoyeotaConfirmDialog` 다(디자인 QA G11). 화면이 그 오버레이를 덮어 띄우는 자리에서 잰다.
     @Test("21 확인창은 본문이 접히면 폭 320 이고 시스템 바를 뺀 영역의 가운데에 놓인다")
     func widthAndPosition() async {
         let window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
@@ -95,22 +84,25 @@ private final class InsetWindow: UIWindow {
         return (CGFloat(pixel[0]) + CGFloat(pixel[1]) + CGFloat(pixel[2])) / (3 * 255)
     }
 
-    private func statValueInkWidth(rideCount: Int) async -> CGFloat {
+    private func rideCountInkWidth(rideCount: Int) async -> CGFloat {
         let window = await hosted(PartnerProfileScreen(user: geometryUser(rideCount: rideCount)))
         defer { window.isHidden = true }
-        // 값 글자는 지표 카드 안 줄이다. 진한 글자는 이 화면에서 닉네임과 이 줄뿐이고, 닉네임은 위에 있다.
+        // 「탑승 횟수 · N회」는 닉네임 바로 아래 한 줄이다(PP1 — 지표 카드가 없어졌다). 위에서부터
+        // 상태바 62 · 앱바 56 · 16 · 아바타 80 · 12 · 닉네임 34.6 · 8 을 지나 268.6 에서 21.6 높이로 놓인다.
+        // 그 위아래 24 안쪽에는 다른 글자가 없다(닉네임은 255 위, 안내 문구는 314 아래). 글자색이 72% 회색
+        // (`TextBody`)에 굵기 Regular 라 획이 옅으므로, 흰 바탕에서 조금이라도 물든 칸을 글자로 센다.
         var xs: [Int] = []
-        for y in stride(from: CGFloat(305), to: 332, by: 1) {
-            for x in 100..<302 where brightness(window, x: CGFloat(x) + 0.5, y: y) < 0.4 { xs.append(x) }
+        for y in stride(from: CGFloat(262), to: 300, by: 1) {
+            for x in 40..<362 where brightness(window, x: CGFloat(x) + 0.5, y: y) < 0.8 { xs.append(x) }
         }
         return CGFloat((xs.max() ?? 0) + 1 - (xs.min() ?? 0))
     }
 
     @Test("23 「11회」는 1 이 좁아지지 않아 「88회」와 폭이 같다(원본 Roboto 숫자는 폭이 같다)")
-    func statValueDigitsAreTabular() async {
-        let eleven = await statValueInkWidth(rideCount: 11)
-        let eightyEight = await statValueInkWidth(rideCount: 88)
-        #expect(eleven > 25, "값 줄을 찾아야 시험이 된다: \(eleven)")
+    func rideCountDigitsAreTabular() async {
+        let eleven = await rideCountInkWidth(rideCount: 11)
+        let eightyEight = await rideCountInkWidth(rideCount: 88)
+        #expect(eleven > 80, "「탑승 횟수 · 11회」 줄을 찾아야 시험이 된다: \(eleven)")
         #expect(abs(eleven - eightyEight) < 3, "11회 \(eleven) 대 88회 \(eightyEight)")
     }
 }

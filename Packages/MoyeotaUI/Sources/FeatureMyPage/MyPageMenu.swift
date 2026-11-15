@@ -15,9 +15,9 @@ enum MyPageGroupLabel {
     static let ACCOUNT = "계정"
 }
 
-/// 「계정」 카드 아래 한 줄. **「탈퇴하면」으로 시작하는 것이 중요하다** — 로그아웃과 탈퇴가 한 카드에
-/// 들어오면서 주어가 없는 문장("계정과 저장한 정보가 사라지고…")은 바로 위의 로그아웃에까지
-/// 걸리는 말로 읽힌다. 로그아웃은 아무것도 지우지 않는다.
+/// 「계정」 묶음 아래 한 줄. **「탈퇴하면」으로 시작하는 것이 중요하다** — 주어가 없는 문장("계정과 저장한
+/// 정보가 사라지고…")은 같은 묶음의 로그아웃에까지 걸리는 말로 읽힌다. 로그아웃은 아무것도 지우지 않는다.
+/// (2026-11 디자인 QA M2 이후 탈퇴는 카드 밖 링크이고, 이 줄은 그 링크 바로 아래에 붙는다.)
 let ACCOUNT_CARD_CAPTION = "탈퇴하면 계정과 저장한 정보가 사라지고 되돌릴 수 없어요"
 
 /// 행을 눌렀을 때 일어나는 일. **주소를 행이 들고 있다**(`openWeb`·`sendMail`).
@@ -70,7 +70,8 @@ struct MyPageRow: Equatable, Sendable {
     var text: String
     var action: MyPageAction
     var mark: MyPageRowMark
-    /// 되돌릴 수 없는 행 — 빨간 글자. 한 카드 안에서 색이 다른 유일한 행이다.
+    /// 되돌릴 수 없는 행. 화면은 이 행을 **카드에 넣지 않고** 카드 아래 회색 글자 링크로 뗀다
+    /// (2026-11 디자인 QA M2 — 자주 쓰는 행과 공간으로 떨어뜨린다). 그룹 안의 순서는 그대로 맨 아래다.
     var danger: Bool
 
     init(text: String, action: MyPageAction, mark: MyPageRowMark, danger: Bool = false) {
@@ -153,9 +154,9 @@ func myPageGroups(links: SupportLinkTargets) -> [MyPageGroup] {
             label: MyPageGroupLabel.ACCOUNT,
             rows: [
                 // 로그아웃이 탈퇴보다 훨씬 흔한 동작인데 예전엔 13sp 회색 글자 한 줄이었다 — 더 흔한
-                // 기능이 더 작아 위계가 뒤집혀 있었다. 이제 탈퇴와 같은 56pt 카드 행이다.
-                // 오탭 보호는 색(탈퇴만 빨강)과 확인 단계가 맡는다: 로그아웃은 확인 다이얼로그,
-                // 탈퇴는 37 에서 비밀번호 + 또 한 번의 다이얼로그다.
+                // 기능이 더 작아 위계가 뒤집혀 있었다. 이제 로그아웃은 56pt 카드 행이고, 탈퇴는
+                // danger 라서 화면이 카드 밖 회색 링크로 뗀다(디자인 QA M2). 오탭 보호는 그 거리와 확인
+                // 단계가 맡는다: 로그아웃은 확인 다이얼로그, 탈퇴는 37 에서 비밀번호 + 또 한 번의 다이얼로그다.
                 MyPageRow(text: "로그아웃", action: .logout, mark: .chevron),
                 MyPageRow(text: "탈퇴하기", action: .deleteAccount, mark: .chevron, danger: true),
             ],

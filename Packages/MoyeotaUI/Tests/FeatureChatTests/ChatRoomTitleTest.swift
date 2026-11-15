@@ -1,4 +1,5 @@
 import MoyeotaDomain
+import PresentationCore
 import Testing
 @testable import FeatureChat
 
@@ -96,16 +97,54 @@ import Testing
             room: myRoom(1, lastMessageAt: "2026-09-11T03:00:00Z", content: "어디쯤이세요?"),
             peerTitle: "스모크일"
         )
-        #expect(chatRoomSubtitle(item: text) == "어디쯤이세요?")
+        #expect(chatRoomSubtitle(item: text) == .line("어디쯤이세요?"))
 
         let location = ChatRoomListItem(
             room: myRoom(1, lastMessageAt: "2026-09-11T03:00:00Z", content: "35.1,129.0", type: .location),
             peerTitle: "스모크일"
         )
-        #expect(chatRoomSubtitle(item: location) == "📍 위치를 공유했어요")
+        #expect(chatRoomSubtitle(item: location) == .line("위치를 공유했어요"))
+    }
 
+    /// 메시지가 없으면 경로를 **두 줄**로 쓴다 — 「출발지: …」·「도착지: …」(오너 UX 피드백 2026-11).
+    /// 한 줄 「출발 → 도착」은 장소 이름이 길면 화살표 뒤가 잘려 도착지가 통째로 사라졌다.
+    @Test("메시지가 없으면 출발지와 도착지를 두 줄로 쓴다")
+    func noMessageIsTwoRouteLines() {
         let none = ChatRoomListItem(room: myRoom(1), peerTitle: "스모크일")
-        #expect(chatRoomSubtitle(item: none) == "출발 → 도착")
+
+        #expect(
+            chatRoomSubtitle(item: none)
+                == .route([RoutePlace(label: "출발지", place: "출발"), RoutePlace(label: "도착지", place: "도착")])
+        )
+    }
+
+    @Test("닫힌 방의 경로 두 줄은 첫 줄에 종료를 붙인다")
+    func closedRoomPrefixesFirstLine() {
+        let closed = ChatRoomListItem(room: myRoom(1, status: .closed), peerTitle: "스모크일")
+
+        #expect(
+            chatRoomSubtitle(item: closed)
+                == .route([RoutePlace(label: "종료 · 출발지", place: "출발"), RoutePlace(label: "도착지", place: "도착")])
+        )
+    }
+
+    /// ★ 참여자를 못 받은 방은 **제목이 이미 경로**다(「출발 → 도착」) — 그 아래에 출발지·도착지를 또 쓰면
+    /// 같은 말이 세 줄이 된다. 그때 부제는 방 상태 한 줄이다.
+    @Test("제목이 경로로 떨어진 방은 경로를 되풀이하지 않는다")
+    func routeTitleDoesNotRepeatRoute() {
+        let noPeers = ChatRoomListItem(room: myRoom(1), peerTitle: nil)
+
+        #expect(chatRoomListTitle(item: noPeers) == "출발 → 도착")
+        #expect(chatRoomSubtitle(item: noPeers) == .line("진행 중"))
+        #expect(
+            chatRoomSubtitle(item: ChatRoomListItem(room: myRoom(1, status: .closed), peerTitle: nil))
+                == .line("종료된 방")
+        )
+    }
+
+    @Test("참여자 이름이 있으면 그것이 제목이다")
+    func peerNameIsTitle() {
+        #expect(chatRoomListTitle(item: ChatRoomListItem(room: myRoom(1), peerTitle: "스모크일")) == "스모크일")
     }
 
     private func myRoom(
@@ -113,7 +152,8 @@ import Testing
         createdAt: String = "2026-09-09T07:33:00Z",
         lastMessageAt: String? = nil,
         content: String = "안녕하세요",
-        type: ChatMessageType = .text
+        type: ChatMessageType = .text,
+        status: ChatRoomStatus = .active
     ) -> MyChatRoom {
         MyChatRoom(
             room: ChatRoom(
@@ -122,7 +162,7 @@ import Testing
                 departure: "출발",
                 destination: "도착",
                 createdAt: createdAt,
-                status: .active
+                status: status
             ),
             membership: ChatRoomMembership(
                 chatRoomId: id,

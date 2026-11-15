@@ -4,8 +4,8 @@ import MoyeotaDesignSystem
 import MoyeotaDomain
 import Testing
 
-// 원본에는 없는 테스트다. 원본은 판정 함수만 테스트하고 루프는 `collectLatest` 에 맡겼는데, iOS 는 그 루프
-// (패스 재시작·취소 뒤 결과 버리기·실패 세기)를 직접 쓰므로 판정 결과를 실제로 따르는지 여기서 본다.
+// 원본에는 없는 테스트다. 원본은 시계와 조회 칸(`ExploreRefreshCycle`)을 가상 시간으로만 시험하는데, iOS 는
+// 그 태스크(끊기·취소 뒤 결과 버리기·실패 세기)를 직접 쓰므로 실제 태스크로 따르는지 여기서 본다.
 
 private struct TestFailure: Error {}
 
@@ -137,6 +137,19 @@ private func eventually(
     Issue.record("시간 안에 일어나지 않았다: \(what)", sourceLocation: sourceLocation)
 }
 
+/// 15초 카운트다운을 끝까지 넘긴다 — 1초 대기가 걸릴 때마다 하나씩 풀어 준다(`countDownToNextRefresh`).
+/// 이미 걸려 있는 첫 칸부터 센다.
+@MainActor
+private func finishCountdown(
+    _ sleeper: ManualSleeper,
+    sourceLocation: SourceLocation = #_sourceLocation
+) async {
+    for tick in 1...REFRESH_COUNTDOWN_SECONDS {
+        await eventually("카운트다운 \(tick)번째 칸", sourceLocation: sourceLocation) { sleeper.waitingCount == 1 }
+        sleeper.advance()
+    }
+}
+
 /// 일어나면 안 되는 일을 볼 때 쓴다. 태스크가 돌 기회를 충분히 준다.
 @MainActor
 private func settle() async {
@@ -169,9 +182,9 @@ struct ExploreViewModelTest {
         viewModel.onScreenStart()
         await eventually("첫 조회 결과") { viewModel.uiState == .success(parties: [party("1")]) }
         #expect(repository.queried == [bounds.expanded()])
-        // 첫 대기는 디바운스가 아니라 다음 주기다
+        // 첫 대기는 디바운스가 아니라 다음 주기의 첫 칸(1초)이다
         await eventually("주기 대기") { sleeper.waitingCount == 1 }
-        #expect(sleeper.requests == [.milliseconds(4_000)])
+        #expect(sleeper.requests == [.milliseconds(1_000)])
         viewModel.onScreenStop()
     }
 
@@ -192,25 +205,31 @@ struct ExploreViewModelTest {
         await eventually("복귀 즉시 조회") { repository.queried.count == 2 }
         // 복귀에는 디바운스가 없다 — 대기 요청은 여전히 주기뿐이다
         await eventually("복귀 뒤 주기 대기") { sleeper.waitingCount == 1 }
-        #expect(sleeper.requests == [.milliseconds(4_000), .milliseconds(4_000)])
+        #expect(sleeper.requests == [.milliseconds(1_000), .milliseconds(1_000)])
         viewModel.onScreenStop()
     }
 
-    @Test("목록이 있을 때 새 범위는 디바운스 뒤에 읽고 앞 범위 폴링은 끝난다")
+    /// 지도 이동은 카운트다운을 건드리지 않는다 — 디바운스 대기가 카운트다운 대기 **옆에** 하나 더 걸린다
+    /// (예전에는 새 패스가 카운트다운을 끊고 디바운스 하나만 남았다).
+    @Test("목록이 있을 때 새 범위는 디바운스 뒤에 읽고 카운트다운은 이어 센다")
     func newBoundsDebounce() async {
         let viewModel = makeViewModel()
         viewModel.onScreenStart()
         viewModel.onInitialBounds(bounds)
+        await eventually("첫 목록") { viewModel.uiState == .success(parties: []) }
         await eventually("첫 주기 대기") { sleeper.waitingCount == 1 }
 
         viewModel.onVisibleBoundsChange(otherBounds)
         await eventually("디바운스 대기") {
-            sleeper.waitingCount == 1 && sleeper.requests.last == .milliseconds(400)
+            sleeper.waitingCount == 2 && sleeper.requests.last == .milliseconds(400)
         }
         #expect(repository.queried == [bounds.expanded()])
 
         sleeper.advance()
         await eventually("새 범위 조회") { repository.queried == [bounds.expanded(), otherBounds.expanded()] }
+        // 카운트다운은 끊기지 않고 다음 칸을 기다린다
+        await eventually("카운트다운 다음 칸") { sleeper.waitingCount == 1 }
+        #expect(sleeper.requests.filter { $0 == .milliseconds(1_000) }.count == 2)
         viewModel.onScreenStop()
     }
 
@@ -244,26 +263,25 @@ struct ExploreViewModelTest {
         viewModel.onScreenStop()
     }
 
-    @Test("연속 세 번 실패하면 목록을 둔 채 낡음을 켜고 성공하면 끈다")
-    func staleAfterThreeFailures() async {
+    @Test("연속 두 번 실패하면 목록을 둔 채 낡음을 켜고 성공하면 끈다")
+    func staleAfterTwoFailures() async {
         let viewModel = makeViewModel()
         repository.enqueue { [party("1")] }
         viewModel.onScreenStart()
         viewModel.onInitialBounds(bounds)
         await eventually("첫 목록") { viewModel.uiState == .success(parties: [party("1")]) }
 
-        for attempt in 1...3 {
+        for attempt in 1...STALE_NOTICE_FAILURES {
             repository.enqueue { throw TestFailure() }
             await eventually("주기 대기 \(attempt)") { sleeper.waitingCount == 1 }
             #expect(viewModel.uiState == .success(parties: [party("1")], stale: false))
-            sleeper.advance()
+            await finishCountdown(sleeper)
             await eventually("실패 \(attempt) 처리") { repository.queried.count == attempt + 1 }
         }
         await eventually("낡음 표시") { viewModel.uiState == .success(parties: [party("1")], stale: true) }
 
         repository.enqueue { [party("2")] }
-        await eventually("다음 주기 대기") { sleeper.waitingCount == 1 }
-        sleeper.advance()
+        await finishCountdown(sleeper)
         await eventually("성공이 낡음을 끈다") { viewModel.uiState == .success(parties: [party("2")], stale: false) }
         viewModel.onScreenStop()
     }
@@ -324,9 +342,9 @@ struct ExploreViewModelTest {
 
         await eventually("에러 화면") { viewModel.uiState == .error(message: "동승 목록을 불러오지 못했어요") }
         await eventually("주기 대기") { sleeper.waitingCount == 1 }
-        #expect(sleeper.requests == [.milliseconds(4_000)])
+        #expect(sleeper.requests == [.milliseconds(1_000)])
 
-        sleeper.advance()
+        await finishCountdown(sleeper)
         await eventually("다음 주기가 복구한다") { viewModel.uiState == .success(parties: [party("1")]) }
         viewModel.onScreenStop()
     }
@@ -347,12 +365,13 @@ struct ExploreViewModelTest {
         viewModel.onScreenStart()
         await eventually("복귀 조회") { repository.queried.count == 2 }
         await eventually("폴링이 이어진다") { sleeper.waitingCount == 1 }
+        // 복귀 조회의 실패도 1회로 센다(`STALE_NOTICE_FAILURES` 설명) — 한 번으로는 알리지 않는다
+        await eventually("복귀 조회가 끝난다") { !viewModel.refreshUi.refreshing }
         #expect(viewModel.uiState == .success(parties: [party("1")]))
 
-        for attempt in 1...3 {
+        for attempt in 1..<STALE_NOTICE_FAILURES {
             repository.enqueue { throw URLError(.cancelled) }
-            await eventually("주기 대기 \(attempt)") { sleeper.waitingCount == 1 }
-            sleeper.advance()
+            await finishCountdown(sleeper)
             await eventually("실패 \(attempt) 처리") { repository.queried.count == attempt + 2 }
         }
         await eventually("낡음 표시") { viewModel.uiState == .success(parties: [party("1")], stale: true) }
@@ -384,9 +403,9 @@ struct ExploreViewModelTest {
 
         await eventually("복귀 조회") { repository.queried.count == 2 }
         #expect(repository.queried[1] == bounds.expanded())
-        // 응답을 기다리는 동안 로딩으로 깜빡이지 않고, 복귀에는 디바운스도 없다
+        // 응답을 기다리는 동안 로딩으로 깜빡이지 않고, 복귀에는 디바운스도 없다(카운트다운은 15부터 새로 센다)
         #expect(viewModel.uiState == .success(parties: [party("1")]))
-        #expect(sleeper.requests.count == requestsBefore)
+        #expect(!sleeper.requests[requestsBefore...].contains(.milliseconds(400)))
 
         gate.continuation.yield(())
         await eventually("새 결과로 덮는다") { viewModel.uiState == .success(parties: [party("2")]) }
@@ -461,14 +480,18 @@ struct ExploreViewModelTest {
         let anchors: (ExploreSheetState) -> CGFloat = { state in
             exploreSheetAnchor(state, containerHeight: 700)
         }
-        // 앵커: peek 96 · half 400 · full 700
+        // 앵커: hidden 28 · peek 96 · half 400 · full 700
         #expect(settleTarget(fromPx: 500, velocity: 0, anchorPx: anchors) == .half)
         #expect(settleTarget(fromPx: 600, velocity: 0, anchorPx: anchors) == .full)
         #expect(settleTarget(fromPx: 500, velocity: 401, anchorPx: anchors) == .half)
         #expect(settleTarget(fromPx: 500, velocity: -401, anchorPx: anchors) == .full)
         #expect(settleTarget(fromPx: 400, velocity: 401, anchorPx: anchors) == .peek)
-        #expect(settleTarget(fromPx: 96, velocity: 401, anchorPx: anchors) == .peek)
         #expect(settleTarget(fromPx: 700, velocity: -401, anchorPx: anchors) == .full)
+        // 접힘에서 더 내리면 손잡이만 남는다(14 홈과 같다). 손잡이만에서 올려 던지면 접힘으로 돌아온다
+        #expect(settleTarget(fromPx: 96, velocity: 401, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 50, velocity: 0, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 28, velocity: 401, anchorPx: anchors) == .hidden)
+        #expect(settleTarget(fromPx: 28, velocity: -401, anchorPx: anchors) == .peek)
     }
 
     @Test("지도 범위가 없을 때의 기준 범위는 기본 카메라 또는 내 위치 주변이다")

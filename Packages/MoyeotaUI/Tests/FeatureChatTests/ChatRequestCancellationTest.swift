@@ -193,7 +193,7 @@ import Testing
     func releaseCancelsList() async throws {
         let repository = ScriptedChatRepository()
         repository.set(.myRooms, .hang)
-        var viewModel: ChatListViewModel? = ChatListViewModel(repository: repository)
+        var viewModel: ChatListViewModel? = ChatListViewModel(repository: repository, rideRepository: FakeChatListRideRepository())
         weak let released = viewModel
         viewModel?.refresh()
         try await eventually("조회 시작") { repository.startedCount(.myRooms) == 1 }
@@ -221,7 +221,7 @@ import Testing
     func liveCancelErrorShowsListError() async throws {
         let repository = ScriptedChatRepository()
         repository.set(.myRooms, .fail(URLError(.cancelled)))
-        let viewModel = ChatListViewModel(repository: repository)
+        let viewModel = ChatListViewModel(repository: repository, rideRepository: FakeChatListRideRepository())
 
         viewModel.refresh()
         try await eventually("에러") { viewModel.uiState != .loading }

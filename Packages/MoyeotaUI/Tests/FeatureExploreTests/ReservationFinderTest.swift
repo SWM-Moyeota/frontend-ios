@@ -284,6 +284,105 @@ struct ReservationFinderTest {
         #expect(!soon.contains("순"), "서버가 약속하지 않은 순서를 적지 않는다")
     }
 
+    /// ★ 목록을 아직 읽지 못했으면 헤더에 **개수를 적지 않는다** — 「11월 17일 (화) 출발 0개 · 출발 시간 순」은
+    /// 「그 날은 없다」로 읽힌다(2026-11, 오너 UX 피드백 2차: 새 날짜를 읽는 동안 목록 자리를 비운다). 세 모드 모두.
+    @Test("개수를 모르면 헤더는 개수 없이 적는다")
+    func titleWithoutCount() {
+        #expect(exploreListTitle(mode: .byDate, count: nil, dateLabel: "11월 17일 (화)") == "11월 17일 (화) 출발 · 출발 시간 순")
+        #expect(
+            exploreListTitle(mode: .byDate, count: nil, dateLabel: "11월 17일 (화)", destinationSent: true)
+                == "11월 17일 (화) 출발"
+        )
+        #expect(exploreListTitle(mode: .soon, count: nil, dateLabel: nil) == "곧 출발")
+        #expect(exploreListTitle(mode: .realtime, count: nil, dateLabel: nil) == "주변 동승 · 가까운 순")
+        for mode in ExploreMode.allCases {
+            let title = exploreListTitle(mode: mode, count: nil, dateLabel: "오늘")
+            #expect(!title.contains("개"), "\(mode) 헤더에 개수가 남았다: \(title)")
+        }
+    }
+
+    /// 개수는 **읽은 목록**에만 붙는다 — 읽는 중·위치 대기·실패에 「0개」를 적으면 모르는 것을 「없다」로 단정한다.
+    @Test("헤더 개수는 읽은 목록에만 적는다")
+    func headerCountOnlyForReadList() {
+        #expect(exploreHeaderCount(0, loading: true, locating: false, failed: false) == nil)
+        #expect(exploreHeaderCount(0, loading: false, locating: true, failed: false) == nil)
+        #expect(exploreHeaderCount(0, loading: false, locating: false, failed: true) == nil)
+        #expect(exploreHeaderCount(0, loading: false, locating: false, failed: false) == 0, "빈 목록의 0 은 사실이다")
+        #expect(exploreHeaderCount(3, loading: false, locating: false, failed: false) == 3)
+    }
+
+    // ─────────────────────────── 같은 목록인가 · 언제 읽는가 ───────────────────────────
+
+    private func byDate(
+        date: String = "2026-11-17",
+        lat: Double = 35.23,
+        lng: Double = 129.08,
+        destination: ReservationDestination? = nil
+    ) -> ReservationQuery {
+        .byDate(departureLat: lat, departureLng: lng, date: date, destination: destination)
+    }
+
+    /// 지도 범위·내 위치가 달라도 **같은 목록**이다 — 다시 읽는 동안 보던 목록을 남긴다. 날짜·도착지·모드가
+    /// 다르면 다른 목록이다 — 앞 목록의 줄을 남기면 다른 날의 방에 「합류」하게 된다.
+    @Test("같은 목록은 날짜 도착지 모드가 정한다")
+    func sameListIsDateDestinationMode() {
+        let other = MapBounds(swLat: 35.3, swLng: 129.1, neLat: 35.4, neLng: 129.2)
+        #expect(ReservationQuery.soon(bounds: bounds).sameListAs(.soon(bounds: other)), "지도를 옮겨도 같은 곧 출발 목록")
+        #expect(byDate().sameListAs(byDate(lat: 35.2302, lng: 129.0803)), "GPS 가 흔들려도 같은 날짜 목록")
+
+        #expect(!byDate().sameListAs(byDate(date: "2026-11-18")), "날짜가 다르다")
+        #expect(
+            !byDate().sameListAs(byDate(destination: ReservationDestination(latitude: 35.16, longitude: 129.06))),
+            "도착지를 골랐다"
+        )
+        #expect(!ReservationQuery.soon(bounds: bounds).sameListAs(byDate()), "모드가 다르다")
+        #expect(!byDate().sameListAs(.soon(bounds: bounds)), "모드가 다르다")
+    }
+
+    /// 언제 읽는가의 표 — 카운트다운은 어느 쪽이든 건드리지 않는다(`ExploreRefreshTest` 가 시간으로 본다).
+    @Test("새 목록은 바로 읽고 지도 이동은 디바운스하고 위치 흔들림은 다음 갱신에 맡긴다")
+    func loadTimingTable() {
+        let soon = ReservationQuery.soon(bounds: bounds)
+        let movedSoon = ReservationQuery.soon(bounds: MapBounds(swLat: 35.3, swLng: 129.1, neLat: 35.4, neLng: 129.2))
+
+        #expect(reservationLoadTiming(previous: nil, next: soon, listShown: false, fetching: false) == .now, "처음")
+        #expect(reservationLoadTiming(previous: soon, next: byDate(), listShown: true, fetching: false) == .now, "모드를 바꿈")
+        #expect(
+            reservationLoadTiming(previous: byDate(), next: byDate(date: "2026-11-18"), listShown: true, fetching: true) == .now,
+            "날짜를 바꿈"
+        )
+        #expect(reservationLoadTiming(previous: soon, next: movedSoon, listShown: true, fetching: false) == .debounced, "지도 이동")
+        #expect(
+            reservationLoadTiming(previous: soon, next: movedSoon, listShown: false, fetching: false) == .now,
+            "보여 줄 목록이 없으면 늦출 이득이 없다"
+        )
+        #expect(
+            reservationLoadTiming(previous: byDate(), next: byDate(lat: 35.2302), listShown: true, fetching: false) == .nextTick,
+            "GPS 흔들림"
+        )
+    }
+
+    /// ★ 원본 리뷰 반영 3차(PR #99): 「날짜로 찾기」의 위치 흔들림은 **목록 유무와 상관없이** 다음 갱신에 맡긴다. 실패
+    /// 화면에서 바로 읽게 하면 빨리 실패하는 망(오프라인)에서 1초마다 다시 보내게 된다.
+    @Test("날짜로 찾기의 위치 흔들림은 늘 다음 갱신에 맡긴다")
+    func byDateDriftTimingFollowsListShown() {
+        let wobble = byDate(lat: 35.2302)
+
+        #expect(reservationLoadTiming(previous: byDate(), next: wobble, listShown: true, fetching: false) == .nextTick, "목록이 보인다")
+        #expect(
+            reservationLoadTiming(previous: byDate(), next: wobble, listShown: true, fetching: true) == .nextTick,
+            "목록이 보이고 갱신도 나가 있다"
+        )
+        #expect(
+            reservationLoadTiming(previous: byDate(), next: wobble, listShown: false, fetching: false) == .nextTick,
+            "보여 줄 목록이 없다(실패 화면) — 빨리 실패하는 망에서 1초마다 보내지 않는다"
+        )
+        #expect(
+            reservationLoadTiming(previous: byDate(), next: wobble, listShown: false, fetching: true) == .nextTick,
+            "빈 자리로 조회가 오는 중이다(로딩)"
+        )
+    }
+
     /// ★ 두 모드가 **다른 영역**을 본다는 사실이 화면에 남아 있어야 한다.
     @Test("영역 안내는 모드마다 기준을 말한다")
     func areaNoteStatesCriteria() {
@@ -369,7 +468,7 @@ struct ReservationFinderTest {
         }
     }
 
-    // ───────────────── 「＋ 새 동승 방 만들기」가 어떤 모달을 여는가 ─────────────────
+    // ───────────────── 「새 동승 방 만들기」가 어떤 모달을 여는가 ─────────────────
 
     /// 못 박는 것 둘을 한 표로 본다.
     ///
