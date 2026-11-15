@@ -8,8 +8,9 @@ import Testing
 
 private struct Unrelated: Error {}
 
-private func methods(google: String? = nil, hasPassword: Bool = true) -> LoginMethods {
-    let list = google.map { #"[{"provider":"GOOGLE","status":"\#($0)"}]"# } ?? "[]"
+private func methods(google: String? = nil, apple: String? = nil, hasPassword: Bool = true) -> LoginMethods {
+    let items = [google.map { #"{"provider":"GOOGLE","status":"\#($0)"}"# }, apple.map { #"{"provider":"APPLE","status":"\#($0)"}"# }]
+    let list = "[" + items.compactMap { $0 }.joined(separator: ",") + "]"
     let json = #"{"hasPassword":\#(hasPassword),"methods":\#(list)}"#
     return try! JSONDecoder().decode(LoginMethods.self, from: Data(json.utf8))
 }
@@ -20,6 +21,8 @@ private final class FakeSocialRepository: SocialAuthRepository, @unchecked Senda
     private var _linked: [(idToken: String, verificationToken: String)] = []
     var sendFailure: (any Error)?
     var linkFailure: (any Error)?
+    private var _appleLinks: [(nonce: String?, challengeToken: String, verificationToken: String)] = []
+    var appleLinks: [(nonce: String?, challengeToken: String, verificationToken: String)] { lock.withLock { _appleLinks } }
 
     var linked: [(idToken: String, verificationToken: String)] { lock.withLock { _linked } }
 
@@ -36,6 +39,19 @@ private final class FakeSocialRepository: SocialAuthRepository, @unchecked Senda
         }
     }
     func deleteSocialAccount() async throws { throw Unrelated() }
+    func appleChallenge(linking: Bool) async throws -> AppleChallenge {
+        try JSONDecoder().decode(
+            AppleChallenge.self,
+            from: Data(#"{"challengeToken":"challenge-1","nonce":"nonce-1","expiresInSeconds":300}"#.utf8)
+        )
+    }
+    func loginApple(credential: AppleCredential, challengeToken: String) async throws -> SocialLoginResult { throw Unrelated() }
+    func linkApple(credential: AppleCredential, challengeToken: String, verificationToken: String) async throws {
+        lock.withLock {
+            _appleLinks.append((credential.name, challengeToken, verificationToken))
+            _current = methods(apple: "ACTIVE")
+        }
+    }
 }
 
 /// 테스트가 움직이는 시계
@@ -110,7 +126,7 @@ private final class Clock: @unchecked Sendable {
         #expect(viewModel.code == "123456")
         viewModel.verifyCode()
         #expect(await eventually { viewModel.verified && !viewModel.busy })
-        #expect(viewModel.notice == "5분 안에 연결할 구글 계정을 선택해 주세요")
+        #expect(viewModel.notice == "5분 안에 연결할 계정을 선택해 주세요")
 
         await viewModel.linkGoogle(idToken: "google-id-token")
 
@@ -153,5 +169,43 @@ private final class Clock: @unchecked Sendable {
         #expect(!viewModel.verified)
         #expect(!viewModel.codeSent)
         #expect(viewModel.error != nil)
+    }
+
+    @Test("애플 연결은 서버가 준 nonce 로 Apple 인증창을 열고 연결 증표·challenge 를 함께 보낸다")
+    func linkApple() async {
+        let viewModel = await loaded()
+        viewModel.sendCode()
+        #expect(await eventually { viewModel.codeSent && !viewModel.busy })
+        viewModel.changeCode("123456")
+        viewModel.verifyCode()
+        #expect(await eventually { viewModel.verified && !viewModel.busy })
+
+        var askedNonce: String?
+        await viewModel.linkApple(authorize: { nonce in
+            askedNonce = nonce
+            return AppleCredential(identityToken: "id", authorizationCode: "code", name: nil)
+        })
+
+        #expect(askedNonce == "nonce-1")
+        #expect(repository.appleLinks.map(\.challengeToken) == ["challenge-1"])
+        #expect(repository.appleLinks.map(\.verificationToken) == ["proof-123456"])
+        #expect(viewModel.notice == "애플 계정을 연결했어요")
+        #expect(viewModel.methods?.methods.contains { $0.provider == .apple && $0.status == "ACTIVE" } == true)
+    }
+
+    @Test("Apple 인증창을 닫으면 안내 없이 연결 단계에 그대로 남는다")
+    func appleCancelIsSilent() async {
+        let viewModel = await loaded()
+        viewModel.sendCode()
+        #expect(await eventually { viewModel.codeSent && !viewModel.busy })
+        viewModel.changeCode("123456")
+        viewModel.verifyCode()
+        #expect(await eventually { viewModel.verified && !viewModel.busy })
+
+        await viewModel.linkApple(authorize: { _ in throw CancellationError() })
+
+        #expect(viewModel.error == nil)
+        #expect(viewModel.verified)
+        #expect(repository.appleLinks.isEmpty)
     }
 }
