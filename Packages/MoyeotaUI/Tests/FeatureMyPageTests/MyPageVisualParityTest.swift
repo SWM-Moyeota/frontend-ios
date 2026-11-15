@@ -116,8 +116,8 @@ private func findScrollView(in view: UIView) -> UIScrollView? {
         #expect(abs(cardWidth(window, y: rows.top + 40) - 320) < 1)
     }
 
-    /// 공용 확인창(`MoyeotaConfirmDialog`)으로 바뀌며 본문이 14 → 13(BodySm)이 되어 내용이 폭 하한(280 − 48)보다 짧다.
-    /// 원본도 같은 문구·크기라 하한일 것으로 셈했다(다듬은 원본은 렌더해 재지 않았다).
+    /// 공용 확인창(`MoyeotaConfirmDialog`)으로 바뀌며 본문이 14 → 13(BodySm)이 되고, 문구도 「다시 이용하려면 로그인해야 해요」로
+    /// 짧아져(develop #50 — 소셜 회원은 아이디가 없다) 내용이 폭 하한(280 − 48)보다 짧다.
     @Test("35 확인창은 내용이 짧아 폭 하한 280 이다")
     func logoutConfirm() async {
         let window = await hosted(MyPageScreen().seeded(logoutConfirming: true))

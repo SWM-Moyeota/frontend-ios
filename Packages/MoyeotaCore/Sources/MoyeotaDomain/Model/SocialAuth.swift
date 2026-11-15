@@ -1,0 +1,75 @@
+import Foundation
+
+public enum SocialProvider: String, Codable, CaseIterable, Sendable {
+    case google = "GOOGLE"
+}
+/// 가입 대기표는 메모리에만 보관한다. 이메일은 표시용이며 가입 요청에 다시 보내지 않는다.
+public struct SocialSignup: Equatable, Sendable {
+    public let signupToken: String
+    public let email: String?
+    public let name: String?
+    public init(signupToken: String, email: String?, name: String?) {
+        self.signupToken = signupToken
+        self.email = email
+        self.name = name
+    }
+}
+public enum SocialLoginResult: Equatable, Sendable {
+    case loggedIn
+    case signupRequired(SocialSignup)
+}
+public struct LoginMethods: Codable, Equatable, Sendable {
+    public struct Method: Codable, Equatable, Sendable {
+        public let provider: SocialProvider
+        public let status: String
+    }
+    public let hasPassword: Bool
+    public let methods: [Method]
+}
+extension LoginMethods {
+    /// 모르는 provider 항목은 건너뛴다. 앱이 제공하지 않는 `APPLE`도 여기서 걸러진다.
+    /// 서버가 수단을 늘려도 `hasPassword`와 아는 수단은 읽혀야
+    /// 로그인 수단 화면과 탈퇴 화면(같은 응답의 `hasPassword`를 쓴다)이 열린다.
+    /// 그 밖의 형식 오류(`status` 누락 등)는 그대로 실패시킨다.
+    public init(from decoder: any Decoder) throws {
+        struct RawMethod: Decodable {
+            let provider: String
+            let status: String
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasPassword = try container.decode(Bool.self, forKey: .hasPassword)
+        methods = try container.decode([RawMethod].self, forKey: .methods).compactMap { raw in
+            SocialProvider(rawValue: raw.provider).map { Method(provider: $0, status: raw.status) }
+        }
+    }
+}
+public struct SocialRegistration: Encodable, Sendable {
+    public let signupToken: String
+    public let verificationToken: String
+    public let phoneNumber: String
+    public let nickname: String
+    public let name: String
+    public let birthDate: String
+    public let gender: String
+    public init(
+        signupToken: String, verificationToken: String, phoneNumber: String, nickname: String, name: String,
+        birthDate: String, gender: String
+    ) {
+        self.signupToken = signupToken
+        self.verificationToken = verificationToken
+        self.phoneNumber = AuthPolicy.normalizePhoneNumber(value: phoneNumber)
+        self.nickname = nickname
+        self.name = name
+        self.birthDate = birthDate
+        self.gender = gender
+    }
+}
+public protocol SocialAuthRepository: Sendable {
+    func loginGoogle(idToken: String) async throws -> SocialLoginResult
+    func registerSocial(_ registration: SocialRegistration) async throws
+    func loginMethods() async throws -> LoginMethods
+    func sendLinkCode() async throws
+    func verifyLinkCode(_ code: String) async throws -> String
+    func linkGoogle(idToken: String, verificationToken: String) async throws
+    func deleteSocialAccount() async throws
+}

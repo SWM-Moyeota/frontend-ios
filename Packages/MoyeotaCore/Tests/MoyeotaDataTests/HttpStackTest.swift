@@ -611,7 +611,7 @@ import Testing
         #expect(log.all.isEmpty)
     }
 
-    @Test("debugLogging 이 켜져 있으면 요청과 응답 본문을 남긴다")
+    @Test("debugLogging 이 켜져 있어도 인증 경로 본문은 남기지 않는다")
     func loggingOn() async throws {
         let stub = StubServer(status: 200, body: #"{"exists":false}"#)
         let log = LogLines()
@@ -620,9 +620,9 @@ import Testing
         _ = try await apis.auth.checkNickname(request: NicknameCheckRequestDto(nickname: "모여타"))
 
         #expect(log.all.first == "--> POST \(stub.url("api/v1/auth/nickname/check"))")
-        #expect(log.all.contains(#"{"nickname":"모여타"}"#))
+        #expect(!log.all.contains(#"{"nickname":"모여타"}"#))
         #expect(log.all.contains { $0.hasPrefix("<-- 200 ") })
-        #expect(log.all.contains(#"{"exists":false}"#))
+        #expect(!log.all.contains(#"{"exists":false}"#))
     }
 
     /// 로깅이 인증 인터셉터 바깥이라 원본과 같이 Bearer 를 찍지 않는다.

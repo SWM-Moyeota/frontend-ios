@@ -19,6 +19,7 @@ import MoyeotaDomain
 ///
 /// 원본 이 파일의 `authUserMessage`·`authErrorMessage` 는 다른 기능도 쓰므로 `PresentationCore` 로 옮겼다.
 public struct SignupDraft: Equatable, Sendable {
+    public var socialSignup: SocialSignup? = nil
     public var email: String
     /// 서버 가입 필수 필드. 동승자에게 보이는 유일한 이름이고 실명(`name`)은 공개되지 않는다.
     /// 규칙은 `NicknamePolicy` — 서버 도메인 VO 와 같은 정규식이다.
@@ -66,6 +67,11 @@ public struct SignupDraft: Equatable, Sendable {
     ///
     /// nil 은 "플로우를 건너뛰어 필수 값이 비었다"는 뜻 — 화면 순서가 바뀌었을 때
     /// 400 을 맞고 나서야 알아차리는 대신 제출 전에 걸러낸다.
+    public func toSocialRegistration() -> SocialRegistration? {
+        guard let socialSignup, let birthDate, let gender,
+              !verificationToken.isBlank, !phoneNumber.isBlank, !name.isBlank, !nickname.isBlank else { return nil }
+        return SocialRegistration(signupToken: socialSignup.signupToken, verificationToken: verificationToken, phoneNumber: phoneNumber, nickname: nickname.trim(), name: name, birthDate: "\(birthDate.toString())T00:00:00Z", gender: gender.rawValue)
+    }
     public func toNewUser() -> NewUser? {
         guard let birth = birthDate else { return nil }
         guard let genderValue = gender else { return nil }

@@ -1,4 +1,5 @@
 import MoyeotaDesignSystem
+import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
@@ -84,6 +85,8 @@ public struct MyPageScreen: View {
     // 조회(GET /local/users/info)에서 오므로 한 상태로 받는다 — 파라미터를 쪼개면 "이름은 왔는데
     // 제재는 아직"이라는 있을 수 없는 조합이 타입으로 표현돼 버린다(아바타 호출부 주석의 그 이유).
     // 조회 전에는 loading(이름·사진 자리를 비우고 제재 배너도 그리지 않는다).
+    private let socialRepository: (any SocialAuthRepository)?
+    @State private var showingLoginMethods = false
     private let userName: UserNameState
     private let onEditProfile: () -> Void          // → 36 프로필 수정
     private let onRideHistory: () -> Void          // → 34 지난 탑승 기록
@@ -104,6 +107,7 @@ public struct MyPageScreen: View {
         onNoShowRecords: @escaping () -> Void = {},
         onLogout: @escaping () -> Void = {},
         onDeleteAccount: @escaping () -> Void = {},
+        socialRepository: (any SocialAuthRepository)? = nil,
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in },
         links: SupportLinkTargets = SupportLinkTargets()
     ) {
@@ -113,6 +117,7 @@ public struct MyPageScreen: View {
         self.onNoShowRecords = onNoShowRecords
         self.onLogout = onLogout
         self.onDeleteAccount = onDeleteAccount
+        self.socialRepository = socialRepository
         self.onTabSelect = onTabSelect
         self.links = links
     }
@@ -162,6 +167,11 @@ public struct MyPageScreen: View {
                     Spacer().frame(height: 24)
                     // 머리말 + 흰 카드 + 구분선으로 나뉜 행들. 같은 그룹의 행은 한 카드 안에 묶는다
                     // — 카드가 그룹의 경계고, 그래서 머리말이 무엇에 걸리는 말인지가 눈에 보인다.
+                    // 로그인 수단(아이디·구글) 연결 관리 — develop #50 이 붙였다. 소셜 저장소를 받은 호스트에서만 보인다
+                    if let socialRepository {
+                        Button("로그인 수단 관리") { showingLoginMethods = true }.padding()
+                            .sheet(isPresented: $showingLoginMethods) { LoginMethodsScreen(repository: socialRepository) }
+                    }
                     ForEach(groups, id: \.label) { group in
                         MyPageMenuCard(group: group, onAction: onAction)
                     }
@@ -204,7 +214,7 @@ public struct MyPageScreen: View {
                         onLogout()
                     },
                     onDismiss: { logoutConfirming = false },
-                    body: "다시 이용하려면 아이디로 로그인해야 해요",
+                    body: "다시 이용하려면 로그인해야 해요",
                     dismissText: "취소",
                     destructive: true
                 )

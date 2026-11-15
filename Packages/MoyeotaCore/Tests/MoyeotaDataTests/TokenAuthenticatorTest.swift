@@ -3,6 +3,36 @@ import Testing
 @testable import MoyeotaData
 
 @Suite struct TokenAuthenticatorTest {
+    /// 넷 다 401 이지만 앱 세션 만료가 아니다 — 소셜 인증 거절(USER401)·가입 대기표 만료(USER402)·
+    /// 연결용 문자 증표 만료(USER406)·challenge 무효(USER407). 재발급하면 멀쩡한 세션을 건드리고,
+    /// 한 번만 쓸 수 있는 공급자 토큰을 다시 보내게 된다.
+    @Test("소셜 인증 계열 401 은 재발급 없이 호출부로 넘긴다", arguments: ["USER401", "USER402", "USER406", "USER407"])
+    func socialUnauthorizedIsPassedThrough(code: String) async {
+        let tokens = FakeTokenHolder(accessToken: "access", refreshToken: "refresh")
+        let refresher = FakeRefresher(rotated("new.access", "new.refresh"))
+        var request = URLRequest(url: URL(string: "https://example.invalid/api/v1/users/me/login-methods/google")!)
+        request.setValue("Bearer access", forHTTPHeaderField: "Authorization")
+        let response = HttpRawResponse(
+            request: request, code: 401, body: Data("{\"code\":\"\(code)\",\"message\":\"인증 실패\"}".utf8))
+        let retry = await TokenAuthenticator(tokens: tokens, refresher: refresher).authenticate(response: response)
+        #expect(retry == nil)
+        #expect(refresher.callCount == 0)
+        #expect(tokens.sessionExpiredCount == 0)
+        #expect(tokens.accessToken == "access")
+        #expect(tokens.refreshToken == "refresh")
+    }
+    @Test("연결용 인증 증표가 만료돼도 로그인 세션은 유지하고 재시도하지 않는다")
+    func socialProofDoesNotRefreshSession() async {
+        let tokens = FakeTokenHolder(accessToken: "access", refreshToken: "refresh")
+        let refresher = FakeRefresher(.rejected)
+        var request = URLRequest(url: URL(string: "https://example.invalid/api/v1/users/me/login-methods/google")!)
+        request.setValue("Bearer access", forHTTPHeaderField: "Authorization")
+        let response = HttpRawResponse(request: request, code: 401, body: Data(#"{"code":"USER406","message":"인증 만료"}"#.utf8))
+        let retry = await TokenAuthenticator(tokens: tokens, refresher: refresher).authenticate(response: response)
+        #expect(retry == nil)
+        #expect(refresher.usedRefreshTokens.isEmpty)
+        #expect(tokens.sessionExpiredCount == 0)
+    }
     private static let threadCount = 4
 
     private func rotated(_ accessToken: String, _ refreshToken: String) -> RefreshResult {

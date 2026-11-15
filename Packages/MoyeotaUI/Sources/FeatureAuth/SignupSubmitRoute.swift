@@ -23,6 +23,7 @@ final class SignupViewModel {
         /// (`signupErrorNeedsReverify`). 아이디·닉네임 중복(409)은 토큰을 태우지 않으므로
         /// 여기서 재시도하거나 10 으로 돌아가 입력만 고치면 된다 — 그 경우에까지 재인증을 시키면
         /// 고칠 곳이 닉네임 한 글자인데 문자부터 다시 받게 하는 셈이다.
+        var socialSignupExpired: Bool = false
         var phoneNotVerified: Bool
 
         init(
@@ -57,6 +58,27 @@ final class SignupViewModel {
 
     func submit(draft: SignupDraft) {
         if uiState.submitting { return } // 중복 제출 차단 (공통 규칙)
+        if draft.socialSignup != nil {
+            guard let request = draft.toSocialRegistration(), let social = repository as? any SocialAuthRepository else {
+                uiState.errorMessage = "가입 정보가 부족해요. 이전 단계를 확인해 주세요"; return
+            }
+            uiState = UiState(submitting: true)
+            scope.launch { [weak self] in
+                do {
+                    try await social.registerSocial(request)
+                    self?.uiState = UiState(done: true)
+                    if let gender = draft.gender, let birth = draft.birthDate {
+                        Analytics.track(.signupCompleted(gender: gender, ageBand: ageBand(birthDate: birth, today: LocalDate.now())))
+                    }
+                }
+                catch {
+                    guard let failure = authFailureOnLiveTask(error: error) else { self?.uiState.submitting = false; return }
+                    self?.uiState = UiState(errorMessage: failure.authUserMessage(), nicknameDuplicated: (error as? AuthException)?.error == .nicknameDuplicated, phoneNotVerified: (error as? AuthException)?.error == .phoneNotVerified)
+                    self?.uiState.socialSignupExpired = (error as? AuthException)?.error == .socialSignupExpired || (error as? AuthException)?.error == .socialAlreadyRegistered
+                }
+            }
+            return
+        }
         guard let newUser = draft.toNewUser() else {
             uiState.errorMessage = "가입 정보가 부족해요. 이전 단계를 다시 확인해 주세요"
             return
@@ -105,6 +127,7 @@ public struct MannerPledgeRoute: View {
     private let onCompleted: () -> Void
     private let onEditNickname: () -> Void
     private let onReverifyPhone: () -> Void
+    private let onRestartSocial: () -> Void
 
     @HostedViewModel private var viewModel: SignupViewModel
 
@@ -114,13 +137,15 @@ public struct MannerPledgeRoute: View {
         onBack: @escaping () -> Void = {},
         onCompleted: @escaping () -> Void = {},
         onEditNickname: @escaping () -> Void = {},
-        onReverifyPhone: @escaping () -> Void = {}
+        onReverifyPhone: @escaping () -> Void = {},
+        onRestartSocial: @escaping () -> Void = {}
     ) {
         self.draft = draft
         self.onBack = onBack
         self.onCompleted = onCompleted
         self.onEditNickname = onEditNickname
         self.onReverifyPhone = onReverifyPhone
+        self.onRestartSocial = onRestartSocial
         _viewModel = HostedViewModel(wrappedValue: SignupViewModel(repository: repository))
     }
 
@@ -134,7 +159,8 @@ public struct MannerPledgeRoute: View {
             // 닉네임 중복일 때만 10 으로 돌아가는 길을 준다 — 다른 실패는 여기서 재시도하면 된다
             onEditNickname: state.nicknameDuplicated ? onEditNickname : nil,
             // 토큰이 거절된 경우에만 인증을 다시 하러 보낸다(10 이 인증 블록을 초기화한다)
-            onReverifyPhone: state.phoneNotVerified ? onReverifyPhone : nil
+            onReverifyPhone: state.phoneNotVerified ? onReverifyPhone : nil,
+            onRestartSocial: state.socialSignupExpired ? onRestartSocial : nil
         )
         .task(id: state.done) {
             if state.done { onCompleted() }

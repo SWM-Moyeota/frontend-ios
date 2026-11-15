@@ -139,12 +139,13 @@ public final class AccountDeleteViewModel {
     /// 흘러들어 `onKept` 가 불려) 「탈퇴됐다」의 근거가 사라진다. 끊기지 않게 응답 처리까지 한 덩어리로 돌린다.
     /// 그래서 이 태스크는 아무도 취소하지 않고, 뷰모델이 먼저 사라져도 세 신호는 끝까지 간다.
     public func delete(
+        hasPassword: Bool = true,
         onSubmitting: @escaping () -> Void = {},
         onDeleted: @escaping () -> Void = {},
         onKept: @escaping () -> Void = {}
     ) {
         let state = uiState
-        guard canSubmitAccountDeletion(password: state.password, submitting: state.submitting) else { return }
+        guard !state.submitting, !hasPassword || canSubmitAccountDeletion(password: state.password, submitting: state.submitting) else { return }
         uiState.submitting = true
         uiState.passwordError = nil
         uiState.bannerError = nil
@@ -152,7 +153,8 @@ public final class AccountDeleteViewModel {
         let repository = self.repository
         deleteJob = Task { [weak self] in
             do {
-                try await repository.deleteAccount(password: state.password)
+                if !hasPassword, let social = repository as? any SocialAuthRepository { try await social.deleteSocialAccount() }
+                else { try await repository.deleteAccount(password: state.password) }
                 // 204 를 받은 **이 자리**가 탈퇴를 말할 수 있는 지점이다
                 onDeleted()
                 // 세션이 곧 사라지며 리포터가 사용자 연결을 끊는다 — 그 전에 기록해야 탈퇴한 사람의 이벤트로 남는다.
@@ -196,6 +198,9 @@ public final class AccountDeleteViewModel {
 /// 성공 뒤의 **이동**은 여기서 하지 않는다 — 세션이 사라지면 내비게이션 층의 로그인 전이가 스택을
 /// 비우며 04a 로 보내므로 이 화면이 할 이동이 없다. 여기서 또 이동하면 그 전이와 겹친다.
 public struct AccountDeleteRoute: View {
+    private let repository: any AuthRepository
+    @State private var hasPassword: Bool?
+    @State private var loadError: String?
     private let onBack: () -> Void
     private let onSessionEndExpected: () -> Void
     private let onDeleted: () -> Void
@@ -210,6 +215,7 @@ public struct AccountDeleteRoute: View {
         onDeleted: @escaping () -> Void = {},
         onSessionKept: @escaping () -> Void = {}
     ) {
+        self.repository = repository
         self.onBack = onBack
         self.onSessionEndExpected = onSessionEndExpected
         self.onDeleted = onDeleted
@@ -219,20 +225,32 @@ public struct AccountDeleteRoute: View {
 
     public var body: some View {
         let state = viewModel.uiState
-        AccountDeleteScreen(
+        Group { if let hasPassword { AccountDeleteScreen(
             password: state.password,
+            hasPassword: hasPassword,
             submitting: state.submitting,
             passwordError: state.passwordError,
             bannerError: state.bannerError,
             onPasswordChange: { viewModel.onPasswordChange(raw: $0) },
             onDelete: {
                 viewModel.delete(
+                    hasPassword: hasPassword,
                     onSubmitting: onSessionEndExpected,
                     onDeleted: onDeleted,
                     onKept: onSessionKept
                 )
             },
             onBack: onBack
-        )
+        ) } else {
+            VStack { Text(loadError ?? "로그인 수단 확인 중")
+                Button("다시 확인") { Task { await loadMethods() } }
+                Button("뒤로") { onBack() }
+            }
+        } }.task { await loadMethods() }
     }
+    private func loadMethods() async {
+        do { hasPassword = try await (repository as? any SocialAuthRepository)?.loginMethods().hasPassword ?? true; loadError = nil }
+        catch { loadError = error.authUserMessage() }
+    }
+
 }

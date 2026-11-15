@@ -15,7 +15,7 @@ import MoyeotaDomain
 /// 결정해야 한다. 화면이나 앱 계층에서 나란히 호출하게 두면 순서가 어긋나거나 한쪽이 빠진다.
 /// `ActivePartyRepository` 가 아니라 저장소 인터페이스를 직접 받는 건
 /// 필요한 게 `clear()` 하나이고, 도메인 계약끼리 서로 의존하게 만들 이유가 없기 때문이다.
-public final class RemoteAuthRepository: AuthRepository {
+public final class RemoteAuthRepository: AuthRepository, SocialAuthRepository {
     private let api: any AuthApi
     private let userApi: any UserApi
     private let session: SessionManager
@@ -34,6 +34,61 @@ public final class RemoteAuthRepository: AuthRepository {
         self.session = session
         self.fcmTokenRegistrar = fcmTokenRegistrar
         self.activePartyStorage = activePartyStorage
+    }
+
+    private var socialApi: SocialAuthApi {
+        get throws {
+            guard let auth = api as? RestAuthApi, let user = userApi as? RestUserApi else {
+                throw AuthException(error: .unknown)
+            }
+            return SocialAuthApi(auth: auth.rest, user: user.rest)
+        }
+    }
+    public func loginGoogle(idToken: String) async throws -> SocialLoginResult {
+        try await authCall { try await finishSocialLogin(socialApi.google(.init(idToken: idToken))) }
+    }
+    private func finishSocialLogin(_ response: SocialLoginResponse) async throws -> SocialLoginResult {
+        switch response.status {
+        case "LOGIN":
+            guard let access = response.accessToken, let refresh = response.refreshToken else { throw AuthException(error: .unknown) }
+            try await saveSocialSession(access: access, refresh: refresh)
+            return .loggedIn
+        case "SIGNUP_REQUIRED":
+            guard let token = response.signupToken, !token.isBlank else { throw AuthException(error: .unknown) }
+            return .signupRequired(.init(signupToken: token, email: response.email, name: response.name))
+        default: throw AuthException(error: .unknown)
+        }
+    }
+    private func saveSocialSession(access: String, refresh: String) async throws {
+        guard !access.isBlank, !refresh.isBlank, let uuid = jwtSubject(token: access) else { throw AuthException(error: .unknown) }
+        try await session.onLoggedIn(newSession: StoredSession(userUuid: uuid, accessToken: access, refreshToken: refresh))
+        try await fcmTokenRegistrar.registerPendingToken()
+    }
+    public func registerSocial(_ registration: SocialRegistration) async throws {
+        try await authCall {
+            let response = try await socialApi.register(registration)
+            try await saveSocialSession(access: response.accessToken, refresh: response.refreshToken)
+        }
+    }
+    public func loginMethods() async throws -> LoginMethods { try await authCall { try await socialApi.methods() } }
+    public func sendLinkCode() async throws { try await authCall { try await socialApi.sendCode() } }
+    public func verifyLinkCode(_ code: String) async throws -> String {
+        try await authCall {
+            let result = try await socialApi.verifyCode(code)
+            guard !result.verificationToken.isBlank else { throw AuthException(error: .unknown) }
+            return result.verificationToken
+        }
+    }
+    public func linkGoogle(idToken: String, verificationToken: String) async throws {
+        try await authCall { try await socialApi.linkGoogle(.init(idToken: idToken, verificationToken: verificationToken)) }
+    }
+    public func deleteSocialAccount() async throws {
+        try await authCall { try await socialApi.deleteAccount() }
+        let cleanup = Task { [self] in
+            try? await activePartyStorage.clear()
+            _ = session.onLoggedOut()
+        }
+        await cleanup.value
     }
 
     // 세션 상태의 실체는 SessionManager 다. 여기서 별도 상태를 들면 두 출처가 어긋난다.

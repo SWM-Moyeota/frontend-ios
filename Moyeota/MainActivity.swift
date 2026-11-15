@@ -1,4 +1,5 @@
 import AppNavigation
+import GoogleSignIn
 import MoyeotaDesignSystem
 import PresentationCore
 import SwiftUI
@@ -29,6 +30,8 @@ struct MainActivity: View {
                 installedVersionCode: appVersionCode()
             )
         }
+        .environment(\.nativeSocialAuthentication, NativeSocialSignIn.shared.authentication)
+        .onOpenURL { _ = GIDSignIn.sharedInstance.handle($0) }
         .preferredColorScheme(.light)
         .task { await requestNotificationPermissionIfNeeded() }
     }

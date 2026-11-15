@@ -160,7 +160,7 @@ import Testing
         )
         let route = try source("FeatureMyPage/AccountDeleteRoute.swift")
         #expect(
-            SourceTree.contains(#"repository\.deleteAccount\([^)]*\)\s*(//[^\n]*\n\s*)*onDeleted\(\)"#, in: route),
+            SourceTree.contains(#"repository\.deleteAccount\([^)]*\)\s*(\}\s*)?(//[^\n]*\n\s*)*onDeleted\(\)"#, in: route),
             "탈퇴 성공 직후에 onDeleted() 를 부르지 않는다"
         )
     }
