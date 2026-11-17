@@ -77,6 +77,16 @@ final class AppContainer {
     /// rideRepository·chatRepository 를 그대로 쓰므로 **둘의 선언 아래**에 둔다.
     let activePartyRepository: any ActivePartyRepository
 
+    /// 택시비 정산 — 동승이 끝난(FINISHED) 방에서 방장이 사람마다 부담 금액을 적은 장부를 만들고,
+    /// 함께 탄 나머지가 토스·은행 앱으로 각자 보낸다. **앱은 돈을 옮기지 않는다.**
+    ///
+    /// 세션을 넘기는 건 **내 송금 상태 한 자리** 때문이다. 나머지는 서버가 토큰으로 계산해 준다
+    /// (`myRole`·`myAmount`). 서버가 `myTransferStatus` 를 보내 주면(Backend PR #328) 이 의존도 쓸
+    /// 일이 없어지지만, **그 배포가 닿기 전에는 세션 uuid 로 `transfers` 에서 내 행을 찾는 것이
+    /// 유일한 길**이다 — 넘기지 않으면 보내는 사람 화면의 「보냈어요」가 영영 뜨지 않는다
+    /// (원본 로컬 실측 2026-11-12).
+    let fareSplitRepository: any FareSplitRepository
+
     init(baseUrl: String, debugLogging: Bool) throws {
         let sessionManager = SessionManager(storage: KeychainTokenStorage(), scope: applicationScope)
         let apis = try NetworkModule.create(baseUrl: baseUrl, debugLogging: debugLogging, tokenHolder: sessionManager)
@@ -115,6 +125,7 @@ final class AppContainer {
             storage: activePartyStorage,
             session: sessionManager
         )
+        self.fareSplitRepository = RemoteFareSplitRepository(api: apis.fareSplit, session: sessionManager)
     }
 
     /// 백엔드 base URL. 기본값은 `Info.plist` 의 `MOYEOTA_BASE_URL`(빌드 설정 `Config/Base.xcconfig` →
