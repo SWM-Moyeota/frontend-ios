@@ -248,4 +248,36 @@ import Testing
     func partyIdCarriedOver() {
         #expect(record(partyId: 67).toHistoryItem(now: now, zone: zone).partyId == 67)
     }
+
+    // ─────────────────────────── 택시비 정산 진입 ───────────────────────────
+
+    /// 못 박는 것: **택시비 정산으로 가는 길이 「요금이 이미 있는 카드」에 묶여 있지 않다.**
+    ///
+    /// 이 카드가 정산으로 가는 **유일한 길**이다 — 또 하나의 진입점인 22 탑승 상세는 21 대기 화면의
+    /// 카드에서만 열리고, 방이 끝나면 21 이 닫혀 **끝난 방의 22 에는 닿을 수 없다.**
+    ///
+    /// 그래서 조건을 `fare != nil`(= 정산이 이미 있다)로 두면 **방장이 자기 방을 영영 정산하지
+    /// 못한다**: 정산이 없으니 요금이 없고, 요금이 없으니 버튼이 없고, 버튼이 없으니 시작할 수 없다.
+    /// 그 고리를 끊는 것이 이 테스트다.
+    @Test("정산이 아직 없는 기록에서도 정산으로 갈 수 있다")
+    func fareSplitReachableWithoutFare() {
+        let item = record(totalFare: nil, farePerPerson: nil, memberCount: 2).toHistoryItem(now: now, zone: zone)
+
+        #expect(item.fare == nil, "정산이 없으니 요금 줄은 없어야 한다")
+        #expect(item.canOpenFareSplit, "요금이 없다고 정산 진입까지 막으면 시작할 길이 사라진다")
+    }
+
+    /// 못 박는 것: **혼자 탄 방에는 정산 진입이 없다.**
+    ///
+    /// 서버가 409 `NOT_ENOUGH_RIDERS` 로 막는 자리다(「함께 탄 사람이 2명 이상이어야 택시비를 나눌
+    /// 수 있습니다」). 나눌 상대가 없는 방에 버튼을 띄우면 눌러서 막다른 화면에 닿는다.
+    ///
+    /// 나머지 두 조건(끝난 방인가 · 내가 탑승자인가)은 **목록에 들어온 것만으로 이미 참**이다 —
+    /// 서버가 도착을 누른 멤버에게만 그 방의 기록을 준다(백엔드 `2732cc75`).
+    @Test("혼자 탄 기록에는 정산 진입이 없다")
+    func noFareSplitWhenAlone() {
+        #expect(!record(memberCount: 1).toHistoryItem(now: now, zone: zone).canOpenFareSplit)
+        #expect(!record(memberCount: 0).toHistoryItem(now: now, zone: zone).canOpenFareSplit, "인원을 모르는 기록도 열지 않는다")
+        #expect(record(memberCount: 2).toHistoryItem(now: now, zone: zone).canOpenFareSplit)
+    }
 }

@@ -704,7 +704,7 @@ extension Ride {
     /// 누른 멤버, 합류 순」)와 같은 집합을 앱에서 구하는 단일 창구다.
     ///
     /// ### 방 멤버 전원으로 채우면 반드시 틀린다
-    /// 약속이 확정된 방에서 **도착을 누르지 않은 사람은 탑승자가 아니다**(노쇼로 기록된다). 그 사람을
+    /// 약속이 확정된 방에서 **도착을 누르지 않은 사람은 탑승자가 아니다**(서버 `riderIds` 에 들지 않는다). 그 사람을
     /// `payments` 에 넣으면 400 `PAYMENT_TARGET_MISMATCH` 이고, 반대로 도착한 사람을 빼도 같은 코드다 —
     /// **어느 쪽으로 틀려도 응답이 같아서** 원인이 가려진다. 그래서 집합을 세는 식을 화면마다 두지 않는다.
     ///
@@ -718,5 +718,111 @@ extension Ride {
     /// `FareSplitPolicy.problemOf` 가 `FareSplitDraftProblem.riderNotIdentified` 로 알려 준다.
     public var fareSplitRiders: [User] {
         members.filter(\.hasArrived)
+    }
+}
+
+/// 계좌번호·송금 딥링크를 **로그·디버그 출력에 남기지 않기** 위한 가림.
+///
+/// 서버는 계좌번호를 암호화해 저장하고 정산이 끝나면 지운다. 앱이 `print(detail)`·`dump`·디버거의 `po` 한 줄로
+/// 그 값을 콘솔·기기 로그·크래시 리포트에 흘리면 서버가 지키는 보호가 무의미해진다(원본 `FareSplitActions.kt` 의
+/// 「로그를 한 줄도 남기지 않는다」). 지금은 그런 출력이 한 줄도 없지만, 나중에 누가 디버깅하려고 넣는 순간을 막는
+/// 장치가 「쓰지 말 것」이라는 주석뿐이면 약하다. 그래서 이 값을 든 타입은 `description`·`debugDescription`·
+/// `customMirror` 를 직접 정해 **계좌는 끝 4자리만, 딥링크는 스킴만** 남긴다 — 어느 정산의 어느 계좌인지
+/// 대조하는 데는 그걸로 충분하다.
+///
+/// 딥링크를 통째로 가리는 이유: 쿼리에 `amount`·`bank`·`accountNo` 가 그대로 들어 있다(`supertoss://send?…`).
+public enum FareSplitRedaction {
+    /// `****5678`. 4자리 이하면 전부 가린다 — 짧은 값의 「끝 4자리」는 값 전체다. nil 이면 `nil`.
+    public static func account(_ value: String?) -> String {
+        guard let value else { return "nil" }
+        guard value.count > 4 else { return "****" }
+        return "****" + value.suffix(4)
+    }
+
+    /// `supertoss://…` 처럼 **스킴만** 남긴다. 스킴을 읽을 수 없으면 `…` 뿐이다. nil 이면 `nil`.
+    public static func deeplink(_ value: String?) -> String {
+        guard let value else { return "nil" }
+        guard let schemeEnd = value.range(of: "://") else { return "…" }
+        return String(value[..<schemeEnd.upperBound]) + "…"
+    }
+}
+
+extension FareSplitDetail: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// 계좌번호·딥링크를 가린다(`FareSplitRedaction`). 나머지는 화면이 이미 보여 주는 값이라 그대로 둔다.
+    public var description: String {
+        "FareSplitDetail(partyId: \(partyId), status: \(status), myRole: \(myRole), totalFare: \(totalFare), "
+            + "myAmount: \(myAmount), myTransferStatus: \(myTransferStatus.map { "\($0)" } ?? "nil"), "
+            + "bank: \(bank.code), accountNumber: \(FareSplitRedaction.account(accountNumber)), "
+            + "tossDeeplink: \(FareSplitRedaction.deeplink(tossDeeplink)), transfers: \(transfers.count))"
+    }
+
+    public var debugDescription: String { description }
+
+    /// `dump`·디버거가 필드를 하나씩 펼칠 때도 가린 값이 보이게 한다.
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "partyId": partyId,
+                "status": status,
+                "totalFare": totalFare,
+                "payer": payer,
+                "myRole": myRole,
+                "myAmount": myAmount,
+                "myTransferStatus": myTransferStatus as Any,
+                "bank": bank,
+                "accountNumber": FareSplitRedaction.account(accountNumber),
+                "tossDeeplink": FareSplitRedaction.deeplink(tossDeeplink),
+                "transfers": transfers,
+                "createdAt": createdAt as Any,
+                "closedAt": closedAt as Any,
+            ],
+            displayStyle: .struct
+        )
+    }
+}
+
+extension ManualTransfer: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// 복사 거리의 계좌번호를 가린다(`FareSplitRedaction`).
+    public var description: String {
+        "ManualTransfer(bankDisplayName: \(bankDisplayName), "
+            + "accountNumber: \(FareSplitRedaction.account(accountNumber)), amount: \(amount))"
+    }
+
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "bankDisplayName": bankDisplayName,
+                "accountNumber": FareSplitRedaction.account(accountNumber),
+                "amount": amount,
+            ],
+            displayStyle: .struct
+        )
+    }
+}
+
+extension FareSplitDraft: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    /// 사용자가 적은 계좌번호를 가린다(`FareSplitRedaction`).
+    public var description: String {
+        "FareSplitDraft(totalFare: \(totalFare), bankCode: \(bankCode), "
+            + "accountNumber: \(FareSplitRedaction.account(accountNumber)), shares: \(shares.count))"
+    }
+
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "totalFare": totalFare,
+                "bankCode": bankCode,
+                "accountNumber": FareSplitRedaction.account(accountNumber),
+                "shares": shares,
+            ],
+            displayStyle: .struct
+        )
     }
 }

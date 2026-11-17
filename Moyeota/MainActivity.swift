@@ -24,6 +24,7 @@ struct MainActivity: View {
                 chatRepository: container.chatRepository,
                 activePartyRepository: container.activePartyRepository,
                 rideRecordRepository: container.rideRecordRepository,
+                fareSplitRepository: container.fareSplitRepository,
                 pendingChatRoomId: pendingChatRoom.roomId,
                 onPendingChatRoomHandled: { pendingChatRoom.roomId = nil },
                 installedVersionCode: appVersionCode()

@@ -11,6 +11,9 @@ let features = [
     "FeatureMatching",
     "FeatureChat",
     "FeatureMyPage",
+    // 39·40 택시비 정산(2026-11). 홈 배너·탑승 기록·탑승 상세가 진입점이지만 그 화면들은 이 모듈을 import 하지 않는다 —
+    // 이동과 배너 꽂기는 AppNavigation 이 하고, 22 의 진입 판정은 PresentationCore(`FareSplitEntry.swift`)에 있다.
+    "FeatureFareSplit",
 ]
 
 let package = Package(

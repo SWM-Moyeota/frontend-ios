@@ -18,6 +18,9 @@ import SwiftUI
 ///   RECRUITING 으로 좁혀 둔 것은 기사 모드 시절의 기준이 남은 것이고, 지금은 두 화면이 같은 방에 대해
 ///   다른 말을 한다. 의도된 차이가 아니므로 둘 중 하나로 모아야 한다 — 다만 그건 문구 정리가 아니라
 ///   **동작 변경**이라 이 작업에서 하지 않았다.
+/// - 「택시비 정산하기」/「내 택시비 보내기」 → 39 택시비 정산 (onFareSplit). **끝난 방에서 내가 도착을 눌렀을
+///   때만** 보인다(`fareSplitEntryLabel`). 다만 끝난 방의 이 화면은 21 이 닫히면서 닿을 길이 없어(21 의 조건 카드에서만
+///   열린다) 정산의 실제 진입점은 34 지난 탑승 기록의 「택시비 정산」이다 — 이 버튼은 그 길이 생길 때를 위한 자리다.
 /// - [미연결] 없음
 ///
 /// 도메인 변경(2026-08-30 → 현재): 백엔드에서 **수동 출발**이 사라졌다 — 「이 인원으로 출발」이라는
@@ -49,23 +52,27 @@ public struct RideDetailScreen: View {
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
+    private let onFareSplit: () -> Void
 
     @State private var routeMemo = Remembered<String?, [LatLng]>()
 
     /// - Parameters:
     ///   - pickupDistanceMeters: 내 위치 → 탑승 위치 거리(m). 모르면 nil 이고 그 줄을 감춘다
+    ///   - onFareSplit: 끝난 방의 **택시비 정산**으로 간다. 버튼이 뜨는 조건은 `fareSplitEntryLabel` 이 정한다
     public init(
         ride: Ride,
         pickupDistanceMeters: Double? = nil,
         onBack: @escaping () -> Void = {},
         onPartnerClick: @escaping (User) -> Void = { _ in },
-        onLeave: @escaping () -> Void = {}
+        onLeave: @escaping () -> Void = {},
+        onFareSplit: @escaping () -> Void = {}
     ) {
         self.ride = ride
         self.pickupDistanceMeters = pickupDistanceMeters
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
+        self.onFareSplit = onFareSplit
     }
 
     public var body: some View {
@@ -181,6 +188,16 @@ public struct RideDetailScreen: View {
                 //
                 // 바탕 없는 빨간 글자 알약이다(디자인 QA G5·J3, 디자인 문서 button-danger) — 예전 회색 r16 상자는
                 // 앱의 다른 버튼과 모양이 달랐고, 회색은 「방에서 빠진다」는 무게를 말하지 못했다.
+                //
+                // 끝난 방 + 내가 도착을 눌렀다 → 택시비 정산. **나가기 분기보다 앞**에 둔다:
+                // 끝난 방에서는 나가기가 없고(아래 else 로 떨어진다) 사용자가 여기서 할 수 있는 일이
+                // 정산 하나뿐이라, 그 하나를 단계 안내문 아래가 아니라 **버튼 자리**에 놓는다.
+                // 글자는 방장/동승자로 갈린다(「택시비 정산하기」/「내 택시비 보내기」).
+                if let fareSplitLabel = fareSplitEntryLabel(ride: ride) {
+                    PrimaryCtaButton(text: fareSplitLabel, onClick: onFareSplit)
+                        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    Spacer().frame(height: MoyeotaSpacing.Xs)
+                }
                 if ride.status == .recruiting {
                     DangerTextButton(text: "나가기", onClick: onLeave)
                         .padding(.horizontal, 16)

@@ -44,7 +44,10 @@ public struct RideHistoryScreen: View {
     private let onLoadMore: () -> Void
     private let onRetry: () -> Void
     private let onBack: () -> Void
+    private let onFareSplit: (Int64) -> Void
 
+    /// - Parameter onFareSplit: 그 방의 **택시비 정산**으로 간다. 함께 탄 사람이 2명 이상인 카드에 길이 열린다
+    ///   (`RideHistoryItem.canOpenFareSplit` — 요금 줄이 있는 카드로 좁히지 않는 이유가 거기 있다).
     public init(
         records: [RideRecord] = [],
         loading: Bool = false,
@@ -53,7 +56,8 @@ public struct RideHistoryScreen: View {
         failed: Bool = false,
         onLoadMore: @escaping () -> Void = {},
         onRetry: @escaping () -> Void = {},
-        onBack: @escaping () -> Void = {}
+        onBack: @escaping () -> Void = {},
+        onFareSplit: @escaping (Int64) -> Void = { _ in }
     ) {
         self.records = records
         self.loading = loading
@@ -63,6 +67,7 @@ public struct RideHistoryScreen: View {
         self.onLoadMore = onLoadMore
         self.onRetry = onRetry
         self.onBack = onBack
+        self.onFareSplit = onFareSplit
     }
 
     public var body: some View {
@@ -99,7 +104,8 @@ public struct RideHistoryScreen: View {
                     loadingMore: loadingMore,
                     hasNext: hasNext,
                     failed: failed,
-                    onLoadMore: onLoadMore
+                    onLoadMore: onLoadMore,
+                    onFareSplit: onFareSplit
                 )
             }
         }
@@ -114,6 +120,7 @@ private struct RideHistoryList: View {
     let hasNext: Bool
     let failed: Bool
     let onLoadMore: () -> Void
+    let onFareSplit: (Int64) -> Void
 
     // 지금 보이는 카드. 원본 `listState.layoutInfo.visibleItemsInfo` 자리다 — 새 페이지가 붙으면 마지막 카드가
     // 바뀌므로 「마지막 카드가 보이는가」를 플래그 하나로 들지 않고 id 로 들어 다시 묻는다.
@@ -135,7 +142,7 @@ private struct RideHistoryList: View {
                 // partyId 로 키를 준다 — 커서 페이징으로 뒤에 붙는 목록이라 위치 기반 재사용이
                 // 일어나면 아바타 이미지가 다른 카드에 남는다(MemberDisplay 주석의 그 사고).
                 ForEach(items, id: \.partyId) { item in
-                    RideHistoryCard(item: item)
+                    RideHistoryCard(item: item, onFareSplit: { onFareSplit(item.partyId) })
                         .onAppear { visiblePartyIds.insert(item.partyId) }
                         .onDisappear { visiblePartyIds.remove(item.partyId) }
                 }
@@ -197,11 +204,13 @@ private struct CenteredBox<Content: View>: View {
     }
 }
 
-/// 기록 한 장. **눌러도 갈 곳이 없어 탭 동작과 꺾쇠를 두지 않았다** — 끝난 방의 상세
+/// 기록 한 장. **카드 자체에는 탭 동작과 꺾쇠를 두지 않았다** — 끝난 방의 상세
 /// (`GET /matching/rooms/{id}`)는 열리지만 그 화면(22)은 진행 중 방을 전제로 쓰여 있다.
 /// 갈 곳이 없는데 꺾쇠를 달면 「눌러서 갈 곳이 있다」는 이 앱의 기호 규칙이 거짓이 된다.
+/// 갈 곳이 있는 것은 아래의 「택시비 정산」 하나이고, 그건 카드가 아니라 글자 버튼으로 둔다.
 private struct RideHistoryCard: View {
     let item: RideHistoryItem
+    var onFareSplit: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -250,6 +259,25 @@ private struct RideHistoryCard: View {
                             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
                     }
                 }
+            }
+
+            // 택시비 정산으로 가는 **유일한 길**이다 — 끝난 방의 22 상세에는 닿을 수 없다
+            // (`RideHistoryItem.canOpenFareSplit` 주석). 그래서 요금 줄 블록 **밖**에 둔다:
+            // 아직 정산이 없는 방(요금 줄이 없다)에서 방장이 시작할 수 있어야 한다.
+            //
+            // 글자가 **중립인 이유**: 이 카드는 정산이 있는지, 내가 시작하는 쪽인지 모른다.
+            // 「보내기」로 적으면 이미 다 보낸 사람에게 할 일이 남은 것처럼 보이고,
+            // 「시작하기」로 적으면 비방장에게 할 수 없는 일을 시킨다. 그 판정은 39 화면이 한다.
+            if item.canOpenFareSplit {
+                Spacer().frame(height: MoyeotaSpacing.Xxs)
+                // 글자 버튼의 안쪽 여백(8)만큼 밖으로 당겨 글자 시작을 카드 글자 줄에 맞춘다(37 의 링크와 같은 방식).
+                TextLinkButton(
+                    text: "택시비 정산",
+                    onClick: onFareSplit,
+                    color: MoyeotaColor.Primary600,
+                    style: MoyeotaType.BodySm.copy(fontWeight: .semibold)
+                )
+                .offset(x: -MoyeotaSpacing.Xs)
             }
         }
         .padding(16)

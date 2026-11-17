@@ -1,3 +1,5 @@
+import MoyeotaDomain
+
 // 백엔드 faresplit 모듈의 요청·응답 record 와 필드 1:1 대응
 // (`faresplit/dto/FareSplitRequest.java`·`FareSplitDetailResponse.java`·`MyFareSplitListResponse.java`,
 //  2026-11-12 기준 소스 대조. 원본(Android)이 같은 날 로컬 서버에서 7경로를 끝까지 돌려 응답 모양을 확인했다).
@@ -272,6 +274,64 @@ public struct FareSplitDetailResponse: Decodable, Equatable, Sendable {
             self.confirmedAt = confirmedAt
             self.maskedRealName = maskedRealName
         }
+    }
+}
+
+// 계좌번호·딥링크를 든 두 DTO 는 로그·디버그 출력에서 그 값을 가린다 — 근거는 `FareSplitRedaction`.
+// `HttpLoggingInterceptor` 는 디버그 빌드에서 본문 원문을 찍지만 그건 와이어 로그이고(릴리스에서 꺼진다),
+// 여기서 막는 것은 **모델을 그대로 `print` 하는** 경로다.
+
+extension FareSplitRequestDto: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "FareSplitRequestDto(totalFare: \(totalFare), bankCode: \(bankCode), "
+            + "accountNumber: \(FareSplitRedaction.account(accountNumber)), payments: \(payments.count))"
+    }
+
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "totalFare": totalFare,
+                "bankCode": bankCode,
+                "accountNumber": FareSplitRedaction.account(accountNumber),
+                "payments": payments,
+            ],
+            displayStyle: .struct
+        )
+    }
+}
+
+extension FareSplitDetailResponse: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    public var description: String {
+        "FareSplitDetailResponse(partyId: \(partyId.map { "\($0)" } ?? "nil"), status: \(status ?? "nil"), "
+            + "myRole: \(myRole ?? "nil"), accountNumber: \(FareSplitRedaction.account(accountNumber)), "
+            + "tossDeeplink: \(FareSplitRedaction.deeplink(tossDeeplink)), transfers: \(transfers.count))"
+    }
+
+    public var debugDescription: String { description }
+
+    public var customMirror: Mirror {
+        Mirror(
+            self,
+            children: [
+                "partyId": partyId as Any,
+                "status": status as Any,
+                "totalFare": totalFare as Any,
+                "payer": payer as Any,
+                "myRole": myRole as Any,
+                "myAmount": myAmount as Any,
+                "myTransferStatus": myTransferStatus as Any,
+                "bank": bank as Any,
+                "accountNumber": FareSplitRedaction.account(accountNumber),
+                "tossDeeplink": FareSplitRedaction.deeplink(tossDeeplink),
+                "transfers": transfers,
+                "createdAt": createdAt as Any,
+                "closedAt": closedAt as Any,
+            ],
+            displayStyle: .struct
+        )
     }
 }
 

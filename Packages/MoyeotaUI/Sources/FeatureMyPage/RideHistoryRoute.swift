@@ -149,14 +149,18 @@ public final class RideHistoryViewModel {
 /// 진행 중인 방은 14 홈·17 탐색의 배너가 보여 준다.
 public struct RideHistoryRoute: View {
     private let onBack: () -> Void
+    private let onFareSplit: (Int64) -> Void
 
     @HostedViewModel private var viewModel: RideHistoryViewModel
 
+    /// - Parameter onFareSplit: 그 방의 택시비 정산으로. 함께 탄 사람이 2명 이상인 카드에 길이 열린다(`RideHistoryScreen` 주석).
     public init(
         repository: any RideRecordRepository,
-        onBack: @escaping () -> Void = {}
+        onBack: @escaping () -> Void = {},
+        onFareSplit: @escaping (Int64) -> Void = { _ in }
     ) {
         self.onBack = onBack
+        self.onFareSplit = onFareSplit
         _viewModel = HostedViewModel(wrappedValue: RideHistoryViewModel(repository: repository))
     }
 
@@ -170,7 +174,8 @@ public struct RideHistoryRoute: View {
             failed: state.failed,
             onLoadMore: { viewModel.loadMore() },
             onRetry: { viewModel.refresh() },
-            onBack: onBack
+            onBack: onBack,
+            onFareSplit: onFareSplit
         )
     }
 }

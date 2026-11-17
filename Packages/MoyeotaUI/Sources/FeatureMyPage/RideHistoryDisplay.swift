@@ -32,6 +32,24 @@ struct RideHistoryItem: Equatable, Sendable {
     var memberLabel: String?
     /// **nil 이면 요금 줄을 아예 그리지 않는다.** 그 방에 택시비 정산이 없다는 뜻이다.
     var fare: RideHistoryFare?
+    /// 이 카드에서 **택시비 정산으로 갈 수 있는가** — 함께 탄 사람이 2명 이상인가.
+    ///
+    /// ### 왜 `fare` 유무로 묻지 않나 ★
+    /// 「요금이 있다 = 정산이 있다」는 맞지만, 그걸 조건으로 쓰면 **정산을 시작할 길이 사라진다.**
+    /// 시작 진입점은 22 탑승 상세에도 있는데 그 화면은 21 대기 화면의 카드에서만 열리고, 방이
+    /// 끝나면 21 이 닫히므로 **끝난 방의 22 에는 닿을 수 없다.** 즉 이 카드가 유일한 길이고,
+    /// 여기서 「이미 정산이 있을 때만」 열면 방장이 자기 방을 영영 정산하지 못한다.
+    ///
+    /// ### 두 조건은 목록에 들어온 것만으로 이미 참이다
+    /// 서버는 **도착을 누른 멤버에게만** 그 방의 기록을 준다(백엔드 `2732cc75`: 「탑승 횟수·탑승
+    /// 기록은 도착한 멤버만 센다」). 그래서 이 목록에 있다는 것이 곧 「끝난 방이다」와 「내가 그
+    /// 방의 탑승자다」다 — 정산 당사자 조건을 이미 만족한다. 남은 것은 **함께 탄 사람이 2명 이상**
+    /// 뿐이다(혼자 탄 방은 나눌 것이 없다 — 서버도 409 `NOT_ENOUGH_RIDERS` 로 막는다).
+    ///
+    /// 「내가 방장인가」는 **묻지 않는다.** 그 답이 기록에 없고, 비방장도 **보내는 사람으로** 정산을
+    /// 열어야 한다. 시작할 수 있는 사람이 누구인지는 39 화면이 방 상세를 읽어 가른다
+    /// (`FareSplitAbsentScreen`) — 여기서 추측하면 비방장에게 「정산 시작하기」를 띄우게 된다.
+    var canOpenFareSplit: Bool
     var members: [RideRecordMember]
 
     init(
@@ -40,6 +58,7 @@ struct RideHistoryItem: Equatable, Sendable {
         routeLabel: String?,
         memberLabel: String?,
         fare: RideHistoryFare?,
+        canOpenFareSplit: Bool,
         members: [RideRecordMember]
     ) {
         self.partyId = partyId
@@ -47,6 +66,7 @@ struct RideHistoryItem: Equatable, Sendable {
         self.routeLabel = routeLabel
         self.memberLabel = memberLabel
         self.fare = fare
+        self.canOpenFareSplit = canOpenFareSplit
         self.members = members
     }
 }
@@ -104,6 +124,7 @@ extension RideRecord {
             routeLabel: routeLabel(departure: departure, destination: destination),
             memberLabel: memberLabel(memberCount: memberCount, members: members),
             fare: fareOrNull(totalFare: totalFare, farePerPerson: farePerPerson),
+            canOpenFareSplit: memberCount >= 2,
             members: members
         )
     }

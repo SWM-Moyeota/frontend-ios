@@ -150,6 +150,18 @@ final class FakeRideRecordRepository: RideRecordRepository, @unchecked Sendable 
     }
 }
 
+/// 39·40 택시비 정산 — 그래프 테스트는 정산 화면을 열지 않는다. 홈 배너가 부르는 목록만 빈 값으로 답한다
+/// (보낼 정산이 없으면 배너가 그리지 않으므로 기존 홈 배치가 그대로다).
+final class FakeFareSplitRepository: FareSplitRepository, @unchecked Sendable {
+    func startFareSplit(partyId: Int64, draft: FareSplitDraft) async throws -> FareSplitDetail { throw FakeFailure() }
+    func getFareSplit(partyId: Int64) async throws -> FareSplitDetail? { nil }
+    func editFareSplit(partyId: Int64, draft: FareSplitDraft) async throws -> FareSplitDetail { throw FakeFailure() }
+    func markSent(partyId: Int64) async throws { throw FakeFailure() }
+    func confirmReceived(partyId: Int64, senderPublicId: String) async throws { throw FakeFailure() }
+    func markNotReceived(partyId: Int64, senderPublicId: String) async throws { throw FakeFailure() }
+    func getMyFareSplits(status: TransferStatus) async throws -> [MyFareSplit] { [] }
+}
+
 func fakeRide(id: String = "7", status: RideStatus = .recruiting) -> Ride {
     Ride(
         id: id, origin: "부산대", destination: "서면", departureLabel: "지금 출발",
@@ -191,6 +203,7 @@ struct GraphHarness: View {
             chatRepository: chat,
             activePartyRepository: active,
             rideRecordRepository: FakeRideRecordRepository(),
+            fareSplitRepository: FakeFareSplitRepository(),
             pendingChatRoomId: pending.roomId,
             onPendingChatRoomHandled: {
                 pending.roomId = nil

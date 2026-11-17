@@ -520,4 +520,34 @@ import Testing
 
         #expect(dto.bankCode == "NEW_BANK_2027")
     }
+
+    // ─── 출력 가림 ───
+
+    /// (iOS 전용, Android PR #106 리뷰 반영) 계좌번호·딥링크를 든 두 DTO 를 `print`·`dump` 해도 그 값이 나오지 않는다.
+    /// 근거는 `FareSplitRedaction` — 서버가 암호화해 지키는 값을 앱이 콘솔·기기 로그로 흘리지 않는다.
+    @Test("요청 본문과 상세 응답을 출력해도 계좌번호가 나오지 않는다")
+    func dtosNeverPrintSecrets() throws {
+        let response = try decodeJSON(
+            FareSplitDetailResponse.self,
+            payerViewJson.replacingOccurrences(
+                of: #""tossDeeplink": null"#,
+                with: #""tossDeeplink": "supertoss://send?amount=6233&accountNo=3333012345678""#
+            )
+        )
+        let request = FareSplitDraft(
+            totalFare: 18_700,
+            bankCode: "KAKAO",
+            accountNumber: "3333-01-2345678",
+            shares: [FareShare(riderPublicId: payerId, amount: 18_700)]
+        ).toRequestDto()
+
+        for value in [response as Any, request as Any] {
+            var dumped = ""
+            dump(value, to: &dumped)
+            for text in [String(describing: value), String(reflecting: value), dumped] {
+                #expect(!text.contains("3333012345678"), "계좌번호가 샜다: \(text)")
+                #expect(text.contains("****5678"))
+            }
+        }
+    }
 }
