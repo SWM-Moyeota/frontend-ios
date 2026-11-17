@@ -38,7 +38,7 @@ import PresentationCore
 /// 휠은 그 제약이 없다: 시(24)와 분(6)을 **두 축으로 나눠** 고르므로 144개를 늘어놓지 않는다.
 /// 그리고 30분 단위는 실제 약속에 너무 거칠었다(「6시 40분에 모이자」를 고를 수 없다).
 ///
-/// 자유 입력(분 단위 키패드)을 두지 않는 근거는 그대로다(`MEETING_PRESET_MINUTES` 와 같은 판단): 휠은
+/// 자유 입력(분 단위 키패드)을 두지 않는 근거는 그대로다(약속 시간 휠 `meetingTimeOptions` 와 같은 판단): 휠은
 /// **고를 수 있는 값만** 담는다(`reservationHourOptions`·`reservationMinuteOptions`) — 지난 시각·7일 밖이
 /// 목록에 아예 없으므로 고를 수 있는 모든 값이 **구성상** 서버 창 안이다.
 let RESERVATION_TIME_STEP_MINUTES = 10
@@ -47,7 +47,7 @@ let RESERVATION_TIME_STEP_MINUTES = 10
 /// `reservationTimeRange`).
 ///
 /// 세 가지를 산다. ① 왕복 시간과 시계 스큐: 「1분 뒤」는 요청이 서버에 닿는 사이 과거가 되어
-/// 400 `INVALID_DEPARTURE_TIME` 이 된다(`meetingPresetAt` 이 분 단위로 내림해 여유를 버는 것과 같은
+/// 400 `INVALID_DEPARTURE_TIME` 이 된다(`meetingTimeOptions` 가 1시간 뒤를 내림해 여유를 버는 것과 같은
 /// 자리다). ② **모달에 머무는 시간**: 16 은 기준 시각을 열 때 한 번만 읽으므로(`DestinationConfirmModal`
 /// 의 `now`) 사용자가 몇 분 고민하는 사이 그 여유가 줄어든다 — 10분이면 그래도 서버 창 안이다.
 /// ③ 뜻: 5분 뒤에 타려는 사람에게 필요한 것은 예약 방이 아니라 **지금 출발**이고, 그쪽은
@@ -409,7 +409,7 @@ func reservationDateOffsetAfterClockMove(
 ///
 /// `Date.ISO8601FormatStyle` 기본값은 UTC `Z` 표기이고 **초를 늘 적는다** — 실제 값은 `...T09:30:00Z` 다.
 /// (원본 주석은 `Instant.toString` 이 초가 0 이면 `:00` 을 생략한다고 적었지만 사실이 아니다 —
-/// `ISO_INSTANT` 는 초를 늘 적는다. `meetingPresetIso` 와 같은 판단.) 서버(Jackson `Instant`)는 어느
+/// `ISO_INSTANT` 는 초를 늘 적는다. `meetingTimeIso` 와 같은 판단.) 서버(Jackson `Instant`)는 어느
 /// 쪽이든 같게 읽는다.
 func reservationDepartureIso(
     date: LocalDate,
@@ -434,7 +434,7 @@ func matchDepartureAt(scheduled: Bool, date: LocalDate, time: LocalTime?) -> Str
 /// 고른 출발 시각을 CTA 앞에서 **되읽어 준다** — `오늘 오후 6:30` · `11월 9일 (일) 오후 6:30`.
 ///
 /// 날짜 띠와 시각 휠이 각각 떨어진 줄에 있어서, 두 선택이 합쳐져 무엇이 되는지 확인할 기회가 누르기
-/// 직전의 이 한 줄뿐이다(`meetingConfirmTitle` 이 프리셋 「10분」을 시각으로 되읽어 주는 것과 같은
+/// 직전의 이 한 줄뿐이다(`meetingConfirmButtonText` 가 고른 약속 시각을 버튼에 되읽어 주는 것과 같은
 /// 이유). 예약 방은 만든 뒤 시간을 바꿀 수 없으므로 더 그렇다.
 func reservationDepartureSummary(date: LocalDate, time: LocalTime, today: LocalDate) -> String {
     "\(reservationDateLabel(date: date, today: today)) \(reservationTimeLabel(time: time))"

@@ -144,13 +144,10 @@ public struct MatchWaitingScreen: View {
     // (12 마이페이지의 로그아웃 확인과 같은 패턴).
     @State private var cancelConfirming = false
     @State private var departConfirming = false
-    /// 확정 다이얼로그가 들고 있는 선택. nil 이면 닫혀 있다.
-    ///
-    /// **시각을 함께 들고 있는 게 요점이다** — 칩을 누르는 그 순간 한 번 만들어, 다이얼로그 제목과
-    /// 서버로 보내는 값이 **같은 값**을 쓴다. 분만 들고 있으면 제목과 요청이 시계를 따로 읽어,
-    /// 그 사이 분이 바뀌면 본 것과 다른 시각이 확정된다
-    /// (`MatchWaitingViewModel.confirmMeeting` 주석, 실측 2026-11-06).
-    @State private var confirmingPreset: ConfirmingPreset?
+    /// 약속 시간 시트가 열려 있는가(`MeetingTimeSheet`).
+    @State private var meetingSheetOpen = false
+    /// 휠에서 고른 약속 시각. nil 이면 아직 안 굴렸다 — 휠은 가장 이른 시각을 가리킨다(`meetingSelectedTime`).
+    @State private var pickedMeetingAt: Date?
 
     @State private var routeMemo = Remembered<String?, [LatLng]>()
     @State private var fitMemo = Remembered<FitKey, (first: LatLng, second: Double)?>()
@@ -162,8 +159,8 @@ public struct MatchWaitingScreen: View {
     ///     (보낼 좌표가 없다 — 지어낸 좌표를 보내면 서버의 반경 판정이 거짓말 위에서 돈다).
     ///   - locationGranted: 위치 권한이 있는가. 없으면 도착 자리에 **비활성 버튼 대신** 허용 안내가 들어간다
     ///   - onRequestLocationPermission: 위치 권한 재요청(17 탐색의 `LocationPermissionNotice` 와 같은 배선)
-    ///   - onConfirmMeeting: 「약속 시간 정하기」 — 칩을 누른 순간 만든 **약속 시각**(ISO-8601)을 넘긴다.
-    ///     확인 다이얼로그 뒤에만. 다이얼로그 제목이 되읽어 준 바로 그 값이다(`ConfirmingPreset`) —
+    ///   - onConfirmMeeting: 「약속 시간 정하기」 — 시트에서 고른 **약속 시각**(ISO-8601)을 넘긴다.
+    ///     시트의 확정 버튼 뒤에만. 버튼이 되읽어 준 바로 그 값이다(`meetingConfirmButtonText`) —
     ///     동의한 값과 보내는 값이 같아야 한다(`MatchWaitingViewModel.confirmMeeting`).
     ///     **만남 장소는 넘기지 않는다.** 서버는 좌표·이름까지 받지만(`2732cc75`) 이 화면은 그걸 고르는
     ///     UI 가 없고, 뷰모델이 **방의 지금 출발지를 그대로** 싣는다. 화면이 좌표를 들고 다니면
@@ -304,27 +301,19 @@ public struct MatchWaitingScreen: View {
         // 확인 다이얼로그는 화면 전체를 덮는 오버레이다(`MoyeotaConfirmDialog` 주석). 다이얼로그가 떠 있는 동안
         // 시스템 뒤로가기는 다이얼로그만 닫는다 — 그 가로채기는 다이얼로그가 스스로 건다(원본 `onDismissRequest` 의 뒤로가기).
         .overlay {
-            // 「약속 시간 정하기」 확인 — **되돌릴 수 없는 전이**라 반드시 한 번 묻는다.
-            //
-            // 되돌릴 수 없는 것이 **둘**이다: 모집이 끝나고(참여가 막힌다) · 시간을 바꿀 수 없다
-            // (409 ALREADY_CONFIRMED). 셋째였던 「아무도 나갈 수 없게 된다」는 **지웠다** — 서버가 그 규칙을
-            // 버렸다(`b16551b7`). 사용자를 묶는 것은 이제 **도착**이고, 그 말은 도착 버튼 앞에 있다
-            // (`ARRIVE_LOCKS_IN_NOTICE`).
-            //
-            // 제목이 고른 **시각을 숫자로 되읽어 준다.** 칩에는 「10분」만 적혀 있어서, 그게 몇 시인지
-            // 확인할 기회가 여기 한 번뿐이다. 그래서 **여기 적힌 시각이 그대로 서버로 간다** —
-            // 칩을 누른 순간 만든 값(`ConfirmingPreset.departureAt`)을 제목도 요청도 함께 쓴다.
-            if let preset = confirmingPreset {
-                MoyeotaConfirmDialog(
-                    title: meetingConfirmTitle(timeLabel: meetingTimeLabel(departureAt: preset.departureAt)),
-                    confirmText: "약속 정하기",
-                    onConfirm: {
-                        confirmingPreset = nil
-                        onConfirmMeeting(preset.departureAt)
+            // 「약속 시간 정하기」 시트 — **되돌릴 수 없는 전이**라 확인을 겸한다. 무엇이 바뀌는지
+            // (`MEETING_CONFIRM_DIALOG_BODY`)를 휠 위에 적고, 버튼이 고른 시각을 그대로 되읽는다(「오후 2:05에 만나기」).
+            // **버튼에 적힌 시각이 그대로 서버로 간다.**
+            if meetingSheetOpen && meetingStage(ride: ride, now: now) == .confirmByMe {
+                MeetingTimeSheet(
+                    now: now,
+                    picked: pickedMeetingAt,
+                    onPick: { pickedMeetingAt = $0 },
+                    onConfirm: { at in
+                        meetingSheetOpen = false
+                        onConfirmMeeting(meetingTimeIso(at))
                     },
-                    onDismiss: { confirmingPreset = nil },
-                    body: MEETING_CONFIRM_DIALOG_BODY,
-                    dismissText: "아직이요"
+                    onDismiss: { meetingSheetOpen = false }
                 )
             }
 
@@ -380,17 +369,17 @@ public struct MatchWaitingScreen: View {
         .onDisappear {
             cancelConfirming = false
             departConfirming = false
-            confirmingPreset = nil
+            meetingSheetOpen = false
         }
     }
 
     /// 약속 흐름의 두 단계는 푸터가 더 길다. **추정치여도 되는 값**이라(`MapSheetDefaults` 주석: 어긋나면
     /// 펼침에서 남는 지도 높이만 달라진다) 블록 높이를 눈대중으로 더한다.
-    /// 그래도 더해 주는 이유: 접힘 상태에서 프리셋 칩이나 권한 안내가 잘리면 **접힌 화면에서
+    /// 그래도 더해 주는 이유: 접힘 상태에서 「약속 시간 정하기」나 권한 안내가 잘리면 **접힌 화면에서
     /// 아무것도 할 수 없다** — 접힘은 「지도를 넓게 보는 상태」일 뿐이어야 한다.
     private func collapsedSheetHeight(stage: MeetingStage) -> CGFloat {
-        // 「몇 분 뒤에 만날까요?」 + 칩 한 줄 + 1시간 한도 안내
-        if stage == .confirmByMe { return 288 }
+        // 약속 안내 세 줄 + 「약속 시간 정하기」 버튼(휠은 시트로 연다)
+        if stage == .confirmByMe { return 260 }
         // 권한 안내 배너 + 「위치 권한 허용」 버튼이 도착 버튼 자리를 둘로 늘린다.
         // 거기에 「도착을 알리면 나갈 수 없어요」 두 줄이 더 붙는다(`ARRIVE_LOCKS_IN_NOTICE`).
         if stage == .arriveOpen && !locationGranted { return 304 }
@@ -684,19 +673,19 @@ public struct MatchWaitingScreen: View {
     @ViewBuilder
     private func meetingBlock(stage: MeetingStage, meetingTimePassed: Bool) -> some View {
         switch stage {
-        // 방장: 「몇 분 뒤에 만날까요?」 + 프리셋 칩. 자유 입력을 두지 않는 근거는
-        // MEETING_PRESET_MINUTES 주석 — 서버가 5분 ~ 1시간만 받아서, 못 고르게 하는 UI 가 낫다.
+        // 방장: 「약속 시간 정하기」 → 시각 휠 시트(`MeetingTimeSheet`). 휠은 키가 커서 늘 보이는 이
+        // 하단 영역에 두면 시트가 화면을 넘는다 — 버튼 하나만 두고 휠은 시트로 연다.
         case .confirmByMe:
-            MeetingPresetBlock(
-                enabled: !actionInProgress,
-                selectedMinutes: confirmingPreset?.minutes,
-                onPick: { minutes in
-                    confirmingPreset = ConfirmingPreset(
-                        minutes: minutes,
-                        departureAt: meetingPresetIso(now: now, minutes: minutes)
-                    )
-                }
-            )
+            VStack(alignment: .leading, spacing: MoyeotaSpacing.Xxs) {
+                Text(MEETING_CONFIRM_HELP)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                // 보내는 중에는 진행을 적는다 — 흐려지기만 하면 왜 안 눌리는지 알 수 없다.
+                PrimaryCtaButton(
+                    text: actionInProgress ? "약속 시간을 정하는 중…" : "약속 시간 정하기",
+                    onClick: { meetingSheetOpen = true },
+                    enabled: !actionInProgress
+                )
+            }
             .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             Spacer().frame(height: MoyeotaSpacing.Xs)
         // 비방장: **비활성 버튼을 두지 않는다.** 누를 수 없는 버튼은 왜 못 누르는지
@@ -803,55 +792,73 @@ public struct MatchWaitingScreen: View {
     }
 }
 
-/// 「몇 분 뒤에 만날까요?」 + 프리셋 칩 — **방장에게만** 보이는 약속 확정 블록.
+/// 「몇 시에 만날까요?」 시트 — **방장에게만** 열리는 약속 확정 시트. 확인 다이얼로그를 겸한다.
 ///
-/// 칩에는 숫자만 적고(「10분」) 단위는 위의 물음이 말한다 — 393dp 폭에서 「10분 뒤」 다섯 개는 줄을
-/// 넘긴다. 몇 시가 되는지는 **확인 다이얼로그가 되읽어 준다**(`meetingConfirmTitle`).
+/// 휠 한 줄이 곧 약속 시각(「오후 2:05」)이다. 시·분 휠 두 개로 나누지 않은 이유: 고를 수 있는 범위가 1시간뿐이라
+/// 열 칸 남짓이면 다 들어가고, 자정을 넘는 범위(23:30 → 00:30)에서 시·분을 따로 굴리면 고를 수 없는 조합이 생긴다.
+/// 휠에는 서버가 받는 시각만 있다(`meetingTimeOptions`).
 ///
-/// 누르면 바로 보내지 않고 `onPick` 으로 확인 다이얼로그를 띄운다 — 확정은 **한 번만** 할 수 있고
-/// (409 `ALREADY_CONFIRMED`) 모집을 끝낸다. 누른 칩이 `selectedMinutes` 로 돌아와 선택 상태로
-/// 남으므로 다이얼로그 뒤에서 **무엇을 눌렀는지** 보인다.
+/// 확정은 **한 번만** 할 수 있고(409 `ALREADY_CONFIRMED`) 모집을 끝낸다 — 그래서 무엇이 바뀌는지를 휠 위에 적고,
+/// 버튼이 고른 시각을 되읽는다. 버튼에 적힌 시각이 곧 보내는 값이다.
 ///
-/// 「그 순간부터 아무도 방을 나갈 수 없다」는 **지웠다** — 서버가 그 규칙을 버렸다(`b16551b7`).
+/// 시계(`now`)가 도는 동안 가장 이른 시각이 목록에서 빠지면 휠은 남은 것 중 가장 이른 시각으로 옮겨 간다
+/// (`meetingSelectedTime`) — 빠진 값을 들고 확정하지 않는다.
 ///
-/// `MoyeotaChip` 을 쓰는 이유: 16 매칭 조건 칩과 **같은 종류의 선택**이고, 전용 버튼을 새로 만들면
-/// 같은 일을 하는 두 번째 칩 모양이 생긴다(디자인 시스템 규칙: 2개 이상 화면에서 쓰이는 것만 승격).
-private struct MeetingPresetBlock: View {
-    let enabled: Bool
-    let selectedMinutes: Int?
-    let onPick: (Int) -> Void
+/// 모양은 24 채팅의 메시지 동작 시트(아래에 붙은 카드 + 뒤 어둡게)를 따랐다 — 디자인 시스템에 시트 컴포넌트가 없다.
+private struct MeetingTimeSheet: View {
+    let now: Date
+    let picked: Date?
+    let onPick: (Date) -> Void
+    let onConfirm: (Date) -> Void
+    let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 보내는 중에는 물음 대신 진행을 적는다 — 칩이 흐려지기만 하면 왜 안 눌리는지 알 수 없다.
-            // 중복 제출은 `runAction` 이 이미 막으므로, 여기서는 **그 사실을 보여 주기만** 한다.
-            Text(enabled ? MEETING_PRESET_PROMPT : "약속 시간을 정하는 중…")
-                .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-            Spacer().frame(height: MoyeotaSpacing.Xxs)
-            Text(MEETING_CONFIRM_HELP)
-                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
-            Spacer().frame(height: MoyeotaSpacing.Xxs)
-            // 칩을 **자기 폭대로** 두고 줄을 가로 스크롤로 만든다. 다섯 칸을 균등 분할하면 기본
-            // 글자 크기에서는 들어맞지만(칩당 ≈67pt), 글자 크기를 키운 기기에서 그만큼 커져
-            // 「10분」이 두 줄로 접히거나 잘린다 — 접근성 설정 하나로 깨지는 레이아웃이다.
-            // 자기 폭이면 기본에서는 스크롤이 생기지 않고, 커졌을 때만 밀린다.
-            // 칩 사이 8 — 칩은 보이는 높이 36 에 터치 48 이라(공용 칩) 위아래 여백은 칩이 이미 갖는다.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: MoyeotaSpacing.Xs) {
-                    ForEach(MEETING_PRESET_MINUTES, id: \.self) { minutes in
-                        MoyeotaChip(
-                            text: "\(minutes)분",
-                            selected: selectedMinutes == minutes,
-                            onClick: { if enabled { onPick(minutes) } },
-                            enabled: enabled
+        let options = meetingTimeOptions(now: now)
+        if let selected = meetingSelectedTime(options: options, picked: picked) {
+            ZStack(alignment: .bottom) {
+                MoyeotaColor.Scrim
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onDismiss)
+                // 시트 안을 눌러도 닫히지 않는다 — 카드의 배경이 터치를 받아 뒤의 Scrim 까지 닿지 않는다
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(MEETING_TIME_PROMPT)
+                        .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    Spacer().frame(height: MoyeotaSpacing.Xxs)
+                    Text(MEETING_CONFIRM_DIALOG_BODY)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextBody)
+                    Spacer().frame(height: MoyeotaSpacing.Sm)
+                    WheelPickerFrame {
+                        SnapWheelPicker(
+                            items: options.map { meetingTimeLabel(departureAt: meetingTimeIso($0)) ?? "" },
+                            selectedIndex: options.firstIndex(of: selected) ?? 0,
+                            onSelectedIndexChange: { index in
+                                if options.indices.contains(index) { onPick(options[index]) }
+                            },
+                            label: "약속 시각"
                         )
                     }
+                    Text(meetingMinutesFromNowLabel(now: now, at: selected))
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextBody)
+                        .frame(maxWidth: .infinity)
+                    Spacer().frame(height: MoyeotaSpacing.Xxs)
+                    Text(MEETING_TIME_LIMIT_NOTE)
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                    Spacer().frame(height: MoyeotaSpacing.Sm)
+                    PrimaryCtaButton(
+                        text: meetingConfirmButtonText(timeLabel: meetingTimeLabel(departureAt: meetingTimeIso(selected))),
+                        onClick: { onConfirm(selected) }
+                    )
+                    Spacer().frame(height: MoyeotaSpacing.Xxs)
+                    SecondaryButton(text: "아직이요", onClick: onDismiss)
                 }
+                .padding(MoyeotaSpacing.Md)
+                .background(MoyeotaColor.SurfaceCanvas)
+                .clipShape(MoyeotaShape.Dialog)
+                .modalShadow(MoyeotaShape.Dialog)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                .padding(.vertical, MoyeotaSpacing.Lg)
             }
-            Text(MEETING_PRESET_LIMIT_NOTE)
-                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
