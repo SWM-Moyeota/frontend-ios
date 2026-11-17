@@ -179,41 +179,74 @@ public struct HorizontalDivider: View {
     }
 }
 
-// 상단 앱바: 뒤로가기 + 타이틀 (+우측 액션)
+/// 하위 화면의 상단 앱바 — 뒤로가기 + **가운데 제목** (+ 오른쪽 행동). 디자인 문서 top-app-bar(56, heading-lg).
+///
+/// 15·16·20·21·22·채팅방이 저마다 왼쪽 정렬 18 Bold 머리줄을 손으로 그리던 것을 이 하나로 모은다
+/// (디자인 QA G7). 탭 첫 화면(채팅 목록·마이페이지·탐색)은 이게 아니라 `MoyeotaTabHeader` 를 쓴다.
+///
+/// - 제목은 한 줄, 넘치면 말줄임. 좌우로 `titleInset` 만큼 비워 아이콘과 겹치지 않는다 — 오른쪽 행동이
+///   48 아이콘 둘이면(채팅방) 호출부가 104 를 넘긴다
+/// - `subtitle` 은 제목 아래 한 줄(채팅방의 「3명 참여 중」)
+/// - 뒤로가기는 48 아이콘 버튼 — 24 화살표의 왼쪽 끝이 16 화면 여백에 맞도록 4 만 띄운다
 public struct MoyeotaTopBar<Actions: View>: View {
     private let title: String
     private let onBack: (() -> Void)?
+    private let subtitle: String?
+    private let titleInset: CGFloat
+    private let actionsEndPadding: CGFloat
     private let actions: Actions
 
     public init(
         title: String,
         onBack: (() -> Void)? = nil,
+        subtitle: String? = nil,
+        titleInset: CGFloat = 56,
+        actionsEndPadding: CGFloat = 16,
         @ViewBuilder actions: () -> Actions
     ) {
         self.title = title
         self.onBack = onBack
+        self.subtitle = subtitle
+        self.titleInset = titleInset
+        self.actionsEndPadding = actionsEndPadding
         self.actions = actions()
     }
 
     public var body: some View {
         ZStack {
             if let onBack {
-                // 머티리얼 `IconButton` 의 레이아웃 크기는 최소 터치 영역인 48dp 다.
+                // 머티리얼 `IconButton` 의 레이아웃 크기는 최소 터치 영역인 48 이다.
                 Button(action: onBack) {
                     BackArrowIcon()
                         .frame(width: 48, height: 48)
                         .contentShape(Circle())
                 }
                 .buttonStyle(PressFeedbackStyle())
-                .padding(.leading, 8)
+                .accessibilityLabel("뒤로 가기")
+                .padding(.leading, 4)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            Text(title)
-                .moyeotaText(.HeadingMd, color: LocalContentColorDefault)
+            if !title.isEmpty || subtitle != nil {
+                VStack(spacing: 0) {
+                    Text(title)
+                        .moyeotaText(MoyeotaType.HeadingLg.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let subtitle {
+                        Text(subtitle)
+                            .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .padding(.horizontal, titleInset)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isHeader)
+            }
             HStack(spacing: 0) {
                 actions
             }
-            .padding(.trailing, 16)
+            .padding(.trailing, actionsEndPadding)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .frame(maxWidth: .infinity)
@@ -222,35 +255,92 @@ public struct MoyeotaTopBar<Actions: View>: View {
 }
 
 public extension MoyeotaTopBar where Actions == EmptyView {
-    init(title: String, onBack: (() -> Void)? = nil) {
-        self.init(title: title, onBack: onBack) { EmptyView() }
+    init(
+        title: String,
+        onBack: (() -> Void)? = nil,
+        subtitle: String? = nil,
+        titleInset: CGFloat = 56,
+        actionsEndPadding: CGFloat = 16
+    ) {
+        self.init(
+            title: title,
+            onBack: onBack,
+            subtitle: subtitle,
+            titleInset: titleInset,
+            actionsEndPadding: actionsEndPadding
+        ) { EmptyView() }
     }
 }
 
-// 아이콘 라이브러리 없이 그리는 뒤로가기 화살표
-public struct BackArrowIcon: View {
-    private let size: CGFloat
+/// 탭 첫 화면(동승 · 채팅 · 마이페이지)의 머리줄 — 왼쪽 정렬 큰 제목 + (있으면) 오른쪽 행동.
+///
+/// 하위 화면의 `MoyeotaTopBar` 와 일부러 다르다: 탭 첫 화면에는 뒤로 갈 곳이 없고, 큰 제목이 "지금 어느
+/// 탭인가"를 말한다. 예전엔 세 탭의 제목이 18·20, 왼쪽 여백 16·24 로 제각각이었다(디자인 QA G7).
+public struct MoyeotaTabHeader<Trailing: View>: View {
+    private let title: String
+    private let hasTrailing: Bool
+    private let trailing: Trailing
 
-    /// - Parameter size: 원본 `BackArrowIcon(Modifier.size(22.dp))` 처럼 크기를 키우는 자리. 선 굵기는 그대로다.
-    public init(size: CGFloat = 20) {
-        self.size = size
+    public init(title: String, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.hasTrailing = true
+        self.trailing = trailing()
     }
 
     public var body: some View {
+        HStack(spacing: 0) {
+            Text(title)
+                .moyeotaText(MoyeotaType.HeadingXl.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            if hasTrailing { trailing }
+        }
+        .padding(.leading, MoyeotaSpacing.ScreenGutter)
+        .padding(.trailing, hasTrailing ? 4 : MoyeotaSpacing.ScreenGutter)
+        .frame(maxWidth: .infinity)
+        .frame(height: 52)
+    }
+}
+
+public extension MoyeotaTabHeader where Trailing == EmptyView {
+    init(title: String) {
+        self.title = title
+        self.hasTrailing = false
+        self.trailing = EmptyView()
+    }
+}
+
+/// 아이콘 라이브러리 없이 그리는 뒤로가기 화살표 — 24, 선 굵기 1.75(디자인 문서의 24px 아이콘 · `Icons` 와 같은 값).
+/// VoiceOver 이름은 감싸는 버튼이 준다.
+public struct BackArrowIcon: View {
+    private let size: CGFloat
+    private let tint: Color
+
+    /// - Parameter size: 원본 `BackArrowIcon(Modifier.size(22.dp))` 처럼 크기를 바꾸는 자리. 선 굵기도 같은 비율로 준다.
+    public init(size: CGFloat = 24, tint: Color = MoyeotaColor.InkPrimary) {
+        self.size = size
+        self.tint = tint
+    }
+
+    public var body: some View {
+        let tint = tint
         Canvas { context, size in
-            let cx = size.width
+            let w = size.width
             let cy = size.height / 2
+            // 24 격자: 몸통 5→19, 화살촉은 가운데에서 ±7
             var path = Path()
-            path.move(to: CGPoint(x: cx * 0.15, y: cy))
-            path.addLine(to: CGPoint(x: cx * 0.9, y: cy))
-            path.move(to: CGPoint(x: cx * 0.15, y: cy))
-            path.addLine(to: CGPoint(x: cx * 0.5, y: cy * 0.35))
-            path.move(to: CGPoint(x: cx * 0.15, y: cy))
-            path.addLine(to: CGPoint(x: cx * 0.5, y: cy * 1.65))
+            path.move(to: CGPoint(x: w * 0.21, y: cy))
+            path.addLine(to: CGPoint(x: w * 0.79, y: cy))
+            path.move(to: CGPoint(x: w * 0.21, y: cy))
+            path.addLine(to: CGPoint(x: w * 0.50, y: cy - w * 0.29))
+            path.move(to: CGPoint(x: w * 0.21, y: cy))
+            path.addLine(to: CGPoint(x: w * 0.50, y: cy + w * 0.29))
             context.stroke(
                 path,
-                with: .color(MoyeotaColor.InkPrimary),
-                style: StrokeStyle(lineWidth: 2, lineCap: .round)
+                with: .color(tint),
+                style: StrokeStyle(lineWidth: IconStrokeWidth * (w / 24), lineCap: .round)
             )
         }
         .frame(width: size, height: size)
@@ -297,8 +387,9 @@ public struct MoyeotaBottomBar: View {
                     } label: {
                         VStack(spacing: 2) {
                             TabIcon(tab: tab, tint: color)
+                            // 디자인 문서 bottom-nav 는 caption-md(12/500) — 11 은 배지 전용이다(G3)
                             Text(tab.label)
-                                .moyeotaText(.CaptionSm, color: color)
+                                .moyeotaText(.CaptionMd, color: color)
                                 .fixedSize()
                         }
                         .padding(.horizontal, 16)
@@ -402,8 +493,8 @@ private func drawTaxiIcon(_ context: GraphicsContext, _ size: CGSize, _ tint: Co
     context.stroke(circlePath(radius: w * 0.075, center: CGPoint(x: w * 0.71, y: h * 0.80)), with: .color(tint), style: stroke)
 }
 
-// 채팅 — 꼬리 달린 말풍선 (모서리 라운드까지 한 붓으로)
-private func drawChatIcon(_ context: GraphicsContext, _ size: CGSize, _ tint: Color, _ stroke: StrokeStyle) {
+// 채팅 — 꼬리 달린 말풍선 (모서리 라운드까지 한 붓으로). `ChatBubbleIcon` 도 이 모양을 그린다.
+func drawChatIcon(_ context: GraphicsContext, _ size: CGSize, _ tint: Color, _ stroke: StrokeStyle) {
     let w = size.width
     let h = size.height
     let l = w * 0.10

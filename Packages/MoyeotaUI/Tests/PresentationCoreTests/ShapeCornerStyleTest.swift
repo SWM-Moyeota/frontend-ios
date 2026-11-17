@@ -47,6 +47,8 @@ import Testing
                 #expect(!text.contains(".cornerRadius("), "\(file.lastPathComponent)")
             }
         }
-        #expect(seen > 100, "도형을 하나도 못 찾으면 이 검사는 뜻이 없다")
+        // 디자인 다듬기(2026-11, G3) 뒤로 화면은 도형을 직접 만들지 않고 `MoyeotaShape` 토큰을 쓴다 — 직접 만드는 자리는
+        // 토큰 정의와 몇 안 되는 특수 모양(30여 곳)만 남아 하한을 그만큼 낮췄다.
+        #expect(seen > 20, "도형을 하나도 못 찾으면 이 검사는 뜻이 없다")
     }
 }

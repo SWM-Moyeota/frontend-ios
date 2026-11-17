@@ -699,22 +699,26 @@ struct PhoneVerificationBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // 이 블록의 글자 링크(「번호 변경」·「로그인하러 가기」·「다시 받기」)는 전부 `TextLinkButton` 이다 —
+            // 글자 크기 그대로(≈16) 눌리고 눌림 표시도 없던 자리를 48 터치 + 눌림 표시로 넓혔다(디자인 QA G12).
+            // 링크의 안쪽 여백(8)만큼 바깥으로 밀어 글자 끝을 입력칸 가장자리에 맞춘다.
             if state.stage == .verified {
-                Spacer().frame(height: 10)
                 HStack(alignment: .center, spacing: 0) {
+                    // Success500(흰 바탕 2.5:1)은 12pt 에서 흐리다 — 한 단계 진한 Success600
                     Text("휴대폰 인증 완료")
-                        .moyeotaText(BoldCaption, color: MoyeotaColor.Success500)
+                        .moyeotaText(.ButtonSm, color: MoyeotaColor.Success600)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     // 번호를 고치려면 인증을 버려야 한다(서버가 토큰을 번호에 묶는다) — 실수로 고쳐지는 대신
                     // 명시적으로 누르게 하고, 누르면 1단계로 되돌아간다.
-                    captionAction("번호 변경", action: onPhoneEditRequested)
+                    TextLinkButton(text: "번호 변경", onClick: onPhoneEditRequested, style: .ButtonSm)
+                        .offset(x: 8)
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 if state.alreadyRegistered {
                     // 문구는 번호 입력란 아래(errorText)에 이미 떠 있다 — 여기서는 갈 길만 준다.
-                    Spacer().frame(height: 10)
-                    captionAction("로그인하러 가기", action: onGoToLogin)
+                    TextLinkButton(text: "로그인하러 가기", onClick: onGoToLogin, style: .ButtonSm)
+                        .offset(x: -8)
                 }
 
                 let canRequest = state.canRequestCode(phoneDigits: phoneDigits, nowMillis: nowMillis)
@@ -751,38 +755,30 @@ struct PhoneVerificationBlock: View {
 
         // 「남은 시간 2:43」 + 「다시 받기」 — 07 인증 코드 화면이 쓰던 배치 그대로다.
         // 버튼 두 개를 나란히 두지 않은 이유: 반쪽 너비에 "인증번호 다시 받기"가 들어가지 않는다.
-        Spacer().frame(height: 10)
         HStack(alignment: .center, spacing: 0) {
-            // 만료되면 남은 시간 대신 입력칸 아래 오류 문구가 상황을 말한다
+            // 만료되면 남은 시간 대신 입력칸 아래 오류 문구가 상황을 말한다.
+            // 초가 바뀔 때마다 글자 폭이 흔들리지 않게 숫자 폭을 고정한다
             Text(codeRemaining > 0 ? "남은 시간 \(formatRemainingSeconds(totalSeconds: codeRemaining))" : "")
-                .moyeotaText(BoldCaption, color: MoyeotaColor.Waiting600)
+                .moyeotaText(MoyeotaType.ButtonSm.tabularNums(), color: MoyeotaColor.Waiting600)
             Spacer(minLength: 0)
-            if canRequest {
-                captionAction(state.requestButtonLabel(nowMillis: nowMillis), action: onRequestCode)
-            } else {
-                Text(state.requestButtonLabel(nowMillis: nowMillis))
-                    .moyeotaText(BoldCaption, color: MoyeotaColor.TextAsh)
-            }
+            // 못 누를 때는 흐린 글자(TextPlaceholder)로 남는다 — 쿨다운 중이라는 뜻
+            TextLinkButton(
+                text: state.requestButtonLabel(nowMillis: nowMillis),
+                onClick: onRequestCode,
+                style: .ButtonSm,
+                enabled: canRequest
+            )
+            .offset(x: 8)
         }
         .frame(maxWidth: .infinity)
 
         // 6자리를 채우면 자동으로 확인하므로, 이 버튼은 **네트워크 실패처럼 같은 입력으로 다시
         // 눌러야 하는** 경우를 위해 남겨 둔다.
-        Spacer().frame(height: 12)
+        Spacer().frame(height: 4)
         SecondaryButton(
             text: state.verifying ? "확인 중…" : "확인",
             onClick: onSubmitCode,
             enabled: state.canSubmitCode(nowMillis: nowMillis)
         )
     }
-
-    private func captionAction(_ text: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(text)
-                .moyeotaText(BoldCaption, color: MoyeotaColor.Primary500)
-        }
-        .buttonStyle(NoIndicationButtonStyle())
-    }
 }
-
-private let BoldCaption = MoyeotaType.CaptionMd.copy(fontWeight: .bold)

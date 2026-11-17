@@ -6,81 +6,9 @@ import UIKit
 @testable import FeatureChat
 
 // 원본에 없는 테스트. 원본 렌더(UI 트리·스크린샷)에서 잰 값과 관찰한 동작을 지킨다.
-
-@Suite struct BodyLargeLineHeightTest {
-
-    @Test("줄 상자는 16 이하에서 24 이고 그 위로는 원본 UI 트리의 높이를 따른다", arguments: [
-        (CGFloat(11), CGFloat(24)), (12, 24), (13, 24), (14, 24), (15, 24),
-        (17, 24.4), (18, 26.2), (20, 28.5), (26, 37.5),
-    ])
-    func matchesAndroidLineBox(fontSize: CGFloat, androidHeight: CGFloat) {
-        let height = bodyLargeText(fontSize, .bold).lineHeightPoints ?? 0
-        #expect(abs(height - androidHeight) < 0.5, "\(fontSize)sp: \(height) 대 \(androidHeight)")
-    }
-}
-
-@Suite struct BodyLargeInkTest {
-
-    @Test("16 이하는 잉크를 내리지 않고, 줄 상자가 24 를 넘는 크기부터 글자 크기 × 0.06 내린다", arguments: [
-        (CGFloat(12), CGFloat(0)), (14, 0), (15, 0), (17, 1.02), (18, 1.08), (20, 1.2), (26, 1.56),
-    ])
-    func dropsInkLikeAndroid(fontSize: CGFloat, drop: CGFloat) {
-        #expect(abs(bodyLargeText(fontSize, .bold).inkDrop - drop) < 0.01)
-    }
-
-    @Test("잉크를 내려도 줄 상자 높이는 그대로다")
-    func boxUnchanged() {
-        let type = bodyLargeText(26, .bold)
-        let box = type.uiFont.lineHeight + type.edgePadding * 2
-        #expect(abs(box - 37.44) < 0.01)
-    }
-
-    @Test("24 나가기·신고 시트 제목과 본문은 원본 토큰의 한글 상자를 쓴다")
-    func dialogTokensAreTrimmed() {
-        #expect(ChatDialogTitleType.trimsToHangulLineBox)
-        #expect(ChatDialogTitleType.fontSize == 16)
-        #expect(ChatDialogTitleType.fontWeight == .semibold)
-    }
-}
-
-/// 폭은 양쪽 다 잉크 폭이다. 원본은 렌더 스크린샷에서 쟀고, 여기서는 글리프 윤곽으로 잰다.
-@Suite struct BodyLargeWidthTest {
-
-    private func width(_ text: String, _ type: MoyeotaType) -> CGFloat {
-        let string = NSAttributedString(string: text, attributes: [.font: type.uiFont, .kern: type.letterSpacing])
-        return CTLineGetBoundsWithOptions(CTLineCreateWithAttributedString(string), .useGlyphPathBounds).width
-    }
-
-    @Test("말풍선 밖 글자 폭도 원본 렌더의 폭과 1.5pt 안쪽으로 맞는다", arguments: [
-        ("역삼직장인 · 선릉출근러", CGFloat(18), Font.Weight.bold, CGFloat(182.1)),
-        ("112와 실제로 통화하셨나요?", 18, .bold, 218.7),
-        ("역삼직장인 · 선릉출근러", 14, .bold, 140.6),
-        ("신고하면 현재 위치와 운행 정보가 운영팀에 전달되고,", 14, .regular, 313.1),
-        ("실제 통화 여부는 운영팀 대응에 사용돼요", 13, .regular, 225.1),
-        ("네 챙겼어요! 차가 많이 막힐까요", 12, .medium, 167.2),
-        ("3초를 채우면 즉시 112 통화 화면이 열려요", 12, .medium, 222.5),
-    ])
-    func matchesAndroidRender(text: String, fontSize: CGFloat, weight: Font.Weight, androidWidth: CGFloat) {
-        let measured = width(text, bodyLargeText(fontSize, weight))
-        #expect(abs(measured - androidWidth) < 1.5, "\(text): \(measured) 대 \(androidWidth)")
-    }
-
-    @Test("24 나가기 확인 제목 폭이 원본과 맞는다")
-    func dialogTitle() {
-        let measured = width("채팅방을 나갈까요?", ChatDialogTitleType)
-        #expect(abs(measured - 128.8) < 1.5, "\(measured)")
-    }
-
-    @Test("11 은 자간을 더하지 않는다(시각·날짜의 SF 숫자가 이미 넓다)")
-    func timesStayAtBase() {
-        #expect(bodyLargeText(11, .medium).letterSpacing == 0.5)
-    }
-
-    @Test("말풍선은 표의 14 값을 쓴다")
-    func bubbleUsesTable() {
-        #expect(abs(BubbleTextType.letterSpacing - 0.8) < 0.001)
-    }
-}
+//
+// 디자인 다듬기(2026-11)로 이 화면의 글자가 모두 토큰(`MoyeotaType`)이 되어, 예전 원본 렌더에서 잰 `bodyLargeText`
+// (머티리얼 bodyLarge 상속 + 한글 자간 보정)의 줄 상자·잉크·폭 시험은 걷었다. 다듬은 원본은 아직 렌더해 재지 않았다.
 
 @Suite struct CharacterWrapTest {
 
@@ -105,27 +33,37 @@ import UIKit
         #expect(wrap == SoftWrappedText(text: "네 반갑습니다 :)", wrapped: false))
     }
 
+    /// 원본 `Text` 처럼 줄 끝까지 채운다 — 첫 줄은 폭 안에 들고, 다음 줄의 첫 덩이(사이 공백 포함)까지 붙이면 넘친다.
+    /// 덩이는 꺾을 수 없는 글자 묶음이다(「요?」는 문장부호 앞에서 꺾지 않아 함께 넘어간다).
+    /// 예전엔 원본 렌더의 줄 끝(「…챙기셨어 / 요?」)을 그대로 못 박았는데, 다듬기로 말풍선 글자가 `BodyMd` 가 되어 그 값이 맞지 않는다.
     @Test("줄 끝까지 채우고 마지막 한 글자도 다음 줄로 넘긴다", arguments: [
-        ("오늘 비 온다고 하던데 우산 챙기셨어요?", "오늘 비 온다고 하던데 우산 챙기셨어\n요?"),
-        ("저도 곧 도착해요. 5분이면 될 것 같아요", "저도 곧 도착해요. 5분이면 될 것 같아\n요"),
+        "오늘 비 온다고 하던데 우산 챙기셨어요? 저는 깜빡하고 그냥 나왔어요",
+        "저도 곧 도착해요. 5분이면 될 것 같아요 조금만 기다려 주세요",
     ])
-    func wrapsLikeAndroidRender(text: String, expected: String) {
+    func fillsLineGreedily(text: String) {
         let wrap = BubbleTextType.softWrappedLines(text, width: BubbleTextMaxWidth)
-        #expect(wrap == SoftWrappedText(text: expected, wrapped: true))
+        #expect(wrap.wrapped)
+        let firstLine = wrap.text.components(separatedBy: "\n")[0]
+        #expect(text.hasPrefix(firstLine))
+        let rest = text.dropFirst(firstLine.count)
+        let spaces = rest.prefix(while: { $0 == " " })
+        let next = String(rest.dropFirst(spaces.count)).characterWrapped.prefix { $0 != "\u{200B}" && $0 != " " }
+        #expect(!next.isEmpty, "둘째 줄이 없다: \(wrap.text)")
+        #expect(typographicWidth(firstLine) <= BubbleTextMaxWidth, "\(firstLine)")
+        #expect(typographicWidth(firstLine + spaces + next) > BubbleTextMaxWidth, "\(firstLine) + \(next)")
     }
 
-    @Test("말풍선 글자 폭은 원본 UI 트리의 폭과 2pt 안쪽으로 맞는다", arguments: [
-        ("네 챙겼어요! 차가 많이 막힐까요", CGFloat(190.5)),
-        ("좋아요, 스타벅스 앞으로 갈게요", 186.3),
-        ("스타벅스 앞에서 모일까요?", 158.9),
-        ("저는 강남역 11번 출구 쪽에 있어요", 205.7),
-    ])
-    func widthMatchesAndroidTree(text: String, androidWidth: CGFloat) {
-        let width = NSAttributedString(
+    @Test("말풍선은 디자인 문서 chat-bubble 의 BodyMd 토큰을 쓴다")
+    func bubbleUsesBodyMd() {
+        #expect(BubbleTextType == MoyeotaType.BodyMd.hangulTrimmed)
+    }
+
+    private func typographicWidth(_ text: String) -> CGFloat {
+        let string = NSAttributedString(
             string: text,
             attributes: [.font: BubbleTextType.uiFont, .kern: BubbleTextType.letterSpacing]
-        ).size().width
-        #expect(abs(width - androidWidth) < 2, "\(text): \(width) 대 \(androidWidth)")
+        )
+        return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(string), nil, nil, nil))
     }
 
     @Test("글 안의 줄바꿈은 꺾인 줄로 세지 않는다")

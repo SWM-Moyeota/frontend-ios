@@ -1,13 +1,15 @@
 import Foundation
+import MoyeotaDesignSystem
 import MoyeotaDomain
 import Testing
 @testable import PresentationCore
 
-/// 예약 방 규칙 중 **PresentationCore 로 옮겨 온 몫** — 7일 창·한국 달력 날짜·날짜와 시각 문구·나갈 수
-/// 없다는 안내.
+/// 예약 방 규칙 중 **PresentationCore 로 옮겨 온 몫** — 7일 창·한국 달력 날짜·날짜 띠의 칸과 달 표시·날짜와
+/// 시각 문구·나갈 수 없다는 안내.
 ///
-/// 원본 `ReservationRulesTest`(26개) 가운데 옮겨 온 함수만 보는 7개다. 나머지 19개(정원·시각 슬롯·
-/// 보내는 값·실패 문구·요금 없음 안내)는 `FeatureHomeTests/ReservationRulesTest.swift` 에 있다.
+/// 원본 `ReservationRulesTest`(41개) 가운데 옮겨 온 함수만 보는 10개다. 나머지 31개(정원·시각 범위와 휠·
+/// 보내는 값·실패 문구·요금 없음 안내, 그리고 `reservationTimeRange` 로 칸을 막는 「고를 시각이 없는 날」)는
+/// `FeatureHomeTests/ReservationRulesTest.swift` 의 몫이다.
 ///
 /// 이 테스트가 잡는 것은 전부 **화면에서는 안 보이는 결함**이다: KST 자정 직후의 날짜 계산을 기기
 /// 시간대로 셈하면 검색이 하루 밀리는데, 그 자리에는 「그 날 예약이 없어요」가 뜬다.
@@ -63,6 +65,43 @@ import Testing
         #expect(isReservationSearchDate(date: today.plusDays(7), now: now))
         #expect(!isReservationSearchDate(date: today.plusDays(8), now: now), "7일을 넘겼다")
         #expect(!isReservationSearchDate(date: today.minusDays(1), now: now), "어제는 고를 수 없다")
+    }
+
+    // ─────────────────────────── 날짜 띠 ───────────────────────────
+
+    @Test("날짜 칸은 요일과 일을 담고 토요일 파랑 일요일 빨강이다")
+    func dateCellsToneAndText() {
+        let dates = reservationDates(now: now) // 11-09(월) ~ 11-16(월)
+        let cells = reservationDateCells(dates: dates, today: dates[0])
+
+        #expect(cells.count == 8)
+        #expect(cells.map(\.weekday) == ["월", "화", "수", "목", "금", "토", "일", "월"])
+        #expect(cells.map(\.day) == ["9", "10", "11", "12", "13", "14", "15", "16"])
+        #expect(cells[5].tone == .saturday)
+        #expect(cells[6].tone == .sunday)
+        #expect(cells[0].tone == .weekday)
+        #expect(cells.map(\.isToday) == [true] + Array(repeating: false, count: 7), "오늘 점은 첫 칸에만")
+        #expect(cells.allSatisfy { $0.enabled }, "기본은 모든 날을 고를 수 있다(17 날짜로 찾기)")
+    }
+
+    @Test("날짜 칸의 스크린리더 문장은 월과 오늘 내일을 말한다")
+    func dateCellDescriptions() {
+        let dates = reservationDates(now: now)
+        let cells = reservationDateCells(dates: dates, today: dates[0])
+
+        #expect(cells[0].contentDescription == "오늘, 11월 9일 월요일")
+        #expect(cells[1].contentDescription == "내일, 11월 10일 화요일")
+        #expect(cells[5].contentDescription == "11월 14일 토요일")
+    }
+
+    @Test("띠 위의 달 표시는 달을 넘으면 범위로 쓴다")
+    func monthLabelSpansMonths() {
+        #expect(reservationMonthLabel(dates: reservationDates(now: now)) == "11월")
+        let endOfMonth = Date(timeIntervalSince1970: 1_795_752_000) // 2026-11-27T04:00:00Z → 11-27 ~ 12-04
+        #expect(reservationMonthLabel(dates: reservationDates(now: endOfMonth)) == "11–12월")
+        let endOfYear = Date(timeIntervalSince1970: 1_798_430_400) // 2026-12-28T04:00:00Z → 12-28 ~ 01-04
+        #expect(reservationMonthLabel(dates: reservationDates(now: endOfYear)) == "12–1월")
+        #expect(reservationMonthLabel(dates: []) == nil)
     }
 
     // ─────────────────────────── 표기 ───────────────────────────

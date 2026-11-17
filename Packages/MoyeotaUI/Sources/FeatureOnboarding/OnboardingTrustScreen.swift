@@ -28,19 +28,13 @@ public struct OnboardingTrustScreen: View {
         VStack(spacing: 0) {
             StatusBarSpacer()
 
-            // 건너뛰기 (우상단)
+            // 건너뛰기 (우상단) — 48 터치 + 눌림 표시(디자인 QA G12). 링크 안쪽 8 만큼 줄 여백을 줄여
+            // 글자 끝이 16 화면 여백에 선다
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                Button(action: onSkip) {
-                    Text("건너뛰기")
-                        .moyeotaText(MoyeotaType.ButtonMd.hangulTrimmed, color: MoyeotaColor.TextMute)
-                        .padding(8)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PressFeedbackStyle())
+                TextLinkButton(text: "건너뛰기", onClick: onSkip, color: MoyeotaColor.TextMute)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
 
             Spacer().frame(height: 24)
 
@@ -54,10 +48,7 @@ public struct OnboardingTrustScreen: View {
             Text(OnboardingTrustCopy.headline)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.DisplayMd.copy(fontSize: 26, letterSpacing: -0.52).hangulTrimmed,
-                    color: MoyeotaColor.InkPrimary
-                )
+                .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 12)
@@ -65,10 +56,7 @@ public struct OnboardingTrustScreen: View {
             Text(OnboardingTrustCopy.body)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .moyeotaText(
-                    MoyeotaType.BodyMd.copy(lineHeight: .sp(22), letterSpacing: -0.3).hangulTrimmed,
-                    color: MoyeotaColor.TextMute
-                )
+                .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                 .frame(maxWidth: .infinity)
 
             Spacer().frame(height: 32)
@@ -86,22 +74,26 @@ public struct OnboardingTrustScreen: View {
         }
         // 작은 화면에서 넘치면 원본 Column 처럼 위를 고정하고 아래로 넘긴다(기본값이면 위아래로 나뉜다).
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 }
 
-// 일러스트 — 휴대폰 인증을 마친 프로필 카드 (아바타 + 체크 배지 + 이름 자리 바)
+/// 일러스트 — 휴대폰 인증을 마친 프로필 카드 (아바타 + 체크 배지 + 이름 자리 바).
+///
+/// 뒤에 깔던 옅은 파란 판(r24)은 걷었다(디자인 QA A3) — 판 위의 카드는 "상자 속 상자"였다. 이제 카드가 흰
+/// 화면에 바로 서므로 그림자 대신 `MoyeotaColor.Border` 선으로 모양을 낸다(G4). 높이는 그대로라 세 장의
+/// 제목 자리가 같다.
 private struct TrustIllustration: View {
     var body: some View {
         VStack(spacing: 0) {
-            Spacer().frame(height: 86)
+            Spacer().frame(height: 88)
 
             VStack(spacing: 0) {
-                Spacer().frame(height: 18)
+                Spacer().frame(height: 16)
 
                 // 아바타 (사람 실루엣)
                 ZStack {
-                    Circle().fill(Color(argb: 0xFFCBD2DA))
+                    Circle().fill(MoyeotaColor.BorderStrong)
                     PersonGlyph()
                         .frame(width: 24, height: 24)
                 }
@@ -111,8 +103,7 @@ private struct TrustIllustration: View {
                     ZStack {
                         Circle().fill(MoyeotaColor.Primary500)
                         Circle().strokeBorder(MoyeotaColor.SurfaceCanvas, lineWidth: 2)
-                        CheckGlyph(color: MoyeotaColor.TextOnDark)
-                            .frame(width: 10, height: 10)
+                        CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextOnDark)
                     }
                     .frame(width: 20, height: 20)
                     .offset(x: 6, y: 4)
@@ -122,19 +113,19 @@ private struct TrustIllustration: View {
 
                 // 이름 자리 표시 바
                 Capsule(style: .circular)
-                    .fill(Color(argb: 0xFFD3DAE4))
+                    .fill(MoyeotaColor.Border)
                     .frame(width: 112, height: 14)
             }
             .frame(width: 166, height: 120, alignment: .top)
-            .background(MoyeotaColor.SurfaceCanvas, in: RoundedRectangle(cornerRadius: 16, style: .circular))
+            .background(MoyeotaColor.SurfaceCanvas, in: MoyeotaShape.Card)
+            .overlay { MoyeotaShape.Card.strokeBorder(MoyeotaColor.Border, lineWidth: 1) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(MoyeotaColor.Primary50, in: RoundedRectangle(cornerRadius: 24, style: .circular))
     }
 }
 
 private struct PersonGlyph: View {
-    var color = Color(argb: 0xFF7C8592)
+    var color = MoyeotaColor.TextMute
 
     var body: some View {
         Canvas { context, size in
@@ -164,26 +155,6 @@ private struct PersonGlyph: View {
             )
             shoulders.closeSubpath()
             context.fill(shoulders, with: .color(color))
-        }
-    }
-}
-
-private struct CheckGlyph: View {
-    let color: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            var path = Path()
-            path.move(to: CGPoint(x: w * 0.1, y: h * 0.55))
-            path.addLine(to: CGPoint(x: w * 0.4, y: h * 0.85))
-            path.addLine(to: CGPoint(x: w * 0.9, y: h * 0.2))
-            context.stroke(
-                path,
-                with: .color(color),
-                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-            )
         }
     }
 }

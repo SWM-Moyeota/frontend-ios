@@ -93,22 +93,23 @@ public struct LoginFormRoute: View {
 
     public var body: some View {
         if let onSocialSignup {
-            // 시작 화면과 같은 Google 로그인 - 이 화면에서 바로 계정 선택 창을 띄운다(Android 와 같은 동작)
-            GoogleLoginHost(repository: repository, onSignup: onSocialSignup, onLoggedIn: onLoggedIn) { start in
-                form(onSocialLogin: start)
+            // 시작 화면과 같은 Google·Apple 로그인 - 이 화면에서 바로 계정 선택 창을 띄운다(Google 은 Android 와 같은 동작)
+            SocialLoginHost(repository: repository, onSignup: onSocialSignup, onLoggedIn: onLoggedIn) { start in
+                form(onSocialLogin: { start(.google) }, onAppleLogin: { start(.apple) })
             }
         } else {
-            form(onSocialLogin: nil)
+            form(onSocialLogin: nil, onAppleLogin: nil)
         }
     }
 
-    private func form(onSocialLogin: (() -> Void)?) -> some View {
+    private func form(onSocialLogin: (() -> Void)?, onAppleLogin: (() -> Void)?) -> some View {
         let state = viewModel.uiState
         return LoginFormScreen(
             onBack: onBack,
             onSubmit: { loginId, password in viewModel.login(loginId: loginId, password: password) },
             onSignUp: onSignUp,
             onSocialLogin: onSocialLogin,
+            onAppleLogin: onAppleLogin,
             onFindId: onFindId,
             onResetPassword: onResetPassword,
             prefillLoginId: prefillLoginId,

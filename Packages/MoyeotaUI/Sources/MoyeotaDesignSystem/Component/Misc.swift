@@ -28,12 +28,26 @@ public struct PageDots: View {
     }
 }
 
+/// 안내·상태의 종류. 색이 **뜻을 싣는** 셋(error 빨강 · success 초록 = 매칭/확정 · waiting 호박 = 대기)과
+/// 뜻이 없는 둘(info · neutral)로 나뉜다.
 public enum NoticeKind: Sendable {
-    case info, error, success, waiting
+    case info, error, success, waiting, neutral
 
-    var colors: (background: Color, foreground: Color) {
+    /// `NoticeBanner` 의 바탕·글자 색. **info 는 회색이다** — `NoticeBanner` 참고.
+    var bannerColors: (background: Color, foreground: Color) {
+        switch self {
+        case .info, .neutral: (MoyeotaColor.SurfaceSoft, MoyeotaColor.TextBody)
+        case .error: (MoyeotaColor.Danger50, MoyeotaColor.Danger600)
+        case .success: (MoyeotaColor.Success50, MoyeotaColor.Success600)
+        case .waiting: (MoyeotaColor.Waiting50, MoyeotaColor.Waiting600)
+        }
+    }
+
+    /// `StatusBadge` 의 바탕·글자 색. 배지의 info 는 옅은 파랑 그대로다.
+    var badgeColors: (background: Color, foreground: Color) {
         switch self {
         case .info: (MoyeotaColor.Primary50, MoyeotaColor.Primary600)
+        case .neutral: (MoyeotaColor.SurfaceSoft, MoyeotaColor.TextBody)
         case .error: (MoyeotaColor.Danger50, MoyeotaColor.Danger600)
         case .success: (MoyeotaColor.Success50, MoyeotaColor.Success600)
         case .waiting: (MoyeotaColor.Waiting50, MoyeotaColor.Waiting600)
@@ -41,7 +55,10 @@ public enum NoticeKind: Sendable {
     }
 }
 
-// 공통 규칙: 화면 단위 오류는 CTA 위 NoticeBanner Kind=error
+/// 공통 규칙: 화면 단위 오류는 CTA 위 NoticeBanner Kind=error.
+///
+/// **info 는 회색이다**(디자인 QA G8, 2026-11). 예전엔 옅은 파랑이었는데, 안내 한 줄마다 파란 판이 깔려
+/// 화면 곳곳이 "강조"가 되고 정작 파란 CTA 가 묻혔다. 색이 뜻을 싣는 error·success·waiting 만 물들인다.
 public struct NoticeBanner: View {
     private let kind: NoticeKind
     private let text: String
@@ -52,17 +69,20 @@ public struct NoticeBanner: View {
     }
 
     public var body: some View {
-        let colors = kind.colors
+        let colors = kind.bannerColors
         Text(text)
             .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: colors.foreground)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(colors.background, in: RoundedRectangle(cornerRadius: 12, style: .circular))
+            .background(colors.background, in: MoyeotaShape.Card)
     }
 }
 
-// 상태 배지 (모집 중 · 매칭 완료 · 대기 등)
+/// 상태 배지 (모집 중 · 매칭 완료 · 대기 등).
+///
+/// `NoticeKind.neutral` 은 상태가 아니라 **사실**(「2/3명」·「도착지」)을 붙일 때 쓴다 — 초록(=매칭됨)이나
+/// 호박(=기다리는 중)으로 칠하면 없는 상태를 말하게 된다(디자인 QA S16-5·E2).
 public struct StatusBadge: View {
     private let kind: NoticeKind
     private let text: String
@@ -73,7 +93,7 @@ public struct StatusBadge: View {
     }
 
     public var body: some View {
-        let colors = kind.colors
+        let colors = kind.badgeColors
         // 지정 줄 높이는 16.2 지만 원본 한글 한 줄은 대체 폰트 높이 17.2dp 로 그려진다(22 「모집 중」 UI 트리에서 잼).
         Text(text)
             .moyeotaText(
@@ -83,6 +103,120 @@ public struct StatusBadge: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(colors.background, in: Capsule(style: .circular))
+    }
+}
+
+/// 묶음 머리말 — 「즐겨찾기」·「매칭 조건」·「이미 참여한 사람」 (디자인 QA G9).
+///
+/// 예전엔 같은 역할의 머리말이 13 Bold · 13 Medium · 12 Bold 로 여섯 갈래였다. 13 SemiBold `MoyeotaColor.TextMute`
+/// 한 가지로 모으고, 아래 8 을 띄운다. **좌우 여백은 놓이는 자리가 준다** — 대부분 이미 16 화면 여백 안에
+/// 놓이므로 여기서 또 주면 두 번 들어간다. VoiceOver 에는 제목(머리말)으로 알린다.
+///
+/// - Parameter trailing: 오른쪽 끝의 작은 행동(「편집」) — `TextLinkButton` 을 넘긴다
+public struct SectionLabel<Trailing: View>: View {
+    private let text: String
+    private let hasTrailing: Bool
+    private let trailing: Trailing
+
+    public init(text: String, @ViewBuilder trailing: () -> Trailing) {
+        self.text = text
+        self.hasTrailing = true
+        self.trailing = trailing()
+    }
+
+    public var body: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Text(text)
+                .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.TextMute)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            if hasTrailing { trailing }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 8)
+    }
+}
+
+public extension SectionLabel where Trailing == EmptyView {
+    init(text: String) {
+        self.text = text
+        self.hasTrailing = false
+        self.trailing = EmptyView()
+    }
+}
+
+/// 글자만 있는 작은 행동(「편집」·「조정」·「로그인」·「지도 접기」) — **보이는 건 글자지만 터치 영역은 48** 이고
+/// 누르면 눌림 표시가 난다(디자인 QA G12). 예전엔 글자 크기 그대로(24 안팎) 눌리고 눌림 표시도 없었다.
+///
+/// 좌우 8 안쪽 여백이 있어 글자는 터치 상자보다 8 안에 그려진다 — 화면 여백에 글자 끝을 맞추려면
+/// 호출부가 그만큼 바깥으로 둔다(원본 `Modifier.offset(x = ±8.dp)` 자리는 `.offset(x:)`).
+///
+/// - Parameters:
+///   - onClickLabel: 누르면 무엇을 하는지(「출발지 위치 조정」). VoiceOver 힌트로 읽힌다
+///   - trailingIcon: 글자 뒤의 16 아이콘(「지도 접기」의 꺾쇠)
+public struct TextLinkButton<TrailingIcon: View>: View {
+    private let text: String
+    private let onClick: () -> Void
+    private let color: Color
+    private let style: MoyeotaType
+    private let enabled: Bool
+    private let onClickLabel: String?
+    private let trailingIcon: TrailingIcon
+
+    public init(
+        text: String,
+        onClick: @escaping () -> Void,
+        color: Color = MoyeotaColor.Primary600,
+        style: MoyeotaType = MoyeotaType.ButtonMd,
+        enabled: Bool = true,
+        onClickLabel: String? = nil,
+        @ViewBuilder trailingIcon: () -> TrailingIcon
+    ) {
+        self.text = text
+        self.onClick = onClick
+        self.color = color
+        self.style = style
+        self.enabled = enabled
+        self.onClickLabel = onClickLabel
+        self.trailingIcon = trailingIcon()
+    }
+
+    public var body: some View {
+        Button(action: onClick) {
+            HStack(alignment: .center, spacing: 2) {
+                Text(text)
+                    .moyeotaText(style.hangulTrimmed, color: enabled ? color : MoyeotaColor.TextPlaceholder)
+                    .lineLimit(1)
+                    .fixedSize()
+                trailingIcon
+            }
+            .padding(.horizontal, 8)
+            .frame(minWidth: 48, minHeight: 48)
+            .contentShape(MoyeotaShape.Small)
+        }
+        .buttonStyle(PressFeedbackStyle())
+        .disabled(!enabled)
+        .accessibilityHint(onClickLabel ?? "")
+    }
+}
+
+public extension TextLinkButton where TrailingIcon == EmptyView {
+    init(
+        text: String,
+        onClick: @escaping () -> Void,
+        color: Color = MoyeotaColor.Primary600,
+        style: MoyeotaType = MoyeotaType.ButtonMd,
+        enabled: Bool = true,
+        onClickLabel: String? = nil
+    ) {
+        self.init(
+            text: text,
+            onClick: onClick,
+            color: color,
+            style: style,
+            enabled: enabled,
+            onClickLabel: onClickLabel
+        ) { EmptyView() }
     }
 }
 
@@ -212,32 +346,64 @@ public enum MoyeotaImageLoader {
     }
 }
 
-// 선택 칩 (매칭 조건 등)
+/// 선택 칩 — 앱의 **단 하나뿐인 칩** (디자인 QA G6, 2026-11). 16 매칭 조건, 16a 출발지/도착지 토글,
+/// 17 탐색 모드·날짜, 21 약속 프리셋이 모두 이걸 쓴다.
+///
+/// - 보이는 높이 36, **터치 영역 48**(원본 `minimumInteractiveComponentSize`), 그림자 없음
+/// - 미선택: 흰 바탕 + `MoyeotaColor.Border` 테두리 + `MoyeotaColor.TextBody` 글자
+/// - 선택: 옅은 파랑 바탕 + 파란 테두리 + 진한 파랑 글자
+///
+/// 선택을 **솔리드 파랑으로 칠하지 않는 이유**: 한 화면에 솔리드 파랑은 CTA 하나만 둔다(디자인 문서
+/// "primary 를 아껴 쓴다"). 예전 16 은 흰 그림자 칩 + 솔리드 파랑 선택 칩, 17 은 옅은 칩으로 두 갈래였다.
+///
+/// - Parameter horizontalPadding: 글자 좌우 여백. 둘뿐인 토글(16a 출발지/도착지)처럼 넓게 누르게 할 때만 늘린다
 public struct MoyeotaChip: View {
     private let text: String
     private let selected: Bool
     private let onClick: () -> Void
+    private let enabled: Bool
+    private let horizontalPadding: CGFloat
 
-    public init(text: String, selected: Bool, onClick: @escaping () -> Void) {
+    public init(
+        text: String,
+        selected: Bool,
+        onClick: @escaping () -> Void,
+        enabled: Bool = true,
+        horizontalPadding: CGFloat = 14
+    ) {
         self.text = text
         self.selected = selected
         self.onClick = onClick
+        self.enabled = enabled
+        self.horizontalPadding = horizontalPadding
     }
 
     public var body: some View {
         let bg = selected ? MoyeotaColor.Primary50 : MoyeotaColor.SurfaceCanvas
-        let fg = selected ? MoyeotaColor.Primary600 : MoyeotaColor.TextMute
-        let border = selected ? MoyeotaColor.Primary500 : MoyeotaColor.Hairline
+        let fg: Color = if !enabled {
+            MoyeotaColor.TextPlaceholder
+        } else if selected {
+            MoyeotaColor.Primary600
+        } else {
+            MoyeotaColor.TextBody
+        }
+        let border = selected ? MoyeotaColor.Primary500 : MoyeotaColor.Border
         Button(action: onClick) {
             Text(text)
-                .moyeotaText(.ButtonMd, color: fg)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .moyeotaText(MoyeotaType.ButtonMd.hangulTrimmed, color: fg)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, horizontalPadding)
+                .frame(height: 36)
                 .background(bg, in: Capsule(style: .circular))
                 .overlay(Capsule(style: .circular).strokeBorder(border, lineWidth: 1))
-                .contentShape(Capsule(style: .circular))
+                .frame(minWidth: 48, minHeight: 48)
+                .contentShape(Rectangle())
         }
         .buttonStyle(PressFeedbackStyle())
+        .disabled(!enabled)
+        // 원본 `selectable` — iOS 에 라디오 역할이 없어 버튼 + 「선택됨」 특성으로 읽힌다
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -260,11 +426,11 @@ public struct MapPlaceholder: View {
         ZStack {
             MoyeotaColor.SurfaceSoft
             Rectangle()
-                .fill(Color(argb: 0xFFE2E6ED))
+                .fill(MoyeotaColor.Border)
                 .frame(height: 2)
                 .padding(.horizontal, 24)
             Text("지도 영역")
-                .moyeotaText(.CaptionMd, color: MoyeotaColor.TextAsh)
+                .moyeotaText(.CaptionMd, color: MoyeotaColor.TextPlaceholder)
         }
     }
 }

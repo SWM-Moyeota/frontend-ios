@@ -14,10 +14,6 @@ import SwiftUI
 // (c) 10 과 중복되는 입력 정리, (d) 약관 동의(현재 12 매너 서약에 통합됨) 중복 여부 확인이 필요하다.
 private let Carriers = ["SKT", "KT", "LG U+", "알뜰폰"]
 
-private let LabelGray = Color(argb: 0xFF8A93A0)
-private let SlateGray = Color(argb: 0xFF4B5563)
-private let InfoCardBlue = Color(argb: 0xFFF1F5FD)
-
 public struct IdentityVerifyScreen: View {
     private let onBack: () -> Void
     private let onRequestCode: (_ name: String, _ phone: String, _ birthDate: LocalDate, _ gender: Gender) -> Void
@@ -70,7 +66,7 @@ public struct IdentityVerifyScreen: View {
             MoyeotaTopBar(title: "", onBack: onBack) {
                 // 가입은 09 → 10 → 11 → 12 네 단계다 (05~08 부가 인증은 가입 경로에서 빠졌다)
                 Text("1 / 4")
-                    .moyeotaText(.BodySm, color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             IdentityVerifyProgressBar(progress: 1.0 / 4.0)
 
@@ -79,15 +75,16 @@ public struct IdentityVerifyScreen: View {
                     Spacer().frame(height: 24)
                     Text("휴대폰으로 본인 확인할게요")
                         .moyeotaText(.DisplayMd, color: MoyeotaColor.InkPrimary)
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 12)
                     // 실명·성별은 가입 시 서버에 저장된다 — "저장하지 않아요"로 안내하면 사실과 다르다.
                     // 「매칭 안전을 위해서만」은 지웠다 — 성별은 매칭에 쓰이지 않는다(2026-10-13).
                     Text("실명은 본인 확인에만 쓰고 탑승 상대에게는 보이지 않아요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14), color: MoyeotaColor.TextMute)
-                    Spacer().frame(height: 26)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
+                    Spacer().frame(height: 24)
 
+                    // 필드 라벨은 MoyeotaTextField 의 라벨과 같은 모양(BodySm · TextBody)이어야 한 화면에서 같은 층으로 읽힌다
                     Text("통신사")
-                        .moyeotaText(.BodySm, color: LabelGray)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
                     Spacer().frame(height: 8)
                     HStack(spacing: 4) {
                         ForEach(Carriers, id: \.self) { candidate in
@@ -140,7 +137,7 @@ public struct IdentityVerifyScreen: View {
 
                     Spacer().frame(height: 20)
                     Text("성별")
-                        .moyeotaText(.BodySm, color: LabelGray)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
                     Spacer().frame(height: 8)
                     HStack(spacing: 8) {
                         SignupChoiceChip(
@@ -156,31 +153,30 @@ public struct IdentityVerifyScreen: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    Spacer().frame(height: 24)
+                    // 성별 칸 한 줄을 설명하는 문장이라 파란 안내 상자 대신 **그 칸 바로 아래 캡션**으로 둔다
+                    // (디자인 QA A2 — 10 프로필 만들기와 같은 자리·같은 모양: MoyeotaTextField 의 도움말과 같은 CaptionMd).
                     // 제목이던 「성별은 동성 매칭에만 써요」는 지웠다 — 성별 조건 매칭이 없다.
                     // 백엔드 matching 패키지에 성별이 0건이고, user/profile 에 저장만 된다(2026-10-13).
+                    Spacer().frame(height: 8)
                     Text("성별은 프로필에 표시되지 않아요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .bold), color: MoyeotaColor.InkPrimary)
-                        .padding(20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(InfoCardBlue, in: RoundedRectangle(cornerRadius: 18, style: .circular))
+                        .moyeotaText(.CaptionMd, color: MoyeotaColor.TextMute)
 
-                    Spacer().frame(height: 20)
+                    Spacer().frame(height: 24)
                     HStack(alignment: .center, spacing: 0) {
                         IdentityAgreeCheckbox(checked: agreed, onToggle: { agreed.toggle() })
-                        Spacer().frame(width: 10, height: 0)
+                        Spacer().frame(width: 8, height: 0)
                         Button {
                             agreed.toggle()
                         } label: {
                             Text("이용약관 · 개인정보 수집에 동의해요")
-                                .moyeotaText(.BodySm, color: SlateGray)
+                                .moyeotaText(.BodySm, color: MoyeotaColor.TextBody)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PressFeedbackStyle())
                         // 미연결: 「보기」(약관) — 클릭해도 동작 없음 (약관 상세 필요)
                         Text("보기")
-                            .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .bold), color: LabelGray)
+                            .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold), color: MoyeotaColor.TextMute)
                     }
                     .frame(maxWidth: .infinity)
                     Spacer().frame(height: 24)
@@ -217,7 +213,7 @@ public struct IdentityVerifyScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear {
             carrier = nil
@@ -245,26 +241,16 @@ private struct IdentityAgreeCheckbox: View {
     let onToggle: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 7, style: .circular)
+        let shape = MoyeotaShape.Small
         Button(action: onToggle) {
             ZStack {
                 if checked {
                     shape.fill(MoyeotaColor.Primary500)
-                    Canvas { context, size in
-                        let style = StrokeStyle(lineWidth: 2, lineCap: .round)
-                        var head = Path()
-                        head.move(to: CGPoint(x: size.width * 0.15, y: size.height * 0.55))
-                        head.addLine(to: CGPoint(x: size.width * 0.4, y: size.height * 0.8))
-                        context.stroke(head, with: .color(.white), style: style)
-                        var tail = Path()
-                        tail.move(to: CGPoint(x: size.width * 0.4, y: size.height * 0.8))
-                        tail.addLine(to: CGPoint(x: size.width * 0.85, y: size.height * 0.25))
-                        context.stroke(tail, with: .color(.white), style: style)
-                    }
-                    .frame(width: 14, height: 14)
+                    CheckIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextOnDark)
                 } else {
-                    shape.fill(Color.white)
-                    shape.strokeBorder(MoyeotaColor.Hairline, lineWidth: 1.5)
+                    // Hairline(1.15:1) 테두리는 흰 화면에서 상자가 보이지 않았다 — 입력칸과 같은 BorderStrong
+                    shape.fill(MoyeotaColor.SurfaceCanvas)
+                    shape.strokeBorder(MoyeotaColor.BorderStrong, lineWidth: 1.5)
                 }
             }
             .frame(width: 22, height: 22)
@@ -280,8 +266,8 @@ private struct IdentityVerifyProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(Color(argb: 0xFFE6EAF0))
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }

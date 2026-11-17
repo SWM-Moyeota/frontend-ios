@@ -1,4 +1,5 @@
 import Foundation
+import MoyeotaDesignSystem
 import MoyeotaDomain
 import Observation
 import PresentationCore
@@ -328,6 +329,9 @@ private struct JoinConfirmContent: View {
                 JoinConfirmScreen(
                     ride: ride,
                     pickupDistanceMeters: pickupDistanceMeters(ride: ride, myLocation: myLocation.coordinates),
+                    // 방 좌표를 하나도 못 쓸 때 지도가 보여 줄 「내 주변」. 권한이 없거나 fix 가 없으면 nil 이고,
+                    // 그때 지도는 앱 기본 카메라로 물러난다(SDK 기본값이 아니다 — `joinMapFallback`).
+                    userPosition: myLocation.coordinates.map { LatLng($0.latitude, $0.longitude) },
                     joining: join.joining,
                     joinErrorMessage: join.errorMessage,
                     onDismiss: onDismiss,

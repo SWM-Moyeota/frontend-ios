@@ -1,3 +1,4 @@
+import MoyeotaDesignSystem
 import MoyeotaDomain
 import Testing
 @testable import PresentationCore
@@ -190,5 +191,16 @@ import Testing
         #expect(member(nickname: "성윤").avatarInitial == "성")
         #expect(noSummary().avatarInitial == "?")
         #expect(member(nickname: " ").avatarInitial == "?")
+    }
+
+    /// 원본에 없는 테스트. 다듬기(2026-11)에서 `size × 0.4` 대신 타입 표의 단계로 바꾼 경계를 못 박는다.
+    @Test("이니셜 글자는 아바타 크기의 40% 에 가장 가까운 타입 단계다")
+    func avatarInitialStyleSteps() {
+        #expect(avatarInitialStyle(size: 36) == MoyeotaType.HeadingMd)
+        #expect(avatarInitialStyle(size: 40) == MoyeotaType.HeadingMd)
+        #expect(avatarInitialStyle(size: 48) == MoyeotaType.HeadingLg)
+        #expect(avatarInitialStyle(size: 71) == MoyeotaType.HeadingLg)
+        #expect(avatarInitialStyle(size: 72) == MoyeotaType.DisplayMd.copy(fontWeight: .semibold))
+        #expect(avatarInitialStyle(size: 80) == MoyeotaType.DisplayMd.copy(fontWeight: .semibold))
     }
 }

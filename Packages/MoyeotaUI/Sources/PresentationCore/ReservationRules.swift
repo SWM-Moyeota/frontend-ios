@@ -1,4 +1,5 @@
 import Foundation
+import MoyeotaDesignSystem
 import MoyeotaDomain
 
 // **예약 방**(서버 `RoomType.RESERVED`)을 만들고 찾는 데 쓰는 판정과 문구 중, 16 도착지 확인과
@@ -16,7 +17,8 @@ import MoyeotaDomain
 // 원본은 이 몫까지 `feature/home/ReservationRules.kt` 한 파일에 두고 17 탐색이 import 한다 — 예약의
 // **시간 계약**은 방을 만드는 쪽(16)이 서버와 맺고 검색의 「오늘~7일 뒤」는 그 계약의 그림자라, 창을
 // 정하는 상수와 날짜 계산을 한 곳에 둔 것이다. 기능 모듈끼리는 서로 import 할 수 없어 17·20 이 쓰는
-// 몫만 여기로 옮겼고(`headcountLabel` 과 같은 선례), 나머지(출발 모드·정원·시각 슬롯·실패 문구)는
+// 몫만 여기로 옮겼고(`headcountLabel` 과 같은 선례 — 날짜 띠의 칸·달 표시·VoiceOver 문장과 그 띠
+// `ReservationDateStrip` 도 16·17 이 함께 쓴다), 나머지(출발 모드·정원·시각 범위와 휠·실패 문구)는
 // `FeatureHome/ReservationRules.swift` 에 있다.
 //
 // ### 서버가 최종 판정이다
@@ -116,7 +118,8 @@ private let KoreanDayOfWeek: [DayOfWeek: String] = [
     .sunday: "일",
 ]
 
-/// 날짜 칩의 문구 — 오늘·내일은 **이름으로**, 그 뒤는 `11월 9일 (일)`.
+/// 날짜의 문구 — 오늘·내일은 **이름으로**, 그 뒤는 `11월 9일 (일)`. CTA 위 되읽기 줄(`reservationDepartureSummary`)
+/// ·17 의 접힘 요약·예약 카드가 쓴다(고르는 자리는 주간 달력 띠다 — `reservationDateCells`).
 ///
 /// 요일을 붙이는 이유: 7일 창에서 사람이 고르는 기준은 날짜 숫자가 아니라 「토요일 저녁」 같은
 /// 요일이다. 반대로 오늘·내일에 숫자를 함께 적지 않는 건 칩 폭 때문이다 — 가로 스크롤 칩 8개가
@@ -132,7 +135,70 @@ public func reservationDateLabel(date: LocalDate, today: LocalDate) -> String {
     }
 }
 
-/// 시각 칩·카드의 시각 문구 — `오후 6:30`.
+/// 날짜 띠(`WeekDateStrip`)의 칸들 — 16 예약 날짜와 17 「날짜로 찾기」가 **같은 함수**로 만든다(같은 8일을 두
+/// 화면이 다르게 그리지 않게).
+///
+/// 칸 = 위에 요일 한 글자, 아래에 일. 토요일은 파랑, 일요일은 빨강(`DateStripTone`) — 달력의 관습이고,
+/// 색은 덧붙인 단서일 뿐 요일 글자가 늘 함께 있다. 오늘은 `DateStripCell.isToday` 로 작은 점이 찍힌다.
+///
+/// 「오늘」·「내일」을 칸에 **글자로 쓰지 않는다** — 칸 폭에 두 글자 요일 자리를 만들면 다른 칸과
+/// 모양이 갈린다. 대신 VoiceOver 문장과 CTA 위 되읽기 줄(`reservationDepartureSummary`)이 「오늘」을 말한다.
+///
+/// 고를 시각이 없는 날(16 의 늦은 밤 「오늘」)은 **칸을 남기되 누르지 못하게** 한다(`isSelectable`) — 칸을
+/// 지우면 요일 줄이 밀려 오늘을 찾을 수 없다. 17 「날짜로 찾기」는 검색이라 모든 날이 눌린다(기본값).
+///
+/// 원본은 `feature/home/ReservationRules.kt` 에 있고 17 이 import 한다. 기능 모듈끼리는 import 할 수 없어 옮겼다.
+///
+/// - Parameters:
+///   - today: `reservationDates` 의 첫 원소 — **같은 시간대로 셈한 오늘**이어야 점이 맞는 칸에 찍힌다
+///   - isSelectable: 그 날을 고를 수 있는가. 16 은 `reservationTimeRange(date, now) != nil` 을 넘긴다
+public func reservationDateCells(
+    dates: [LocalDate],
+    today: LocalDate,
+    isSelectable: (LocalDate) -> Bool = { _ in true }
+) -> [DateStripCell] {
+    dates.map { date in
+        let tone: DateStripTone = switch date.dayOfWeek {
+        case .saturday: .saturday
+        case .sunday: .sunday
+        default: .weekday
+        }
+        return DateStripCell(
+            weekday: KoreanDayOfWeek[date.dayOfWeek] ?? "",
+            day: String(date.dayOfMonth),
+            tone: tone,
+            isToday: date == today,
+            contentDescription: reservationDateCellDescription(date: date, today: today),
+            enabled: isSelectable(date)
+        )
+    }
+}
+
+/// 날짜 띠 위의 **달 표시** — `11월`, 달을 넘으면 `11–12월`(해를 넘으면 `12–1월`). 날짜가 없으면 nil.
+///
+/// 칸에는 일(日) 숫자만 있어서 띠만 보면 「1, 2, 3」이 몇 월인지 알 수 없다 — 특히 월말에 띠가 다음 달로
+/// 넘어가는 주에 「30 · 1」이 나란히 서면 혼란스럽다. 그래서 띠가 덮는 달을 한 줄로 적는다.
+public func reservationMonthLabel(dates: [LocalDate]) -> String? {
+    guard let first = dates.first, let last = dates.last else { return nil }
+    if first.monthValue == last.monthValue && first.year == last.year {
+        return "\(first.monthValue)월"
+    }
+    return "\(first.monthValue)–\(last.monthValue)월"
+}
+
+/// 날짜 칸의 VoiceOver 문장 — `오늘, 11월 12일 목요일` · `11월 14일 토요일`.
+///
+/// 칸에는 요일 한 글자와 숫자만 있어 그대로 읽히면 「토, 14」가 된다. 몇 월인지와 오늘·내일을 말로 채운다.
+public func reservationDateCellDescription(date: LocalDate, today: LocalDate) -> String {
+    let base = "\(date.monthValue)월 \(date.dayOfMonth)일 \(KoreanDayOfWeek[date.dayOfWeek] ?? "")요일"
+    switch date {
+    case today: return "오늘, \(base)"
+    case today.plusDays(1): return "내일, \(base)"
+    default: return base
+    }
+}
+
+/// 되읽기 줄·카드의 시각 문구 — `오후 6:30`(휠은 24시간제 숫자를 쓰고, 오전·오후는 이 문구가 말한다).
 ///
 /// 0시·12시가 12 가 되어야 한다(`hour % 12` 만 쓰면 자정이 「오전 0:30」이 된다 — `meetingTimeLabel`·
 /// `rideHistoryDateLabel` 과 같은 함정·같은 처방).

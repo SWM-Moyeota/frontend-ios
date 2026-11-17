@@ -13,9 +13,6 @@ private let CODE_LENGTH = 6
 private let RESEND_COOLDOWN_SECONDS = 4 * 60 + 31 // 재발송 쿨다운 4:31
 private let CODE_EXPIRY_SECONDS = 10 * 60 // 코드 유효시간 10분
 
-private let LabelGray = Color(argb: 0xFF8A93A0)
-private let FooterGray = Color(argb: 0xFF9AA1AC)
-
 public struct EmailCodeScreen: View {
     private let email: String
     private let onBack: () -> Void
@@ -55,12 +52,12 @@ public struct EmailCodeScreen: View {
     }
 
     public var body: some View {
-        let boldBodySm = MoyeotaType.BodySm.copy(fontWeight: .bold)
+        let semiBoldBodySm = MoyeotaType.BodySm.copy(fontWeight: .semibold)
         VStack(spacing: 0) {
             StatusBarSpacer()
             MoyeotaTopBar(title: "", onBack: onBack) {
                 Text("1 / 5")
-                    .moyeotaText(.BodySm, color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             EmailCodeProgressBar(progress: 1.0 / 5.0)
 
@@ -71,8 +68,8 @@ public struct EmailCodeScreen: View {
                         .moyeotaText(.DisplayMd, color: MoyeotaColor.InkPrimary)
                     Spacer().frame(height: 12)
                     Text(verbatim: "\(email) 로 보냈어요")
-                        .moyeotaText(MoyeotaType.BodySm.copy(fontSize: 14), color: MoyeotaColor.TextMute)
-                    Spacer().frame(height: 28)
+                        .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
+                    Spacer().frame(height: 32)
 
                     EmailCodeInput(
                         code: code,
@@ -86,30 +83,32 @@ public struct EmailCodeScreen: View {
                     )
 
                     if let errorText {
-                        Spacer().frame(height: 10)
+                        Spacer().frame(height: 8)
                         Button(action: resend) {
                             Text(errorText)
-                                .moyeotaText(boldBodySm, color: MoyeotaColor.Danger500)
+                                .moyeotaText(semiBoldBodySm, color: MoyeotaColor.Danger500)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(PressFeedbackStyle())
                     }
 
-                    Spacer().frame(height: 18)
+                    Spacer().frame(height: 8)
                     HStack(alignment: .center, spacing: 0) {
                         Text(verbatim: "남은 시간 \(formatSeconds(total: resendRemaining))")
-                            .moyeotaText(boldBodySm, color: MoyeotaColor.Waiting600)
+                            // 초가 바뀔 때마다 글자 폭이 흔들리지 않게 숫자 폭을 고정한다
+                            .moyeotaText(semiBoldBodySm.tabularNums(), color: MoyeotaColor.Waiting600)
                         Spacer(minLength: 0)
-                        Button(action: resend) {
-                            Text("코드 다시 받기")
-                                .moyeotaText(boldBodySm, color: MoyeotaColor.Primary500)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(PressFeedbackStyle())
+                        // 글자 오른쪽 끝을 화면 여백에 맞춘다(TextLinkButton 의 안쪽 8 만큼 바깥으로)
+                        TextLinkButton(
+                            text: "코드 다시 받기",
+                            onClick: resend,
+                            style: semiBoldBodySm
+                        )
+                        .offset(x: 8)
                     }
                     .frame(maxWidth: .infinity)
 
-                    Spacer().frame(height: 22)
+                    Spacer().frame(height: 16)
 
                     helpCard
                     Spacer().frame(height: 24)
@@ -131,9 +130,9 @@ public struct EmailCodeScreen: View {
                     enabled: code.utf16.count == CODE_LENGTH,
                     loading: submitting
                 )
-                Spacer().frame(height: 14)
+                Spacer().frame(height: 12)
                 Text("코드는 10분 뒤에 만료돼요")
-                    .moyeotaText(.CaptionMd, color: FooterGray)
+                    .moyeotaText(.CaptionMd, color: MoyeotaColor.TextMute)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
@@ -142,7 +141,7 @@ public struct EmailCodeScreen: View {
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(MoyeotaColor.SurfaceSoft)
+        .background(MoyeotaColor.SurfaceCanvas)
         .task(id: timerKey) {
             while resendRemaining > 0 || expiryRemaining > 0 {
                 do {
@@ -180,8 +179,9 @@ public struct EmailCodeScreen: View {
         }
     }
 
+    // 흰 화면 위라 그림자 대신 Border 선으로 묶음을 나눈다(디자인 QA G4)
     private var helpCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
+        let shape = MoyeotaShape.Card
         return VStack(spacing: 0) {
             // 스팸함 안내 — 동작 없음
             EmailCodeHelpRow(
@@ -190,7 +190,7 @@ public struct EmailCodeScreen: View {
                 onClick: nil
             )
             HorizontalDivider(color: MoyeotaColor.Hairline)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 16)
             // 「메일 주소 다시 입력하기」 → 06
             EmailCodeHelpRow(
                 title: "메일 주소 다시 입력하기",
@@ -199,10 +199,9 @@ public struct EmailCodeScreen: View {
             )
         }
         .frame(maxWidth: .infinity)
-        .background(Color.white, in: shape)
-        // 원본 `Modifier.shadow` 는 기본으로 잘라 낸다 — 마지막 행의 눌림 표시가 둥근 모서리 밖으로 나가지 않는다.
+        // 마지막 행의 눌림 표시가 둥근 모서리 밖으로 나가지 않게 자른다(원본 `clip`)
         .clipShape(shape)
-        .moyeotaShadow(elevation: 2, shape: shape)
+        .overlay { shape.strokeBorder(MoyeotaColor.Border, lineWidth: 1) }
     }
 }
 
@@ -227,32 +226,33 @@ private struct EmailCodeInput: View {
     var body: some View {
         let digits = Array(code.unicodeScalars)
         ZStack {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
                 ForEach(0..<CODE_LENGTH, id: \.self) { index in
                     let filled = index < digits.count
                     let active = index == digits.count && enabled
-                    let shape = RoundedRectangle(cornerRadius: 16, style: .circular)
+                    let shape = MoyeotaShape.Card
+                    // 칸 하나하나가 입력칸이다 — 그림자 대신 MoyeotaTextField 와 같은 테두리 규칙(쉬는 칸 BorderStrong)
+                    let borderColor: Color = if isError {
+                        MoyeotaColor.Danger500
+                    } else if active {
+                        MoyeotaColor.Primary500
+                    } else {
+                        MoyeotaColor.BorderStrong
+                    }
                     ZStack {
                         if filled {
                             Text(verbatim: String(digits[index]))
                                 .moyeotaText(.DisplayMd, color: MoyeotaColor.InkPrimary)
                         } else if active {
-                            RoundedRectangle(cornerRadius: 1, style: .circular)
+                            MoyeotaShape.Pill
                                 .fill(MoyeotaColor.Primary500)
                                 .frame(width: 2, height: 28)
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .frame(height: 64)
-                    .background(Color.white, in: shape)
-                    .moyeotaShadow(elevation: 2, shape: shape)
-                    .overlay {
-                        if isError {
-                            shape.strokeBorder(MoyeotaColor.Danger500, lineWidth: 1.5)
-                        } else if active {
-                            shape.strokeBorder(MoyeotaColor.Primary500, lineWidth: 1.5)
-                        }
-                    }
+                    .background(MoyeotaColor.SurfaceCanvas, in: shape)
+                    .overlay { shape.strokeBorder(borderColor, lineWidth: isError || active ? 1.5 : 1) }
                 }
             }
             // 실제 입력 필드는 투명하게 겹쳐 키 입력만 받는다. 투명한 뷰는 터치를 받지 못해 위에 탭 영역을 얹는다.
@@ -296,22 +296,20 @@ private struct EmailCodeHelpRow: View {
     private var content: some View {
         HStack(alignment: .center, spacing: 0) {
             EmailCodeMailIcon()
-            Spacer().frame(width: 11, height: 0)
+            Spacer().frame(width: 12, height: 0)
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .moyeotaText(
-                        MoyeotaType.BodySm.copy(fontSize: 14, fontWeight: .bold),
-                        color: MoyeotaColor.InkPrimary
-                    )
-                Spacer().frame(height: 3)
+                    .moyeotaText(.BodyStrong, color: MoyeotaColor.InkPrimary)
+                Spacer().frame(height: 4)
                 Text(subtitle)
-                    .moyeotaText(.CaptionMd, color: LabelGray)
+                    .moyeotaText(.BodySm, color: MoyeotaColor.TextMute)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            EmailCodeChevronIcon()
+            // 누를 수 있는 줄에만 꺾쇠를 둔다 — 안내뿐인 줄(스팸함)에 꺾쇠가 있으면 눌러도 아무 일 없는 버튼이 된다
+            if onClick != nil { ChevronIcon() }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
     }
 }
@@ -322,8 +320,8 @@ private struct EmailCodeProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 2, style: .circular).fill(Color(argb: 0xFFE6EAF0))
-                RoundedRectangle(cornerRadius: 2, style: .circular)
+                MoyeotaShape.Small.fill(MoyeotaColor.Hairline)
+                MoyeotaShape.Small
                     .fill(MoyeotaColor.Primary500)
                     .frame(width: geometry.size.width * progress)
             }
@@ -336,8 +334,8 @@ private struct EmailCodeProgressBar: View {
 private struct EmailCodeMailIcon: View {
     var body: some View {
         Canvas { context, size in
-            let stroke: CGFloat = 1.5
-            let color = Color(argb: 0xFF8A93A0)
+            let stroke = IconStrokeWidth * (MoyeotaIconSize.Md / MoyeotaIconSize.Lg)
+            let color = MoyeotaColor.TextMute
             let top = size.height * 0.18
             let bottom = size.height * 0.82
             context.stroke(
@@ -359,25 +357,7 @@ private struct EmailCodeMailIcon: View {
             right.addLine(to: CGPoint(x: size.width * 0.92, y: top + stroke))
             context.stroke(right, with: .color(color), style: line)
         }
-        .frame(width: 17, height: 17)
-    }
-}
-
-private struct EmailCodeChevronIcon: View {
-    var body: some View {
-        Canvas { context, size in
-            let color = Color(argb: 0xFFB6BEC9)
-            let line = StrokeStyle(lineWidth: 2, lineCap: .round)
-            var upper = Path()
-            upper.move(to: CGPoint(x: size.width * 0.35, y: size.height * 0.2))
-            upper.addLine(to: CGPoint(x: size.width * 0.7, y: size.height * 0.5))
-            context.stroke(upper, with: .color(color), style: line)
-            var lower = Path()
-            lower.move(to: CGPoint(x: size.width * 0.7, y: size.height * 0.5))
-            lower.addLine(to: CGPoint(x: size.width * 0.35, y: size.height * 0.8))
-            context.stroke(lower, with: .color(color), style: line)
-        }
-        .frame(width: 16, height: 16)
+        .frame(width: MoyeotaIconSize.Md, height: MoyeotaIconSize.Md)
     }
 }
 

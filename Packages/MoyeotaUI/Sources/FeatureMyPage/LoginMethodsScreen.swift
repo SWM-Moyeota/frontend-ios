@@ -1,3 +1,5 @@
+import Foundation
+import MoyeotaDesignSystem
 import MoyeotaDomain
 import PresentationCore
 import SwiftUI
@@ -31,116 +33,331 @@ struct LinkCodeCooldown: Equatable {
     }
 }
 
-/// 발송 버튼 문구. 잠긴 동안에는 남은 초를 붙인다 — `smsCooldown` 안내 문구가 「버튼의 남은 시간」을 가리킨다.
-func linkCodeSendTitle(sent: Bool, remainingSeconds: Int) -> String {
-    let title = sent ? "인증번호 다시 받기" : "등록된 휴대폰으로 인증번호 받기"
-    return remainingSeconds > 0 ? "\(title) (\(remainingSeconds)초)" : title
+/// 발송 버튼 문구 — 원본(Android #103 `LoginMethodsScreen`)과 같다. 잠긴 동안에는 남은 초를 붙인다 —
+/// `smsCooldown` 안내 문구가 「버튼의 남은 시간」을 가리킨다.
+func linkCodeSendTitle(remainingSeconds: Int) -> String {
+    remainingSeconds > 0 ? "다시 받기 (\(remainingSeconds)초)" : "인증번호 받기"
 }
 
-public struct LoginMethodsScreen: View {
-    let repository: any SocialAuthRepository
-    @Environment(\.nativeSocialAuthentication) private var native
-    @Environment(\.dismiss) private var dismiss
-    @State private var methods: LoginMethods?
-    @State private var code = ""
-    @State private var sent = false
-    @State private var verificationToken: String?
-    @State private var verifiedAt: Date?
-    @State private var busy = false
-    @State private var message: String?
-    @State private var cooldown = LinkCodeCooldown()
-    public init(repository: any SocialAuthRepository) { self.repository = repository }
-    public var body: some View {
-        NavigationStack {
-            Form {
-                if let methods {
-                    Section("현재 로그인 수단") {
-                        if methods.hasPassword { Text("아이디 · 비밀번호") }
-                        ForEach(methods.methods, id: \.provider) { method in
-                            Text("\(label(method.provider)) · \(method.status == "ACTIVE" ? "연결됨" : "재인증 필요")")
-                        }
-                    }
-                    Section("로그인 수단 추가") {
-                        Text("계정에 등록된 휴대폰으로 본인 확인 후 연결해요. 다른 계정의 기록은 합쳐지지 않아요.")
-                        TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                            let remaining = cooldown.remainingSeconds(now: timeline.date)
-                            Button(linkCodeSendTitle(sent: sent, remainingSeconds: remaining)) {
-                                run {
-                                    try await repository.sendLinkCode()
-                                    cooldown.onSent(now: Date())
-                                    sent = true
-                                    verificationToken = nil
-                                    code = ""
-                                }
-                            }
-                            .disabled(remaining > 0)
-                        }
-                        if sent && verificationToken == nil {
-                            TextField("문자 인증번호 6자리", text: $code).keyboardType(.numberPad)
-                            Button("인증번호 확인") {
-                                run {
-                                    verificationToken = try await repository.verifyLinkCode(code)
-                                    verifiedAt = Date()
-                                    code = ""
-                                }
-                            }.disabled(code.count != 6)
-                        }
-                        if verificationToken != nil {
-                            if !methods.methods.contains(where: { $0.provider == .google && $0.status == "ACTIVE" }) {
-                                Button("Google 연결") { connectGoogle() }
-                            }
-                        }
-                    }
-                } else {
-                    Button("로그인 수단 다시 불러오기") { refresh() }
-                }
-                if busy { ProgressView() }
-                if let message { Text(message).foregroundStyle(.red) }
-            }
-            .disabled(busy)
-            .navigationTitle("로그인 수단")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("닫기") { dismiss() } }
-                ToolbarItem(placement: .primaryAction) { Button("새로고침") { refresh() }.disabled(busy) }
-            }
-        }
-        .task { refresh() }
+/// 문자 인증 뒤 구글 계정을 연결할 수 있는 시간. 서버 연결 증표의 수명(5분)과 같다.
+let LINK_VERIFICATION_TTL_SECONDS: TimeInterval = 300
+
+/// 로그인 수단 관리 — 상태와 서버 호출. 원본 `LoginMethodsViewModel`(Android #103)과 같은 흐름이다:
+/// 목록 조회 → (미연결 수단이 있으면) 등록된 휴대폰 문자 인증 → 5분 안에 구글·애플 계정 연결.
+/// 애플 연결은 iOS 에만 있다(원본에는 Apple 로그인이 없다).
+@MainActor
+@Observable
+final class LoginMethodsViewModel {
+    private(set) var methods: LoginMethods?
+    private(set) var loading = true
+    private(set) var busy = false
+    private(set) var codeSent = false
+    private(set) var verified = false
+    private(set) var error: String?
+    private(set) var notice: String?
+    var code = ""
+    private(set) var cooldown = LinkCodeCooldown()
+
+    @ObservationIgnored private let repository: any SocialAuthRepository
+    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var verificationToken: String?
+    @ObservationIgnored private var verifiedAt: Date?
+
+    init(repository: any SocialAuthRepository, now: @escaping () -> Date = Date.init) {
+        self.repository = repository
+        self.now = now
     }
-    /// 연결 수단은 Google 하나다. 서버가 다른 provider 를 보내도 디코딩에서 걸러져 여기 오지 않는다.
-    private func label(_ provider: SocialProvider) -> String {
-        switch provider {
-        case .google: return "Google"
+
+    func refresh() {
+        guard !busy else { return }
+        loading = true
+        error = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                self.methods = try await self.repository.loginMethods()
+            } catch is CancellationError {
+                return
+            } catch {
+                self.error = loginMethodMessage(error)
+            }
+            self.loading = false
         }
     }
-    private func refresh() { run { methods = try await repository.loginMethods() } }
-    private func connectGoogle() {
-        guard let native, let token = verificationToken, let verifiedAt else { return }
-        guard Date().timeIntervalSince(verifiedAt) < 300 else {
-            verificationToken = nil
-            message = "인증 시간이 지났어요. 문자를 다시 받아 주세요"
-            return
+
+    func changeCode(_ value: String) {
+        guard !busy else { return }
+        code = String(value.filter(\.isNumber).prefix(6))
+        error = nil
+    }
+
+    func sendCode() {
+        guard cooldown.remainingSeconds(now: now()) == 0 else { return }
+        action {
+            try await self.repository.sendLinkCode()
+            self.cooldown.onSent(now: self.now())
+            self.verificationToken = nil
+            self.codeSent = true
+            self.code = ""
+            self.verified = false
+            self.notice = "등록된 휴대폰으로 인증번호를 보냈어요"
         }
-        run {
-            try await repository.linkGoogle(idToken: native.google(), verificationToken: token)
+    }
+
+    func verifyCode() {
+        guard AuthPolicy.isValidVerificationCode(value: code) else { return }
+        let code = self.code
+        action {
+            self.verificationToken = try await self.repository.verifyLinkCode(code)
+            self.verifiedAt = self.now()
+            self.verified = true
+            self.code = ""
+            self.notice = "5분 안에 연결할 계정을 선택해 주세요"
+        }
+    }
+
+    /// 연결 인증이 지났으면 문자 인증부터 다시 하게 한다.
+    func expireVerification() {
+        guard verificationToken != nil, let verifiedAt, now().timeIntervalSince(verifiedAt) >= LINK_VERIFICATION_TTL_SECONDS else { return }
+        verificationToken = nil
+        verified = false
+        codeSent = false
+        notice = nil
+        error = "연결 인증 시간이 지났어요. 문자 인증부터 다시 해 주세요"
+    }
+
+    /// 구글 SDK 가 준 idToken 으로 연결한다. 공급자 토큰은 호출 인자로만 존재하고 상태에는 넣지 않는다.
+    func linkGoogle(idToken: String) async {
+        await link(done: "구글 계정을 연결했어요") { token in
+            try await self.repository.linkGoogle(idToken: idToken, verificationToken: token)
+        }
+    }
+
+    /// 애플 계정을 연결한다 — 서버가 준 일회성 nonce 를 그대로 Apple 인증창에 싣는다(`authorize`).
+    /// Apple 인증창을 닫으면 `CancellationError` 라 안내 없이 그대로 남는다.
+    func linkApple(authorize: @escaping @MainActor (String) async throws -> AppleCredential) async {
+        await link(done: "애플 계정을 연결했어요") { token in
+            let challenge = try await self.repository.appleChallenge(linking: true)
+            let credential = try await authorize(challenge.nonce)
+            try await self.repository.linkApple(
+                credential: credential, challengeToken: challenge.challengeToken, verificationToken: token)
+        }
+    }
+
+    private func link(done: String, _ operation: @MainActor (String) async throws -> Void) async {
+        guard !busy else { return }
+        expireVerification()
+        guard let token = verificationToken else { return }
+        busy = true
+        error = nil
+        defer { busy = false }
+        do {
+            try await operation(token)
             verificationToken = nil
-            sent = false
+            verified = false
+            codeSent = false
+            notice = done
             methods = try await repository.loginMethods()
+        } catch is CancellationError {
+        } catch {
+            if (error as? AuthException)?.error == .socialVerificationExpired {
+                verificationToken = nil
+                verified = false
+                codeSent = false
+            }
+            self.error = loginMethodMessage(error)
         }
     }
-    private func run(_ operation: @escaping @MainActor () async throws -> Void) {
+
+    func sdkFailed() { error = "구글 인증을 완료하지 못했어요. 다시 시도해 주세요" }
+
+    private func action(_ block: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true
-        message = nil
-        Task { @MainActor in
-            defer { busy = false }
-            do { try await operation() } catch is CancellationError {} catch {
-                if (error as? AuthException)?.error == .socialVerificationExpired {
-                    verificationToken = nil
-                    sent = false
-                }
-                cooldown.onFailure(error, now: Date())
-                message = error.authUserMessage()
+        error = nil
+        notice = nil
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.busy = false }
+            do {
+                try await block()
+            } catch is CancellationError {
+            } catch {
+                self.cooldown.onFailure(error, now: self.now())
+                self.error = loginMethodMessage(error)
             }
+        }
+    }
+}
+
+/// 문자 하루 한도는 이 화면 말투로 따로 말한다 — 나머지는 공용 인증 문구다(원본 `loginMethodMessage`)
+func loginMethodMessage(_ error: any Error) -> String {
+    if (error as? AuthException)?.error == .smsDailyLimitExceeded {
+        return "오늘 받을 수 있는 인증번호를 모두 썼어요. 내일 다시 시도해 주세요"
+    }
+    return error.authUserMessage()
+}
+
+/// 35 마이페이지 → 로그인 수단 관리. 원본 `LoginMethodsRoute`(Android #103) — 앱의 상단바·로딩·오류 화면을 쓴다.
+///
+/// 예전(iOS #50)에는 아이폰 기본 `Form`·`NavigationStack` 시트로 떠서 앱의 다른 화면과 모양이 달랐다.
+///
+/// - Parameter repository: 소셜 계정 저장소. nil 이면(소셜 기능을 주입하지 않은 호스트) 오류 화면만 그린다
+/// - Parameter onPasswordReset: 「비밀번호 재설정」 → 04c
+public struct LoginMethodsRoute: View {
+    private let repository: (any SocialAuthRepository)?
+    private let onBack: () -> Void
+    private let onPasswordReset: () -> Void
+    @Environment(\.nativeSocialAuthentication) private var native
+    @State private var viewModel: LoginMethodsViewModel?
+    @State private var sdkBusy = false
+
+    public init(
+        repository: (any SocialAuthRepository)?,
+        onBack: @escaping () -> Void = {},
+        onPasswordReset: @escaping () -> Void = {}
+    ) {
+        self.repository = repository
+        self.onBack = onBack
+        self.onPasswordReset = onPasswordReset
+        if let repository {
+            _viewModel = State(initialValue: LoginMethodsViewModel(repository: repository))
+        }
+    }
+
+    public var body: some View {
+        BackStateScaffold(title: "로그인 수단 관리", onBack: onBack) {
+            if let viewModel {
+                if viewModel.loading {
+                    LoadingBox()
+                } else if viewModel.methods == nil {
+                    ErrorBox(message: viewModel.error ?? "로그인 수단을 불러오지 못했어요", onRetry: { viewModel.refresh() })
+                } else {
+                    LoginMethodsScreen(
+                        viewModel: viewModel,
+                        sdkBusy: sdkBusy,
+                        onPasswordReset: onPasswordReset,
+                        onGoogle: { connectGoogle(viewModel) },
+                        onApple: { connectApple(viewModel) }
+                    )
+                }
+            } else {
+                ErrorBox(message: "로그인 수단을 불러오지 못했어요", onRetry: onBack, actionLabel: "돌아가기")
+            }
+        }
+        .task { viewModel?.refresh() }
+    }
+
+    private func connectGoogle(_ viewModel: LoginMethodsViewModel) {
+        guard !sdkBusy, let native else { return }
+        sdkBusy = true
+        Task { @MainActor in
+            defer { sdkBusy = false }
+            let idToken: String
+            do {
+                idToken = try await native.google()
+            } catch is CancellationError {
+                return
+            } catch {
+                viewModel.sdkFailed()
+                return
+            }
+            await viewModel.linkGoogle(idToken: idToken)
+        }
+    }
+
+    private func connectApple(_ viewModel: LoginMethodsViewModel) {
+        guard !sdkBusy, let native else { return }
+        sdkBusy = true
+        Task { @MainActor in
+            defer { sdkBusy = false }
+            await viewModel.linkApple(authorize: { try await native.apple($0) })
+        }
+    }
+}
+
+struct LoginMethodsScreen: View {
+    let viewModel: LoginMethodsViewModel
+    let sdkBusy: Bool
+    let onPasswordReset: () -> Void
+    let onGoogle: () -> Void
+    let onApple: () -> Void
+
+    var body: some View {
+        if let methods = viewModel.methods {
+            let busy = viewModel.busy || sdkBusy
+            let googleActive = methods.methods.contains { $0.provider == .google && $0.status == "ACTIVE" }
+            let appleActive = methods.methods.contains { $0.provider == .apple && $0.status == "ACTIVE" }
+            ScrollView {
+                VStack(alignment: .leading, spacing: MoyeotaSpacing.Md) {
+                    Text("연결된 로그인 수단")
+                        .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    if methods.hasPassword {
+                        Text("아이디와 비밀번호")
+                            .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
+                        SecondaryButton(text: "비밀번호 재설정", onClick: onPasswordReset, enabled: !busy)
+                    }
+                    ForEach(methods.methods, id: \.provider) { method in
+                        Text("\(providerLabel(method.provider)) · \(method.status == "ACTIVE" ? "연결됨" : "재인증 필요")")
+                            .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
+                    }
+                    if let error = viewModel.error { NoticeBanner(kind: .error, text: error) }
+                    if let notice = viewModel.notice { NoticeBanner(kind: .info, text: notice) }
+                    if !googleActive || !appleActive {
+                        Text("등록된 휴대폰으로 본인을 확인한 뒤 구글·애플 계정을 연결해요. 연결된 계정은 교체하거나 합칠 수 없어요.")
+                            .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextBody)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if !viewModel.verified {
+                            // 남은 초를 1초마다 다시 그린다(서버 쿨다운 안내가 「버튼의 남은 시간」을 가리킨다)
+                            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                                let remaining = viewModel.cooldown.remainingSeconds(now: timeline.date)
+                                SecondaryButton(
+                                    text: linkCodeSendTitle(remainingSeconds: remaining),
+                                    onClick: { viewModel.sendCode() },
+                                    enabled: !busy && remaining == 0
+                                )
+                            }
+                            if viewModel.codeSent {
+                                MoyeotaTextField(
+                                    value: viewModel.code,
+                                    onValueChange: { viewModel.changeCode($0) },
+                                    label: "인증번호",
+                                    placeholder: "숫자 6자리",
+                                    keyboardOptions: KeyboardOptions(keyboardType: .number),
+                                    enabled: !busy
+                                )
+                                PrimaryCtaButton(
+                                    text: "인증번호 확인",
+                                    onClick: { viewModel.verifyCode() },
+                                    enabled: !busy && AuthPolicy.isValidVerificationCode(value: viewModel.code)
+                                )
+                            }
+                        } else {
+                            if !appleActive {
+                                AppleSignInButton(text: busy ? "연결 중…" : "Apple 계정 연결", onClick: onApple, enabled: !busy)
+                            }
+                            if !googleActive {
+                                PrimaryCtaButton(text: busy ? "연결 중…" : "Google 계정 연결", onClick: onGoogle, enabled: !busy)
+                            }
+                        }
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            // 5분이 지나면 연결 단계에서 문자 인증으로 되돌린다(원본은 1초 타이머가 같은 일을 한다)
+            .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+                viewModel.expireVerification()
+            }
+        }
+    }
+
+    /// 연결 수단은 Google·Apple 이다. 서버가 다른 provider 를 보내도 디코딩에서 걸러져 여기 오지 않는다.
+    private func providerLabel(_ provider: SocialProvider) -> String {
+        switch provider {
+        case .google: return "Google"
+        case .apple: return "Apple"
         }
     }
 }

@@ -723,6 +723,9 @@ private struct MultiLineInput: UIViewRepresentable {
 
 // 텍스트 입력 — 토큰 text-input (h52, radius 12, 포커스 시 primary 테두리)
 // 공통 규칙: 필드 단위 오류는 필드 하단 danger 문구
+//
+// 쉬는 테두리는 BorderStrong(디자인 문서 text-input 의 ash-light), 자리표시자는 TextPlaceholder 다(디자인 QA P1).
+// 예전 Hairline 테두리(1.15:1)와 TextAsh 자리표시자(1.47:1)는 흰 화면에서 칸도 안내 글자도 거의 보이지 않았다.
 public struct MoyeotaTextField<Trailing: View>: View {
     private let value: String
     private let onValueChange: (String) -> Void
@@ -767,7 +770,7 @@ public struct MoyeotaTextField<Trailing: View>: View {
     public var body: some View {
         let borderColor = errorText != nil
             ? MoyeotaColor.Danger500
-            : (focused ? MoyeotaColor.Primary500 : MoyeotaColor.Hairline)
+            : (focused ? MoyeotaColor.Primary500 : MoyeotaColor.BorderStrong)
         VStack(alignment: .leading, spacing: 0) {
             if let label {
                 Text(label)
@@ -788,7 +791,7 @@ public struct MoyeotaTextField<Trailing: View>: View {
                 .fillingHeight()
                 if value.isEmpty {
                     Text(placeholder)
-                        .moyeotaText(.BodyMd, color: MoyeotaColor.TextAsh)
+                        .moyeotaText(.BodyMd, color: MoyeotaColor.TextPlaceholder)
                         .allowsHitTesting(false)
                 }
                 // 원본처럼 입력 칸 위에 겹쳐 놓는다(입력 칸 폭을 줄이지 않는다).
@@ -798,7 +801,7 @@ public struct MoyeotaTextField<Trailing: View>: View {
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity)
             .frame(height: 52)
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .circular).strokeBorder(borderColor, lineWidth: 1))
+            .overlay(MoyeotaShape.Card.strokeBorder(borderColor, lineWidth: 1))
             if let errorText {
                 Text(errorText)
                     .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Danger500)

@@ -11,13 +11,11 @@ public struct SplashScreen: View {
 
     public var body: some View {
         ZStack {
-            MoyeotaColor.SurfaceSoft
-            VStack(spacing: 20) {
+            // 흰 바탕 — 이어서 뜨는 첫 화면(온보딩·홈)과 같은 색이라 넘어갈 때 바탕이 깜빡이지 않는다(G2)
+            MoyeotaColor.SurfaceCanvas
+            VStack(spacing: 24) {
                 Text("모여타")
-                    .moyeotaText(
-                        MoyeotaType(fontSize: 24, fontWeight: .bold, letterSpacing: -0.48).hangulTrimmed,
-                        color: MoyeotaColor.InkPrimary
-                    )
+                    .moyeotaText(MoyeotaType.DisplayMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
                 CircularProgressIndicator(size: 28, color: MoyeotaColor.Primary500)
             }
         }

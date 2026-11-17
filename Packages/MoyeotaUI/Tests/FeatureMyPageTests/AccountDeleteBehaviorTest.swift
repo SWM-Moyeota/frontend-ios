@@ -57,11 +57,14 @@ private final class AccountDeleteFakeAuthRepository: AuthRepository, SocialAuthR
         if let failure { throw failure }
     }
     func loginGoogle(idToken: String) async throws -> SocialLoginResult { throw unrelated() }
+    func appleChallenge(linking: Bool) async throws -> AppleChallenge { throw unrelated() }
+    func loginApple(credential: AppleCredential, challengeToken: String) async throws -> SocialLoginResult { throw unrelated() }
     func registerSocial(_ registration: SocialRegistration) async throws { throw unrelated() }
     func loginMethods() async throws -> LoginMethods { throw unrelated() }
     func sendLinkCode() async throws { throw unrelated() }
     func verifyLinkCode(_ code: String) async throws -> String { throw unrelated() }
     func linkGoogle(idToken: String, verificationToken: String) async throws { throw unrelated() }
+    func linkApple(credential: AppleCredential, challengeToken: String, verificationToken: String) async throws { throw unrelated() }
 
     func updateProfile(nickname: String?, imageKey: String?) async throws { throw unrelated() }
     func resetProfileImage() async throws { throw unrelated() }
@@ -298,7 +301,7 @@ private final class SignalLog {
     @Test("경고 네 줄은 원본과 글자까지 같다")
     func warningsExact() {
         #expect(AccountDeletionWarnings == [
-            "지금 아이디와 비밀번호로는 다시 로그인할 수 없어요",
+            "지금 계정으로는 다시 로그인할 수 없어요",
             "참여 중인 채팅방에서 모두 나가고, 함께 탄 사람들에게는 「탈퇴한 사용자」로 보여요",
             "저장해 둔 자주 가는 곳이 지워져요",
             "같은 휴대폰 번호로는 30일 동안 다시 가입할 수 없어요",

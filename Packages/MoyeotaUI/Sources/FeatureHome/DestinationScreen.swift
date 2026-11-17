@@ -4,21 +4,6 @@ import MoyeotaDomain
 import PresentationCore
 import SwiftUI
 
-private let CanvasBg = Color(argb: 0xFFF5F7FA)
-private let GrayDeep = Color(argb: 0xFF54637D)
-private let GrayMute = Color(argb: 0xFF8A93A0)
-private let GrayAsh = Color(argb: 0xFF9AA1AC)
-private let CardShadow = Color(argb: 0x1A1B2A4A)
-
-/// 원본 `Text(fontSize = …, fontWeight = …)` 의 글자 모양.
-///
-/// `style` 을 주지 않은 Compose `Text` 는 `MaterialTheme` 의 `LocalTextStyle`(M3 기본 `bodyLarge`)에서
-/// **줄 높이 24sp · 자간 0.5sp** 를 물려받는다(스크린샷 `15-destination` 의 장소명·도로명 줄 간격이 24dp 다).
-/// `BasicTextField` 의 `textStyle` 은 이 값을 물려받지 않아 입력 칸에는 쓰지 않는다.
-func inlineType(_ fontSize: CGFloat, _ fontWeight: Font.Weight) -> MoyeotaType {
-    MoyeotaType(fontSize: fontSize, fontWeight: fontWeight, lineHeight: .sp(24), letterSpacing: 0.5)
-}
-
 /// 15 에서 지금 검색 입력을 받고 있는 필드 — 출발지·도착지가 같은 검색 UI 를 공유한다
 public enum DestinationField: Sendable {
     case origin, destination
@@ -86,10 +71,16 @@ func selectedPlaceLabel(_ place: Place) -> String {
 }
 
 /// 기본값일 때만 "현재 위치" — 사용자가 직접 고른 출발지는 "변경" 로 구분.
-/// 출발지가 비었으면 "검색" — 눌러서 채우라는 신호
-func originBadgeLabel(origin: String?, originIsDefault: Bool) -> String {
-    if origin == nil { return "검색" }
-    return originIsDefault ? "현재 위치" : "변경"
+/// 출발지가 비었으면 "검색" — 눌러서 채우라는 신호.
+/// 출발지 이름이 이미 「현재 위치」면 꼬리표를 달지 않는다(nil, 디자인 QA S15-2) —
+/// 「현재 위치 … 현재 위치」로 같은 말이 한 줄에 두 번 나왔다.
+func originBadgeLabel(origin: String?, originIsDefault: Bool) -> String? {
+    guard let origin else { return "검색" }
+    if originIsDefault {
+        let tag = "현재 위치"
+        return origin.trim() != tag ? tag : nil
+    }
+    return "변경"
 }
 
 /// 15 · 목적지 · 매칭 조건 [S10]
@@ -209,35 +200,22 @@ public struct DestinationScreen: View {
         VStack(spacing: 0) {
             StatusBarSpacer()
 
-            // 헤더 — 뒤로 + 좌측 정렬 타이틀
-            HStack(alignment: .center, spacing: 0) {
-                Button(action: onBack) {
-                    // 머티리얼 `IconButton` 의 레이아웃 크기는 최소 터치 영역인 48dp 다.
-                    BackArrowIcon()
-                        .frame(width: 48, height: 48)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(PressFeedbackStyle())
-                Text("어디로 갈까요?")
-                    .moyeotaText(inlineType(18, .bold), color: MoyeotaColor.InkPrimary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 56)
-            .padding(.leading, 12)
+            // 헤더 — 다른 하위 화면과 같은 가운데 제목 앱바(G7)
+            MoyeotaTopBar(title: "어디로 갈까요?", onBack: onBack)
 
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer().frame(height: 4)
                     fields
                     selectedPlaceConfirmation
-                    Spacer().frame(height: 26)
+                    Spacer().frame(height: MoyeotaSpacing.SectionGap)
                     favoritesSection
-                    Spacer().frame(height: 26)
+                    Spacer().frame(height: MoyeotaSpacing.SectionGap)
                     searchSection
                     Spacer().frame(height: 24)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             }
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
@@ -249,17 +227,17 @@ public struct DestinationScreen: View {
                 // (`getPartiesWithin`, 서버도 "출발지가 영역 안인 ACTIVE 방"). 도착지로 거르는 길이 없다.
                 // 이 CTA 가 실제로 하는 일은 16 에서 경로·예상 요금을 보여주는 것이다(2026-10-13).
                 Text("도착지를 넣으면 경로와 예상 요금을 알려드려요")
-                    .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
                     .frame(maxWidth: .infinity, alignment: .center)
                 if originMissing {
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 8)
                     NoticeBanner(kind: .info, text: "현재 위치를 확인하거나 출발지를 검색해 주세요")
                 }
                 if tooClose {
-                    Spacer().frame(height: 10)
+                    Spacer().frame(height: 8)
                     NoticeBanner(kind: .error, text: "너무 가까워요")
                 }
-                Spacer().frame(height: 14)
+                Spacer().frame(height: 12)
                 PrimaryCtaButton(
                     text: "경로 확인하기",
                     onClick: { if let selectedPlace { onConfirmRoute(selectedPlace) } },
@@ -267,11 +245,13 @@ public struct DestinationScreen: View {
                 )
             }
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
             NavigationBarSpacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CanvasBg)
+        // 흰 화면(디자인 QA G2) — 예전 회색 바탕(#F5F7FA)은 비활성 CTA(#F4F6FA)와 대비가 1.01:1 이라
+        // 「경로 확인하기」 버튼 모양이 사라지고 회색 글자만 떠 있었다.
+        .background(MoyeotaColor.SurfaceCanvas)
     }
 
     // ─── 출발지 · 도착지 ────────────────────────────────────────────────────
@@ -281,8 +261,6 @@ public struct DestinationScreen: View {
         // 출발지 행 — 비활성이면 선택된 이름만, 활성이면 도착지와 같은 검색 입력이 된다
         PlaceFieldRow(
             focused: originActive,
-            // 검색 모드가 아닐 때만 그림자 — 포커스 테두리와 겹치면 지저분해진다
-            elevated: !originActive,
             onClick: { onFieldFocus(.origin) }
         ) {
             if originActive {
@@ -295,15 +273,21 @@ public struct DestinationScreen: View {
             } else {
                 Text(origin ?? "출발지를 검색해 주세요")
                     .moyeotaText(
-                        inlineType(15, origin == nil ? .medium : .bold),
-                        color: origin == nil ? GrayAsh : MoyeotaColor.InkPrimary
+                        (origin == nil ? MoyeotaType.BodyMd : MoyeotaType.BodyStrong).hangulTrimmed,
+                        color: origin == nil ? MoyeotaColor.TextPlaceholder : MoyeotaColor.InkPrimary
                     )
                     .clippedSingleLine()
                     .allowsHitTesting(false)
-                Text(originBadgeLabel(origin: origin, originIsDefault: originIsDefault))
-                    .moyeotaText(inlineType(12, .medium), color: GrayMute)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .allowsHitTesting(false)
+                // 기본값일 때만 "현재 위치" — 사용자가 직접 고른 출발지는 "변경" 로 구분.
+                // 출발지가 비었으면 "검색" — 눌러서 채우라는 신호.
+                // 출발지 이름이 이미 「현재 위치」면 꼬리표를 달지 않는다(디자인 QA S15-2) —
+                // 「현재 위치 … 현재 위치」로 같은 말이 한 줄에 두 번 나왔다.
+                if let originTag = originBadgeLabel(origin: origin, originIsDefault: originIsDefault) {
+                    Text(originTag)
+                        .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .allowsHitTesting(false)
+                }
             }
         }
 
@@ -312,7 +296,6 @@ public struct DestinationScreen: View {
         // 도착지 입력 행
         PlaceFieldRow(
             focused: !originActive,
-            elevated: originActive,
             onClick: { onFieldFocus(.destination) }
         ) {
             SearchInput(
@@ -332,7 +315,7 @@ public struct DestinationScreen: View {
         if let selectedPlace {
             Spacer().frame(height: 8)
             Text(selectedPlaceLabel(selectedPlace))
-                .moyeotaText(inlineType(12, .bold), color: MoyeotaColor.Primary600)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Primary600)
         }
     }
 
@@ -341,23 +324,19 @@ public struct DestinationScreen: View {
     // 자주 가는 곳 — 서버(GET /users/me/favorite-places)
     @ViewBuilder
     private var favoritesSection: some View {
-        HStack(alignment: .center, spacing: 0) {
-            Text("자주 가는 곳")
-                .moyeotaText(inlineType(13, .medium), color: GrayMute)
+        SectionLabel(text: "자주 가는 곳") {
             if favoritesLoading {
-                Spacer().frame(width: 8, height: 8)
                 CircularProgressIndicator(size: 12, color: MoyeotaColor.Primary500, strokeWidth: 1.5)
             }
         }
-        Spacer().frame(height: 10)
         if let favoritesErrorMessage {
             Text(favoritesErrorMessage)
-                .moyeotaText(inlineType(12, .medium), color: MoyeotaColor.Danger600)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Danger600)
         } else if favoritePlaces.isEmpty && !favoritesLoading {
             Text("아직 등록한 장소가 없어요. 검색 결과의 ★ 를 눌러 등록해 보세요")
-                .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
         } else {
-            HStack(alignment: .top, spacing: 9) {
+            HStack(alignment: .top, spacing: 8) {
                 // 한 줄에 3개까지만 — 서버는 최대 10개를 내려준다.
                 // **여기에는 삭제 손잡이를 두지 않는다**: take(3) 이라 전체가 안 보이는데
                 // 「전체 삭제」를 이 자리에 두면 보이지 않는 7곳까지 지워진다. 목록 전체가
@@ -380,7 +359,7 @@ public struct DestinationScreen: View {
         if let favoriteActionMessage {
             Spacer().frame(height: 8)
             Text(favoriteActionMessage)
-                .moyeotaText(inlineType(12, .medium), color: GrayDeep)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextBody)
         }
     }
 
@@ -392,23 +371,21 @@ public struct DestinationScreen: View {
     private var searchSection: some View {
         let activeQuery = originActive ? originQuery : query
         if !activeQuery.isBlank {
-            Text(originActive ? "출발지 검색 결과" : "검색 결과")
-                .moyeotaText(inlineType(13, .medium), color: GrayMute)
-            Spacer().frame(height: 10)
+            SectionLabel(text: originActive ? "출발지 검색 결과" : "검색 결과")
             if let searchErrorMessage {
                 Text(searchErrorMessage)
-                    .moyeotaText(inlineType(12, .medium), color: MoyeotaColor.Danger600)
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.Danger600)
             } else if searchResults.isEmpty && !searchLoading {
                 Text("검색 결과가 없어요")
-                    .moyeotaText(inlineType(12, .medium), color: GrayAsh)
+                    .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
             } else {
-                resultsCard
+                resultsList
             }
         }
     }
 
-    private var resultsCard: some View {
-        let shape = RoundedRectangle(cornerRadius: 18, style: .circular)
+    // 그림자 카드 없이 흰 화면 위에 줄로 바로(G4) — 줄 사이만 Hairline
+    private var resultsList: some View {
         // 활성 필드의 마커색 — 출발지는 Primary, 도착지는 MarkerDestination
         let activeMarkerColor = originActive ? MoyeotaColor.Primary500 : MoyeotaColor.MarkerDestination
         // 같은 이름·주소의 행이 올 수 있어 자리로 구분한다(원본 `forEachIndexed`).
@@ -426,16 +403,13 @@ public struct DestinationScreen: View {
                     }
                 )
                 if index != searchResults.count - 1 {
+                    // 글자 시작(점 8 + 간격 12)부터 긋는다
                     HorizontalDivider(color: MoyeotaColor.Hairline)
-                        .padding(.leading, 50)
-                        .padding(.trailing, 20)
+                        .padding(.leading, 20)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .background(MoyeotaColor.SurfaceCanvas)
-        .clipShape(shape)
-        .moyeotaShadow(elevation: 4, shape: shape, spotColor: CardShadow)
     }
 }
 
@@ -454,16 +428,19 @@ private extension View {
 /// 출발지·도착지 필드의 공통 껍데기.
 /// focused 면 파랑 테두리 — 두 필드 중 어디에 검색어가 들어가는지 이걸로만 구분한다.
 ///
+/// 그림자는 두지 않는다(디자인 QA G4) — 흰 화면 위의 입력칸이라 테두리(`MoyeotaColor.BorderStrong`,
+/// 디자인 문서 text-input)로 모양이 선다. 예전엔 포커스 없는 칸에만 그림자를 줘서 두 칸이 서로 다른
+/// 높이에 떠 보였다.
+///
 /// 탭은 내용 **뒤에 깔린** 버튼이 받는다. 버튼 라벨로 넣으면 입력 칸을 누를 때도 행이 눌린 것처럼 보이는데, 원본은
 /// 켜진 입력 칸이 탭을 먼저 가져가 행까지 오지 않는다. 글자·꺼진 입력 칸은 탭을 통과시켜 이 버튼으로 내려보낸다.
 private struct PlaceFieldRow<Content: View>: View {
     let focused: Bool
-    let elevated: Bool
     let onClick: () -> Void
     @ViewBuilder let content: Content
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .circular)
+        let shape = MoyeotaShape.Card
         HStack(alignment: .center, spacing: 0) {
             content
         }
@@ -479,14 +456,8 @@ private struct PlaceFieldRow<Content: View>: View {
         .background(MoyeotaColor.SurfaceCanvas, in: shape)
         .overlay {
             shape
-                .strokeBorder(focused ? MoyeotaColor.Primary500 : MoyeotaColor.Hairline, lineWidth: focused ? 1.5 : 1)
+                .strokeBorder(focused ? MoyeotaColor.Primary500 : MoyeotaColor.BorderStrong, lineWidth: focused ? 1.5 : 1)
                 .allowsHitTesting(false)
-        }
-        // `if` 로 행 전체를 갈라 그리면 입력 칸이 새로 만들어져 쓰던 값·커서를 잃는다. 그림자만 켜고 끈다.
-        .background {
-            if elevated {
-                Color.clear.moyeotaShadow(elevation: 4, shape: shape, spotColor: CardShadow)
-            }
         }
     }
 }
@@ -504,7 +475,8 @@ private struct SearchInput: View {
             BasicTextField(
                 value: value,
                 onValueChange: onValueChange,
-                textStyle: MoyeotaType(fontSize: 15, fontWeight: .bold, color: MoyeotaColor.InkPrimary),
+                // 입력한 글자는 본문 굵기(디자인 문서 text-input = body-md) — 예전엔 15pt Bold 였다
+                textStyle: MoyeotaType.BodyMd.copy(color: MoyeotaColor.InkPrimary),
                 singleLine: true,
                 enabled: enabled,
                 focusRequester: focus
@@ -512,7 +484,7 @@ private struct SearchInput: View {
             .frame(maxWidth: .infinity)
             if value.isEmpty {
                 Text(placeholder)
-                    .moyeotaText(inlineType(15, .medium), color: GrayAsh)
+                    .moyeotaText(MoyeotaType.BodyMd.hangulTrimmed, color: MoyeotaColor.TextPlaceholder)
                     .allowsHitTesting(false)
             }
         }
@@ -535,36 +507,36 @@ private struct FieldSpinner: View {
     }
 }
 
-/// 원본의 `weight(1f)` 카드 한 장. 세로 값은 원본 측정 규칙의 결과를 그대로 옮겼다.
+/// 원본의 `weight(1f)` 타일 한 장 — ★ 위, 이름·도로명 아래(가운데는 남는 높이).
 ///
-/// 카드 안쪽 높이는 72 − 12 × 2 = 48 인데 원본 `Column` 은 앞에서부터 남은 높이만 내준다: ★ 17, 이름 줄 24, 그러면
-/// 도로명 줄에는 **7** 만 남고 그 안에서 잘린다. 줄 높이 24 를 다 받지 못하므로 도로명은 윗부분만 조금 보인다.
+/// 그림자 대신 `MoyeotaColor.Border` 선(디자인 QA G4·S15-2) — 흰 화면 위의 타일이라 선 하나로 모양이 선다.
+/// 주소는 10pt → 12pt(CaptionMd): 10pt 는 이 앱의 글자 크기 표 밖이고 거의 읽히지 않았다.
 private struct FavoriteCard: View {
     let place: FavoritePlace
     let onClick: () -> Void
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .circular)
+        let shape = MoyeotaShape.Card
         Button(action: onClick) {
             VStack(alignment: .leading, spacing: 0) {
-                StarIcon()
+                StarIcon(size: MoyeotaIconSize.Sm, tint: MoyeotaColor.TextPlaceholder)
+                Spacer(minLength: 0)
                 Text(place.name)
-                    .moyeotaText(inlineType(13, .bold), color: MoyeotaColor.InkPrimary)
-                    .clippedSingleLine()
+                    .moyeotaText(MoyeotaType.BodySm.copy(fontWeight: .semibold).hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(place.roadName)
-                    .moyeotaText(inlineType(10, .medium), color: GrayMute)
-                    .clippedSingleLine()
-                    .frame(height: 7, alignment: .top)
-                    .clipped()
+                    .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 72, alignment: .top)
+            .frame(height: 80)
             .background(MoyeotaColor.SurfaceCanvas, in: shape)
+            .overlay(shape.strokeBorder(MoyeotaColor.Border, lineWidth: 1))
         }
         .buttonStyle(PressOverlayStyle(shape: shape))
-        .moyeotaShadow(elevation: 4, shape: shape, spotColor: CardShadow)
     }
 }
 
@@ -581,33 +553,34 @@ private struct SearchResultRow: View {
         HStack(alignment: .center, spacing: 0) {
             Circle()
                 .fill(markerColor)
-                .frame(width: 9, height: 9)
+                .frame(width: 8, height: 8)
                 .allowsHitTesting(false)
-            Spacer().frame(width: 12, height: 12)
+            Spacer().frame(width: 12)
             VStack(alignment: .leading, spacing: 0) {
-                // 도로명이 빈 장소가 있다. Compose 의 빈 `Text` 는 한 줄 높이를 차지하지만 SwiftUI 는 0 이라 하한을 준다.
                 Text(place.name)
-                    .moyeotaText(inlineType(14, .bold), color: MoyeotaColor.InkPrimary)
-                    .frame(minHeight: 24)
-                Text(place.roadName)
-                    .moyeotaText(inlineType(12, .medium), color: GrayMute)
-                    .frame(minHeight: 24)
+                    .moyeotaText(MoyeotaType.BodyStrong.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                // 서버가 도로명을 비워 주는 장소가 있다(지번만 있는 건물·역). 빈 줄을 세우면
+                // 이름이 두 줄 칸의 위쪽에 붙고 점·★ 는 가운데에 남아 어긋나 보였다(S15-1).
+                if !place.roadName.isBlank {
+                    Text(place.roadName)
+                        .moyeotaText(MoyeotaType.BodySm.hangulTrimmed, color: MoyeotaColor.TextMute)
+                }
             }
             .multilineTextAlignment(.leading)
             .frame(maxWidth: .infinity, alignment: .leading)
             .allowsHitTesting(false)
             // ★ 토글 — 안 담은 곳이면 등록, 이미 담은 곳이면 빼기
             //
-            // **48dp 를 채운다.** 이 ★ 는 「담기 전용」이던 동안에는 17dp 아이콘에
-            // 10dp 패딩(=37dp)이면 됐지만, 빼기가 붙으면서 **되돌릴 수 없는 삭제**가
+            // **48 을 채운다.** 이 ★ 는 「담기 전용」이던 동안에는 17 아이콘에
+            // 10 패딩(=37)이면 됐지만, 빼기가 붙으면서 **되돌릴 수 없는 삭제**가
             // 됐다. 게다가 이 자리는 행 전체를 먹는 탭 영역 안에 있어
             // 위아래·오른쪽 띠가 행의 것이다 — 작게 두면 행을 노린 탭이 ★ 를 빗맞히고
             // 반대로 ★ 를 노린 탭이 행으로 새어 15 가 열린다.
             Button(action: onStar) {
                 StarIcon(
                     // 담긴 곳은 채운 ★ — 지금 상태가 무엇인지가 토글의 전부다
-                    color: favoriteActionLoading ? GrayAsh : MoyeotaColor.Primary500,
-                    filled: savedId != nil
+                    filled: savedId != nil,
+                    tint: favoriteActionLoading ? MoyeotaColor.TextPlaceholder : MoyeotaColor.Primary500
                 )
                 .frame(width: 48, height: 48)
             }
@@ -615,48 +588,18 @@ private struct SearchResultRow: View {
             .disabled(favoriteActionLoading)
             // 원본의 꺼진 `clickable` 은 탭을 받지 않아 바깥 행으로 넘어간다. 잠긴 동안의 ★ 탭은 행 선택이 된다.
             .allowsHitTesting(!favoriteActionLoading)
+            // 아이콘만 있는 버튼이라 VoiceOver 에 무엇을 하는지 알린다
+            .accessibilityLabel(savedId != nil ? "즐겨찾기에서 빼기" : "즐겨찾기에 담기")
         }
-        // end 를 4dp 로 줄인 건 ★ 가 48dp 를 스스로 차지하기 때문이다 —
-        // 예전 12dp 를 그대로 두면 ★ 가 오른쪽으로 더 밀려 가장자리에 붙는다.
-        .padding(.leading, 20)
-        .padding(.trailing, 4)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
+        // 오른쪽 여백이 없는 건 ★ 가 48 을 스스로 차지하기 때문이다.
+        .padding(.vertical, 4)
+        // 도로명이 빈 행도 두 줄짜리 행과 같은 높이를 갖는다(S15-1)
+        .frame(maxWidth: .infinity, minHeight: 56)
         .background {
             Button(action: onSelect) {
                 Color.clear
             }
             .buttonStyle(PressOverlayStyle(shape: Rectangle()))
         }
-    }
-}
-
-// ─── 아이콘 ──────────────────────────────────────────────────────────────
-
-/// `filled` = 이미 담은 곳. 같은 도형을 선 대신 면으로 칠해 「담겼다」를 한 눈에 보여준다
-private struct StarIcon: View {
-    var color = GrayAsh
-    var filled = false
-
-    var body: some View {
-        Canvas { context, size in
-            let r = min(size.width, size.height) / 2
-            let cx = size.width / 2
-            let cy = size.height / 2
-            var path = Path()
-            for i in 0..<10 {
-                let radius = i % 2 == 0 ? r : r * 0.45
-                let angle = -Double.pi / 2 + Double(i) * Double.pi / 5
-                let point = CGPoint(x: cx + radius * cos(angle), y: cy + radius * sin(angle))
-                if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
-            }
-            path.closeSubpath()
-            if filled {
-                context.fill(path, with: .color(color))
-            } else {
-                context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.4, lineJoin: .round))
-            }
-        }
-        .frame(width: 17, height: 17)
     }
 }
