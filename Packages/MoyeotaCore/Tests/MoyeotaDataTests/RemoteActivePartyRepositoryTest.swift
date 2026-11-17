@@ -21,10 +21,16 @@ import Testing
         #expect(chats.myRoomsCalls.value == 0, "기억이 맞았는데 채팅방 목록까지 불렀다")
     }
 
-    /// 정원이 막 찬 방(서버 COMPLETED → 도메인 MATCHED)도 진행 중이다. 여기서 놓치면 매칭 순간을 잃는다.
-    @Test("정원 충족 상태 MATCHED 도 진행 중으로 본다")
-    func matchedIsActive() async throws {
-        let rides = FakeRideRepository(details: [10: ride(id: 10, status: .matched)])
+    /// 약속이 확정된 방(서버 COMPLETED → 도메인 `RideStatus.confirmed`)도 진행 중이다.
+    /// 여기서 놓치면 **약속 장소로 가야 하는 사람의 홈 배너가 사라진다**.
+    ///
+    /// 이 테스트는 오래 「정원 충족 상태 MATCHED」였다. 서버가 COMPLETED 의 뜻을 바꿔
+    /// (`b16551b7`: 「COMPLETED 는 방장이 약속을 확정한 실시간 방만 뜻한다. 정원이 차도 ACTIVE」)
+    /// 이름과 이유가 함께 바뀌었다 — **정원이 찬 방은 이제 `recruiting` 으로 오고**,
+    /// 그쪽은 위의 다른 테스트가 덮는다.
+    @Test("약속이 확정된 방도 진행 중으로 본다")
+    func confirmedIsActive() async throws {
+        let rides = FakeRideRepository(details: [10: ride(id: 10, status: .confirmed)])
         let storage = FakeActivePartyStorage(RememberedParty(partyId: "10", ownerUuid: Self.MY_UUID))
 
         let resolved = try await repository(rides, FakeChatRepository(), storage).resolve()
@@ -56,7 +62,7 @@ import Testing
 
     @Test("내가 멤버가 아닌 방이면 기억을 지운다")
     func notAMember() async throws {
-        let notMine = ride(id: 10, status: .matched, memberUuid: "someone-else")
+        let notMine = ride(id: 10, status: .confirmed, memberUuid: "someone-else")
         let rides = FakeRideRepository(details: [10: notMine])
         let storage = FakeActivePartyStorage(RememberedParty(partyId: "10", ownerUuid: Self.MY_UUID))
 
@@ -71,7 +77,7 @@ import Testing
         let rides = FakeRideRepository(
             details: [
                 7: ride(id: 7, status: .completed),
-                8: ride(id: 8, status: .matched),
+                8: ride(id: 8, status: .confirmed),
             ]
         )
         let chats = FakeChatRepository(
@@ -103,7 +109,7 @@ import Testing
     /// 기억은 버리되, 새 계정의 방은 채팅방 목록에서 정상적으로 찾아야 한다.
     @Test("계정이 바뀌면 이전 계정의 기억을 무시하고 지운다")
     func accountChanged() async throws {
-        let rides = FakeRideRepository(details: [99: ride(id: 99, status: .matched)])
+        let rides = FakeRideRepository(details: [99: ride(id: 99, status: .confirmed)])
         let storage = FakeActivePartyStorage(RememberedParty(partyId: "99", ownerUuid: "previous-user-uuid"))
 
         let resolved = try await repository(rides, FakeChatRepository(), storage).resolve()
@@ -160,7 +166,7 @@ import Testing
     /// 그 0 을 그대로 조회하면 방마다 404 한 번씩이다 — 후보에서 아예 빼야 한다.
     @Test("목록이 partyId 를 주면 채팅방 상세를 읽지 않는다")
     func listedPartyIdSkipsRoomDetail() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .confirmed)])
         let chats = FakeChatRepository(rooms: [myChatRoom(roomId: 1, partyId: 8)])
 
         let resolved = try await repository(rides, chats, FakeActivePartyStorage(nil)).resolve()
@@ -177,7 +183,7 @@ import Testing
     /// 돌아갈 길이 없었다(30분 만료까지). 이제 채팅방 상세(`ChatRoomResult.partyId`)로 건져 온다.
     @Test("목록에 partyId 가 없으면 채팅방 상세로 건져 온다")
     func resolvesPartyIdFromRoomDetail() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .confirmed)])
         let chats = FakeChatRepository(
             rooms: [myChatRoom(roomId: 2, partyId: 0)],
             partyIdsByRoom: [2: 8]
@@ -208,7 +214,7 @@ import Testing
     /// 채팅방 상세가 실패해도 다음 후보로 넘어간다 — 한 방의 네트워크 실패가 복구 경로 전체를 막으면 안 된다.
     @Test("채팅방 상세가 실패해도 다른 후보를 계속 본다")
     func roomDetailFailureContinues() async throws {
-        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .matched)])
+        let rides = FakeRideRepository(details: [8: ride(id: 8, status: .confirmed)])
         let chats = FakeChatRepository(
             rooms: [myChatRoom(roomId: 2, partyId: 0), myChatRoom(roomId: 1, partyId: 0)],
             partyIdsByRoom: [1: 8],
@@ -380,13 +386,17 @@ private final class FakeRideRepository: RideRepository {
     ) async throws -> [MatchCandidate] { [] }
 
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { [] }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func createParty(request: NewParty) async throws -> Ride { throw IllegalStateException("쓰이지 않는다") }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw IllegalStateException("쓰이지 않는다") }
     func leaveParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
-    func finishParty(partyId: Int64) async throws { throw IllegalStateException("쓰이지 않는다") }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw IllegalStateException("쓰이지 않는다") }
+    func confirmMeeting(
+        partyId: Int64,
+        departureAt: String,
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ) async throws { throw IllegalStateException("쓰이지 않는다") }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {
         throw IllegalStateException("쓰이지 않는다")
     }
@@ -398,11 +408,10 @@ private final class FakeRideRepository: RideRepository {
         destinationLng: Double
     ) async throws -> RouteEstimate { throw IllegalStateException("쓰이지 않는다") }
 
-    // 예약 넷. 이 테스트(「지금 타고 있는 방」 복원)는 예약을 보지 않는다 — 진행 중 방의 단일 출처는
+    // 예약 셋. 이 테스트(「지금 타고 있는 방」 복원)는 예약을 보지 않는다 — 진행 중 방의 단일 출처는
     // 로컬 기억 + 상세 조회이고, 예약 방도 결국 **같은 상세**로 복원된다(예약 전용 상세가 없다).
-    // 그래서 생성은 끊고, 조회 셋은 빈 목록이 가장 정직한 기본값이다(추천과 같은 판단).
+    // 그래서 생성은 끊고, 조회 둘은 빈 목록이 가장 정직한 기본값이다(추천과 같은 판단).
     func createReservation(request: NewReservation) async throws -> Ride { throw IllegalStateException("쓰이지 않는다") }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(
         departureLat: Double,

@@ -16,9 +16,9 @@ import Testing
 
     /// 구독 직후 `connected` 의 data — 방 상세(`PartyDetailResult`)를 Jackson 이 직렬화한 모양 그대로.
     ///
-    /// 끝의 `taxiDriverId` 는 **일부러 남겨 둔 모르는 키**다. 기사·배차가 사라져 DTO 에는 받는 자리가
-    /// 없는데 서버는 출시된 앱 호환으로 이 키를 계속 실어 보낸다 — 즉 이 줄은
-    /// 디코더가 그걸 모르는 키로 조용히 흘린다(`MoyeotaJSON`)는 계약을 지킨다.
+    /// 끝의 `taxiDriverId`, 반경 두 키, 멤버의 `badgeId` 는 **일부러 남겨 둔 모르는 키**다. 서버가
+    /// `2732cc75` 에서 응답에서 지웠고 DTO 에도 받는 자리가 없다 — 즉 이 본문은 옛 서버가 그 키들을
+    /// 실어 보내도 디코더가 모르는 키로 조용히 흘린다(`MoyeotaJSON`)는 계약을 지킨다.
     /// 지우면 그 보장이 사라지고, SSE 파싱 실패는 **화면에서 "아무 일도 안 일어남"으로만 보인다**.
     private let connectedData = """
         {"id":7,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
@@ -63,18 +63,18 @@ import Testing
         return (publicId, status, hostPublicId, version)
     }
 
-    private func recruitingClosed(_ event: PartyEvent) throws -> (status: String, version: Int64?) {
-        guard case .recruitingClosed(let status, let version) = event else {
+    private func confirmed(_ event: PartyEvent) throws -> (
+        status: String,
+        departureAt: String?,
+        departureLat: Double?,
+        departureLng: Double?,
+        departurePlace: String?,
+        version: Int64?
+    ) {
+        guard case .confirmed(let status, let departureAt, let lat, let lng, let place, let version) = event else {
             throw UnexpectedFrame(description: "\(event)")
         }
-        return (status, version)
-    }
-
-    private func confirmed(_ event: PartyEvent) throws -> (status: String, departureAt: String?, version: Int64?) {
-        guard case .confirmed(let status, let departureAt, let version) = event else {
-            throw UnexpectedFrame(description: "\(event)")
-        }
-        return (status, departureAt, version)
+        return (status, departureAt, lat, lng, place, version)
     }
 
     private func arrived(_ event: PartyEvent) throws -> (publicId: String, version: Int64?) {
@@ -138,8 +138,11 @@ import Testing
         let joined = try joined(try parse(EVENT_MEMBER_JOINED, data).toPartyEvent(currentUuid: Self.UUID_ME))
 
         #expect(joined.member.isMe)
-        // 마지막 자리를 채우면 서버가 그 자리에서 정원 충족까지 끝내고 그 결과를 싣는다.
-        #expect(joined.status == .matched)
+        // 상태는 프레임이 실어 온 그대로 옮긴다. ⚠️ 지금 서버의 합류 프레임은 늘 `ACTIVE` 다 — 정원이
+        // 차도 ACTIVE 로 남고(`b16551b7`), `COMPLETED`(방장이 약속을 확정했다)인 방은 합류가 막힌다.
+        // 여기 `COMPLETED` 를 둔 건 기본값(`recruiting`)과 구별되는 값이어야 매퍼가 프레임의 상태를
+        // 읽는지가 보이기 때문이다.
+        #expect(joined.status == .confirmed)
     }
 
     /// 유저 요약이 없으면 서버가 전부 null 인 member 를 싣는다 — 상세와 같은 "탈퇴한 회원" 처리.
@@ -438,28 +441,34 @@ import Testing
         #expect(try parse(EVENT_CLOSED, "7").toPartyEvent() == .closed)
     }
 
-    // ─── 방을 끝내는 길의 세 이벤트(모집 마감·약속 확정·출발지 도착) ──────────────
+    // ─── 방을 끝내는 길의 두 이벤트(약속 확정·출발지 도착) ──────────────
     //
-    // 서버는 일곱 종을 보내는데 앱은 넷만 읽고 있었다. 모르는 이름은 조용히 건너뛰므로
-    // (`모르는 이벤트 이름은 건너뛴다`) 빠진 셋은 **화면에서 "아무 일도 안 일어남"** 으로만 보였다 —
+    // 서버는 여섯 종을 보내는데 앱은 넷만 읽고 있었다. 모르는 이름은 조용히 건너뛰므로
+    // (`모르는 이벤트 이름은 건너뛴다`) 빠진 것들은 **화면에서 "아무 일도 안 일어남"** 으로만 보였다 —
     // 방장이 약속을 확정해도 남들 화면은 모집 중이었다. 그래서 이름 문자열부터 못박는다.
+    //
+    // 셋째였던 `recruiting-closed`(모집 마감)는 **서버가 지웠다**(`b16551b7`). 정원이 차도 방은 ACTIVE 로
+    // 남아 「모집이 끝났다」는 전이 자체가 사라졌고, 모집을 끝내는 신호는 `confirmed` 하나다.
 
-    /// `recruiting-closed` — 모집 **시간**이 끝나 지금 인원으로 마감된 경우다(정원이 차서 마감되는 쪽은
-    /// `member-joined` 의 status 에 실려 온다 — 같은 전이를 두 번 보내지 않는다).
+    /// 지워진 `recruiting-closed` 를 옛 서버가 보내도 **모르는 이름으로 건너뛴다** — 파싱을 되살려 두면
+    /// 「정원이 찼다」를 뜻하던 `COMPLETED` 가 지금의 「확정됐다」로 읽혀, 확정되지 않은 방을 확정으로 그린다.
+    /// 건너뛰면 순번이 하나 비어 화면이 상세를 다시 읽으므로 그 프레임의 변화는 잃지 않는다.
     ///
-    /// status 는 **서버 enum 이름 문자열 그대로** 올라간다(도메인 계약이 String 이다) —
-    /// `member-joined`·`member-left` 가 `RideStatus` 로 올라가는 것과 모양이 다르니 주의.
-    @Test("recruiting-closed 는 마감 뒤 상태와 순번을 올린다")
-    func recruitingClosedCarriesStatusAndVersion() throws {
-        let closed = try recruitingClosed(
-            try parse(EVENT_RECRUITING_CLOSED, #"{"status":"COMPLETED","version":12}"#).toPartyEvent()
-        )
+    /// (`recruiting-closed 는 마감 뒤 상태와 순번을 올린다` 테스트가 이 자리에 있었다.)
+    @Test("서버가 지운 recruiting-closed 는 모르는 이름으로 건너뛴다")
+    func removedRecruitingClosedIsSkipped() {
+        let frame = parsePartySseFrame(type: "recruiting-closed", data: #"{"status":"COMPLETED","version":12}"#)
 
-        #expect(closed.status == "COMPLETED")
-        #expect(closed.version == 12)
+        guard case .skipped(let reason) = frame else {
+            Issue.record("건너뛰지 않았다: \(frame)")
+            return
+        }
+        #expect(reason.contains("recruiting-closed"))
     }
 
-    /// `confirmed` — 이 프레임이 **방의 성질을 바꾼다**: 모집이 끝나고 아무도 나갈 수 없게 된다.
+    /// `confirmed` — 이 프레임이 **방의 성질을 바꾼다**: 참여가 막히고, 방의 출발지가 만남 장소로 옮겨진다.
+    /// (예전에는 「아무도 나갈 수 없게 된다」였지만 서버가 그 규칙을 버렸다 — `b16551b7`. 지금 나가기를
+    /// 막는 건 확정이 아니라 **도착**이다.)
     /// departureAt 은 ISO-8601 문자열 **그대로** 올린다(파싱은 화면이 한다 — 기기 시간대에 묶이지 않게).
     @Test("confirmed 는 약속 시간과 순번을 올린다")
     func confirmedCarriesDepartureAtAndVersion() throws {
@@ -491,6 +500,73 @@ import Testing
             try parse(EVENT_CONFIRMED, #"{"status":"COMPLETED","departureAt":""}"#).toPartyEvent()
         )
         #expect(blank.departureAt == nil)
+    }
+
+    /// 못 박는 것: **`confirmed` 가 싣고 온 바뀐 출발지 셋이 도메인까지 올라간다.**
+    ///
+    /// 확정은 방의 출발지를 만남 장소로 **옮긴다**(서버 `Party.confirm`). 셋을 흘려보내면 ① 지도가
+    /// 옛 출발지에 핀을 찍고 ② 「○○에서 만나요」가 채팅으로 정한 곳과 다른 이름을 말하고
+    /// ③ **도착 버튼이 틀린 곳을 기준으로 판정**돼 약속 장소에 서 있는 사람이 400
+    /// `TOO_FAR_FROM_DEPARTURE` 를 맞는다. ③ 은 사용자가 손쓸 길이 없다.
+    @Test("confirmed 는 바뀐 출발지 셋을 함께 올린다")
+    func confirmedCarriesMeetingPlace() throws {
+        let data = #"""
+            {"status":"COMPLETED","departureAt":"2026-11-03T08:30:00Z",\#
+            "departureLat":37.4985,"departureLng":127.0290,"departure":"강남역 2번 출구","version":12}
+            """#
+
+        let confirmed = try confirmed(try parse(EVENT_CONFIRMED, data).toPartyEvent())
+
+        #expect(confirmed.status == "COMPLETED")
+        #expect(confirmed.departureAt == "2026-11-03T08:30:00Z")
+        #expect(isClose(37.4985, confirmed.departureLat, 1e-9))
+        #expect(isClose(127.0290, confirmed.departureLng, 1e-9))
+        #expect(confirmed.departurePlace == "강남역 2번 출구")
+        #expect(confirmed.version == 12)
+    }
+
+    /// 못 박는 것: **셋 중 하나라도 비면 전부 null 이다** — 「일부만 반영」을 만들지 않는다.
+    ///
+    /// 좌표만 덮어쓰면 화면이 옛 이름으로 새 지점을 말하고, 이름만 덮어쓰면 **도착 판정이 옛 좌표를
+    /// 기준으로 돈다**. 둘 다 사용자가 알아챌 수 없는 어긋남이라, 모르면 모른다고 두고 상세를 다시
+    /// 읽게 하는 쪽이 맞다. 옛 서버(셋이 없는 배포)도 같은 길로 떨어진다.
+    @Test("출발지 셋이 온전하지 않으면 전부 null 이다")
+    func partialMeetingPlaceIsNil() throws {
+        func confirmedWith(_ fields: String) throws -> (
+            status: String,
+            departureAt: String?,
+            departureLat: Double?,
+            departureLng: Double?,
+            departurePlace: String?,
+            version: Int64?
+        ) {
+            let base = #""status":"COMPLETED","departureAt":"2026-11-03T08:30:00Z""#
+            return try confirmed(try parse(EVENT_CONFIRMED, "{\(base)\(fields)}").toPartyEvent())
+        }
+
+        // 이름이 없다
+        let noName = try confirmedWith(#","departureLat":37.4985,"departureLng":127.0290"#)
+        #expect(noName.departureLat == nil, "이름 없이 좌표만 덮어쓰면 안 된다")
+        #expect(noName.departureLng == nil)
+        #expect(noName.departurePlace == nil)
+
+        // 경도가 없다
+        let noLng = try confirmedWith(#","departureLat":37.4985,"departure":"강남역""#)
+        #expect(noLng.departureLat == nil, "좌표가 반쪽이면 쓰지 않는다")
+        #expect(noLng.departurePlace == nil)
+
+        // 이름이 공백뿐이다 — @NotBlank 를 통과한 값은 아니지만, 빈 이름으로 방 제목을 바꾸면 되돌릴 길이 없다
+        let blankName = try confirmedWith(#","departureLat":37.4985,"departureLng":127.0290,"departure":"  ""#)
+        #expect(blankName.departurePlace == nil, "공백 이름은 없는 것으로 본다")
+        #expect(blankName.departureLat == nil)
+        #expect(blankName.departureLng == nil)
+
+        // 셋이 아예 없다(옛 서버) — 약속 시간은 그래도 올라간다
+        let none = try confirmedWith("")
+        #expect(none.departureLat == nil)
+        #expect(none.departureLng == nil)
+        #expect(none.departurePlace == nil)
+        #expect(none.departureAt == "2026-11-03T08:30:00Z")
     }
 
     /// `member-arrived` — 그 한 명의 도착만 알려 준다(상태값은 없다. 도착은 방의 단계를 바꾸지 않는다).
@@ -527,16 +603,11 @@ import Testing
         #expect(reason.contains(EVENT_MEMBER_ARRIVED))
     }
 
-    /// 순번 없는 옛 서버에서도 **새 셋이 파싱을 깨면 안 된다.** 서버 record 는 원시 `long` 이라 운영에서는
+    /// 순번 없는 옛 서버에서도 **새 둘이 파싱을 깨면 안 된다.** 서버 record 는 원시 `long` 이라 운영에서는
     /// 늘 실리지만, 논-널로 선언하면 그 배포를 보는 순간 모든 프레임이 건너뜀으로 떨어진다
     /// (기존 셋에 대해 「순번 없는 프레임은 null 로 읽는다」가 지키는 그 계약과 같다).
-    @Test("새 세 이벤트도 순번이 없으면 null 로 읽는다")
+    @Test("새 두 이벤트도 순번이 없으면 null 로 읽는다")
     func newEventsMissingVersionIsNil() throws {
-        let closed = try recruitingClosed(
-            try parse(EVENT_RECRUITING_CLOSED, #"{"status":"COMPLETED"}"#).toPartyEvent()
-        )
-        #expect(closed.version == nil)
-
         let confirmed = try confirmed(
             try parse(EVENT_CONFIRMED, #"{"status":"COMPLETED","departureAt":"2026-11-03T08:30:00Z"}"#).toPartyEvent()
         )
@@ -548,10 +619,9 @@ import Testing
         #expect(arrived.version == nil)
     }
 
-    /// 깨진 프레임 하나로 스트림을 죽이지 않는다 — 새 셋도 같은 길로 흘려보낸다.
-    @Test("새 세 이벤트의 깨진 JSON 도 건너뜀으로 떨어진다")
+    /// 깨진 프레임 하나로 스트림을 죽이지 않는다 — 새 둘도 같은 길로 흘려보낸다.
+    @Test("새 두 이벤트의 깨진 JSON 도 건너뜀으로 떨어진다")
     func newEventsBrokenJsonIsSkipped() {
-        #expect(isSkipped(parsePartySseFrame(type: EVENT_RECRUITING_CLOSED, data: "not json")))
         #expect(isSkipped(parsePartySseFrame(type: EVENT_CONFIRMED, data: #"{"status":}"#)))
         #expect(isSkipped(parsePartySseFrame(type: EVENT_MEMBER_ARRIVED, data: #"{"publicId":}"#)))
     }

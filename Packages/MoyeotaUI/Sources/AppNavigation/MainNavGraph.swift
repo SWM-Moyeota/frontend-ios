@@ -64,7 +64,6 @@ public struct MainNavGraph: View {
     private let chatRepository: any ChatRepository
     private let activePartyRepository: any ActivePartyRepository
     private let rideRecordRepository: any RideRecordRepository
-    private let noShowRepository: any NoShowRepository
     private let pendingChatRoomId: Int64?
     private let onPendingChatRoomHandled: () -> Void
     private let installedVersionCode: Int64
@@ -77,11 +76,6 @@ public struct MainNavGraph: View {
     ///
     ///     **필수 인자다.** 기본값을 두면 배선을 빠뜨린 호출부가 컴파일에서 걸리지 않고 **실행 중에만** 34 가
     ///     「불러오지 못했어요」로 떨어진다 — 그 실패는 서버 장애와 구분되지 않는다.
-    ///   - noShowRepository: 38 노쇼 기록·이의 신청(`GET /api/v1/matching/no-shows`).
-    ///
-    ///     **필수 인자다** — `rideRecordRepository` 와 같은 이유다. 기본값을 두면 배선을 빠뜨렸을 때
-    ///     컴파일이 통과하고 **실행 중에만** 38 이 빈 화면으로 떨어진다. 그 화면은 노쇼로 찍힌 사람이
-    ///     이의를 낼 **유일한 창구**라, 조용히 비어 있는 것이 가장 나쁜 실패다.
     ///   - pendingChatRoomId: 채팅 알림 탭으로 열어 달라는 방. 로그인돼 있고 그래프가 준비되면 그 채팅방을 **스택에 쌓고**
     ///     `onPendingChatRoomHandled` 로 소비를 알린다. 미로그인이면 무시한다(로그인 뒤 엉뚱한 방을 여는 것보다 낫다).
     ///   - installedVersionCode: 강제 업데이트 게이트가 비교할 설치 버전.
@@ -93,7 +87,6 @@ public struct MainNavGraph: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64? = nil,
         onPendingChatRoomHandled: @escaping () -> Void = {},
         installedVersionCode: Int64 = appVersionCode()
@@ -106,7 +99,6 @@ public struct MainNavGraph: View {
             chatRepository: chatRepository,
             activePartyRepository: activePartyRepository,
             rideRecordRepository: rideRecordRepository,
-            noShowRepository: noShowRepository,
             pendingChatRoomId: pendingChatRoomId,
             onPendingChatRoomHandled: onPendingChatRoomHandled,
             installedVersionCode: installedVersionCode,
@@ -122,7 +114,6 @@ public struct MainNavGraph: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
@@ -135,7 +126,6 @@ public struct MainNavGraph: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
@@ -158,7 +148,6 @@ public struct MainNavGraph: View {
                     chatRepository: chatRepository,
                     activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
-                    noShowRepository: noShowRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
                     installedVersionCode: installedVersionCode,
@@ -187,7 +176,6 @@ private struct MainNavHost: View {
     let chatRepository: any ChatRepository
     let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
-    let noShowRepository: any NoShowRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
     let installedVersionCode: Int64
@@ -219,7 +207,6 @@ private struct MainNavHost: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
@@ -233,7 +220,6 @@ private struct MainNavHost: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
@@ -281,7 +267,6 @@ private struct MainNavHost: View {
                     chatRepository: chatRepository,
                     activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
-                    noShowRepository: noShowRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
                     probe: probe
@@ -327,7 +312,6 @@ private struct MainNavContent: View {
     let chatRepository: any ChatRepository
     let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
-    let noShowRepository: any NoShowRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
     let probe: MainNavGraphProbe?
@@ -461,7 +445,6 @@ private struct MainNavContent: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         probe: MainNavGraphProbe?
@@ -477,7 +460,6 @@ private struct MainNavContent: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.probe = probe
@@ -1158,7 +1140,6 @@ private struct MainNavContent: View {
                 userName: profileViewModel.userName,
                 onEditProfile: { navController.navigate(.profileEdit) },
                 onRideHistory: { navController.navigate(.rideHistory) },
-                onNoShowRecords: { navController.navigate(.noShowRecords) },
                 // logout() 은 실패하지 않는다 — 상태 전이는 위 `.task(id: loggedIn)` 이 받아 04a 로 보낸다.
                 // logoutRequested 를 먼저 세워 두면 그 전이를 세션 만료로 오해하지 않는다.
                 onLogout: {
@@ -1197,19 +1178,6 @@ private struct MainNavContent: View {
             // 사용자는 자기 기록이 사라졌다고 읽는다.
             RideHistoryRoute(
                 repository: rideRecordRepository,
-                onBack: back
-            )
-        case .noShowRecords:
-            // 38 노쇼 기록·이의 신청 — GET /api/v1/matching/no-shows, 최대 20건.
-            //
-            // 34 와 달리 **진행 중인 방과 무관**하다. 노쇼는 이미 끝난 방에서만 생기므로
-            // activePartyRepository 를 넘길 이유가 없다.
-            //
-            // 이 화면이 하는 일의 절반은 **이의 신청**이다. 노쇼는 약속 시간부터 (횟수 × 24시간)
-            // 동안 방 만들기·참여를 막는 실제 제재이고, 잘못 찍힌 사람이 그걸 되돌릴 길은 여기뿐이다
-            // — 조회가 실패하면 빈 목록이 아니라 「불러오지 못했어요 · 다시 시도」로 떨어뜨린다.
-            NoShowRecordsRoute(
-                repository: noShowRepository,
                 onBack: back
             )
         case .loginMethods:

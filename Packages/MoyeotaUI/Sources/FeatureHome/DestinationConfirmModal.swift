@@ -756,7 +756,7 @@ public struct DestinationConfirmModal: View {
                 // 이름표와 금액을 한 문장으로 읽힌다(「1인 예상 요금, 3,200원」)
                 .accessibilityElement(children: .combine)
             }
-            // ★ **나갈 수 없다**는 사실은 CTA 앞에 둔다(`reservationCommitmentNotice`) —
+            // ★ **출발 시각을 바꿀 수 없다**는 사실은 CTA 앞에 둔다(`reservationCommitmentNotice`) —
             // 실시간 방은 「그만 찾기」로 빠져나올 수 있어서 사용자는 방에 들어가는 일을
             // 되돌릴 수 있는 선택으로 배워 왔고, 예약은 **같은 모양의 버튼으로 전혀 다른
             // 약속**을 하게 만든다. 요금 문구와 달리 두 줄을 허용한다(잘리면 뜻이 반쪽이 된다).

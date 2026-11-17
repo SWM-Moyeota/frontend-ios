@@ -15,6 +15,10 @@ import Testing
 @Suite struct RideRecordMappersTest {
 
     /// 실측 응답(기록 2건, 마지막 페이지). 멤버 한 명이 나 자신이다.
+    ///
+    /// `dropoffTime` 은 그 뒤 서버가 지웠다(`135df701` — 하차 시각을 승차 시각 하나로 바로잡았다).
+    /// 이 전문에는 남겨 두었다: DTO 에 받는 자리가 없으니 디코더가 모르는 키로 흘려야 하고, 옛 서버가
+    /// 그 키를 실어 보내도 기록 화면이 깨지지 않는다는 것을 이 전문이 함께 증명한다.
     private let twoRecordsJson = """
         {"rides":[{"partyId":69,
           "departure":"강남역",
@@ -45,7 +49,7 @@ import Testing
         try decodeJSON(RideRecordPageResponse.self, raw)
     }
 
-    /// 필드 9개 + 중첩 멤버 3개가 **이름 그대로** 실려 오는지. 이름 하나가 틀리면
+    /// 필드 8개 + 중첩 멤버 3개가 **이름 그대로** 실려 오는지. 이름 하나가 틀리면
     /// 조용히 기본값이 되어 화면이 거짓 숫자를 그린다.
     @Test("서버 응답 한 건이 그대로 도메인 기록이 된다")
     func mapsRecord() throws {
@@ -57,7 +61,6 @@ import Testing
         #expect(first.departure == "강남역")
         #expect(first.destination == "판교역")
         #expect(first.pickupTime == "2026-10-31T19:15:17.550211Z")
-        #expect(first.dropoffTime == "2026-10-31T19:15:17.571486Z")
         #expect(first.totalFare == 16500)
         #expect(first.farePerPerson == 16500)
         #expect(first.memberCount == 1)
@@ -69,7 +72,8 @@ import Testing
         #expect(member.imageUrl == "https://cdn.moyeota.co.kr/profile/presets/default.png")
     }
 
-    /// 서버 정렬은 `dropoffTime desc, matchId desc` 다. 매퍼가 순서를 섞으면 최신순이 깨진다.
+    /// 서버 정렬은 `pickupTime desc, matchId desc` 다(`135df701` 전에는 `dropoffTime` 이었다).
+    /// 매퍼가 순서를 섞으면 최신순이 깨진다.
     @Test("서버가 준 최신순 순서를 그대로 유지한다")
     func keepsServerOrder() throws {
         let page = try decode(twoRecordsJson).toRideRecordPage(currentUuid: nil)
@@ -77,13 +81,18 @@ import Testing
         #expect(page.records.map(\.partyId) == [69, 67])
     }
 
-    /// 1차 모드(기사 없이 방장이 합승 종료)로 끝난 기록. 요금과 탑승 시각이 null 로 **남아야** 한다
+    /// 요금이 없는 기록. 요금과 탑승 시각이 null 로 **남아야** 한다
     /// — 0 으로 접으면 화면이 「0원」을 그려 「공짜로 탔다」는 거짓말이 된다.
-    @Test("1차 모드 기록은 요금과 탑승 시각이 비어 있다")
-    func firstModeRecord() throws {
+    ///
+    /// 예전에는 「1차 모드(기사 없이 방장이 합승 종료)로 끝난 기록」이 이 모양이었다. 지금 두 요금은
+    /// 택시비 정산에서 오고, **정산이 없거나 내가 정산의 당사자가 아니면 서버가 둘을 함께 비운다.**
+    /// 탑승 시각은 지금 서버가 늘 채우지만(`135df701`, V38 이 NOT NULL 로 묶었다) DTO 가 nullable 이라
+    /// 비어 와도 빈 문자열로 접지 않는지를 함께 본다. 본문에 `dropoffTime` 이 **없는** 것이 지금 서버 모양이다.
+    @Test("요금과 탑승 시각이 없는 기록은 비운 채로 온다")
+    func recordWithoutFare() throws {
         let raw = """
             {"rides":[{"partyId":12,"departure":"부산대 정문","destination":"서면역",
-              "pickupTime":null,"dropoffTime":"2026-10-20T09:03:00Z",
+              "pickupTime":null,
               "totalFare":null,"farePerPerson":null,"currentMembers":3,"members":[]}],
              "nextCursor":null,"hasNext":false}
             """
@@ -95,8 +104,8 @@ import Testing
         #expect(record.pickupTime == nil, "탑승 시각이 0 이나 빈 문자열로 접혔다")
         #expect(record.totalFare == nil, "총 요금이 0 으로 접혔다 — 화면이 「0원」을 그린다")
         #expect(record.farePerPerson == nil, "1인 부담이 0 으로 접혔다 — 화면이 「0원」을 그린다")
-        // 하차 시각과 인원은 그대로 와야 한다(요금만 없는 기록이다)
-        #expect(record.dropoffTime == "2026-10-20T09:03:00Z")
+        // 인원은 그대로 와야 한다(요금만 없는 기록이다). 하차 시각 단정은 지웠다 — 서버가
+        // 그 필드를 없애고 승차 시각 하나로 바로잡았다(`135df701`).
         #expect(record.memberCount == 3)
     }
 

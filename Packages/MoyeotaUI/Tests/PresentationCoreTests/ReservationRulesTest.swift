@@ -123,24 +123,38 @@ import Testing
         #expect(try reservationTimeLabel(time: LocalTime.of(18, 30)) == "오후 6:30")
     }
 
-    // ─────────────────────────── 나갈 수 없다는 안내 ───────────────────────────
+    // ─────────────────────────── 시각을 바꿀 수 없다는 안내 ───────────────────────────
 
-    /// ★ **나갈 수 없다는 사실을 두 자리가 같은 문장으로 말한다.**
+    /// 🔴 ★ **「나갈 수 없다」가 「시각을 바꿀 수 없다」로 바뀌었다** — 뒤집힌 자리다.
     ///
-    /// 예약 방은 만들어진 순간부터 확정이라 나가기가 **언제나** 409
-    /// `CANNOT_LEAVE_CONFIRMED_PARTY` 다(서버 소스 실측). 실시간 방은 「그만 찾기」로 빠져나올 수
-    /// 있어서, 이 말을 빼면 사용자는 **되돌릴 수 있다고 배운 동작**으로 되돌릴 수 없는 약속을 한다.
-    @Test("예약은 나갈 수 없다는 사실을 만들기와 합류 양쪽에서 같은 말로 알린다")
+    /// 옛 문장: 「예약 방은 합류하면 **나갈 수 없어요**. 출발 시각에 안 가면 **노쇼로 기록돼요**」.
+    /// 근거는 「예약 방은 만들어진 순간부터 확정이라 나가기가 언제나 409
+    /// `CANNOT_LEAVE_CONFIRMED_PARTY` 다」였다. **서버가 그 규칙과 그 코드, 그리고 노쇼 기능까지
+    /// 함께 지웠다**(`b16551b7` · V37) — 두 문장이 **다 거짓**이 됐다.
+    ///
+    /// 단순한 오타가 아니다: 이 문구는 21 대기 화면이 예약 방에서 **나가기를 숨기던 전제의 얼굴**
+    /// 이었고(`canLeaveParty` 의 `!ride.isConfirmed`), 그 전제를 믿은 사용자는 들어간 예약 방을
+    /// **벗어날 수 없다고 생각한 채 머문다.**
+    ///
+    /// ### 그래도 이 자리가 남는 이유 — **바꿀 수 없는 것이 남아 있다**
+    /// 예약 방의 출발 시각은 **처음부터 확정**이고 다시 정할 수 없다(409 `NOT_REALTIME_PARTY`).
+    /// 「되돌릴 수 없는 것」이 「나가기」에서 **「시간」**으로 옮겨 간 것이다.
+    @Test("예약은 출발 시각을 바꿀 수 없다는 사실을 만들기와 합류 양쪽에서 같은 말로 알린다")
     func commitmentNoticeSharedSentence() {
         let creating = reservationCommitmentNotice(joining: false)
         let joining = reservationCommitmentNotice(joining: true)
 
-        #expect(creating == "예약 방은 만들면 나갈 수 없어요. 출발 시각에 안 가면 노쇼로 기록돼요")
-        #expect(joining == "예약 방은 합류하면 나갈 수 없어요. 출발 시각에 안 가면 노쇼로 기록돼요")
-        // 두 문장의 **뒷문장이 같다** — 같은 대가를 두 화면이 다른 무게로 말하지 않는다
-        let consequence = "출발 시각에 안 가면 노쇼로 기록돼요"
+        #expect(creating == "예약 방은 만든 뒤에 출발 시각을 바꿀 수 없어요. 못 가게 되면 미리 나와 주세요")
+        #expect(joining == "예약 방은 합류한 뒤에 출발 시각을 바꿀 수 없어요. 못 가게 되면 미리 나와 주세요")
+        // 두 문장의 **뒷문장이 같다** — 같은 사실을 두 화면이 다른 무게로 말하지 않는다
+        let consequence = "출발 시각을 바꿀 수 없어요. 못 가게 되면 미리 나와 주세요"
         #expect(creating.hasSuffix(consequence), "\(creating)")
         #expect(joining.hasSuffix(consequence), "\(joining)")
+        // 🔴 **서버가 버린 두 사실을 말하지 않는다** — 둘 다 사용자를 가두는 쪽의 거짓이다
+        for copy in [creating, joining] {
+            #expect(!copy.contains("나갈 수 없"), "서버가 허용하는 일을 못 한다고 말한다: \(copy)")
+            #expect(!copy.contains("노쇼"), "서버에 없는 제재로 겁을 준다: \(copy)")
+        }
         // 확인할 수 없는 알림을 약속하지 않는다(서버에 예약 리마인더가 있지만 앱이 발송을 모른다)
         for copy in [creating, joining] {
             #expect(!copy.contains("알림"), "\(copy)")

@@ -118,7 +118,8 @@ public final class RideHistoryViewModel {
                 self.loadInFlight = false
                 var next = self.uiState
                 let known = Set(next.records.map(\.partyId))
-                // 서버 정렬이 `dropoffTime desc, matchId desc` 라 뒤에 붙이면 된다.
+                // 서버 정렬이 **승차 시각 내림차순** + matchId 내림차순이라 뒤에 붙이면 된다
+                // (`dropoffTime` 이었다 — 서버가 그 필드를 지웠다, 백엔드 `135df701`).
                 // 같은 방이 두 번 들어오는 것만 막는다 — 목록의 `ForEach` id 가 partyId 라
                 // 중복 id 가 들어오면 어느 카드가 그려질지 정해지지 않는다.
                 next.records += page.records.filter { !known.contains($0.partyId) }

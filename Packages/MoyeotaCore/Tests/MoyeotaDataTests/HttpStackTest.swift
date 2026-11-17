@@ -261,7 +261,8 @@ import Testing
         let apis = try makeApis(stub)
 
         _ = try? await apis.user.getMyProfile()
-        _ = try? await apis.matching.getParties()
+        // 좌표 없는 전체 목록(`getParties`)은 서버가 지웠다(`2732cc75`) — 매칭 대표로 뷰포트 조회를 쓴다.
+        _ = try? await apis.matching.getPartiesWithin(swLat: 37.4, swLng: 126.9, neLat: 37.6, neLng: 127.1)
         _ = try? await apis.place.getFavoritePlaces()
         _ = try? await apis.chat.getMyRooms()
 

@@ -49,7 +49,7 @@ struct MeetingStageTest {
     }
 
     private func ride(
-        status: RideStatus = .matched,
+        status: RideStatus = .confirmed,
         members: [User]? = nil,
         isConfirmed: Bool = false,
         departureAt: String? = nil,
@@ -83,9 +83,65 @@ struct MeetingStageTest {
 
     // ─────────────────────── 확정 전 ───────────────────────
 
-    @Test("모집 중에는 약속 흐름이 끼어들지 않는다")
-    func recruitingStage() {
-        #expect(meetingStage(ride: ride(status: .recruiting), now: now) == .recruiting)
+    /// 모집 중이어도 **혼자면** 약속 흐름이 끼어들지 않는다 — 서버가 409 `NOT_ENOUGH_MEMBERS` 로
+    /// 막는 자리라 프리셋을 띄우면 누를 수 없는 버튼이 된다.
+    @Test("모집 중이고 혼자면 약속 흐름이 끼어들지 않는다")
+    func recruitingAlone() {
+        let alone = ride(status: .recruiting, members: [member("me", isMe: true, isHost: true)])
+
+        #expect(meetingStage(ride: alone, now: now) == .recruiting)
+        #expect(!canConfirmMeeting(ride: alone))
+    }
+
+    /// ★ **정원이 차지 않아도 2명이면 방장은 약속 시간을 정할 수 있다.**
+    ///
+    /// 서버 `confirm` 의 방 조건은 「실시간 · 2명 이상」뿐이고 **정원은 보지 않는다** — 확정이
+    /// 모집을 끝낸다(`Party.confirm`: ACTIVE 면 COMPLETED 로 넘긴다). 정원 2/3 방으로 실측했다:
+    /// `POST /matching/rooms/{id}/confirm` → **204**, status 가 ACTIVE → COMPLETED 로 바뀌었다(2026-11-09).
+    ///
+    /// 예전에는 앱이 정원 참을 요구해 이 방의 방장에게 **할 수 있는 일이 하나도 없었다**:
+    /// 확정은 화면이 숨기고 「합승 완료」는 서버가 409 `PARTY_NOT_COMPLETED` 로 막았다.
+    @Test("정원이 차지 않아도 2명이면 방장은 약속 시간을 정한다")
+    func twoOfThreeHostConfirms() {
+        let twoOfThree = ride(
+            status: .recruiting,
+            members: [member("me", isMe: true, isHost: true), member("u2")],
+            capacity: 3
+        )
+
+        #expect(meetingStage(ride: twoOfThree, now: now) == .confirmByMe)
+        #expect(canConfirmMeeting(ride: twoOfThree))
+    }
+
+    /// 같은 방을 비방장이 보면 「방장이 정해요」다 — 비활성 버튼을 두지 않는다.
+    @Test("정원이 차지 않아도 2명이면 비방장은 방장을 기다린다")
+    func twoOfThreeNonHostWaits() {
+        let twoOfThree = ride(
+            status: .recruiting,
+            members: [member("me", isMe: true), member("u2", isHost: true)],
+            capacity: 3
+        )
+
+        #expect(meetingStage(ride: twoOfThree, now: now) == .confirmByHost)
+        #expect(!canConfirmMeeting(ride: twoOfThree))
+    }
+
+    /// ★ **정원은 확정 조건이 아니다** — 2/3 든 3/3 든 방장은 확정할 수 있다.
+    ///
+    /// 짝이던 테스트(「정원이 차지 않은 방에서 「합승 완료」는 여전히 닫혀 있다」)는 **지웠다**:
+    /// 그 버튼이 서버에서 사라졌고(`b16551b7`) 판정 함수 `canFinishParty` 도 함께 지웠다. 그 테스트가
+    /// 못 박던 사실(「확정과 완료를 같은 조건으로 묶으면 한쪽이 서버와 어긋난다」)은 비교 대상이
+    /// 없어져 성립하지 않는다 — 대신 **정원과 확정이 서로 무관하다**를 양쪽 값으로 고정한다.
+    @Test("정원이 차든 안 차든 방장은 약속 시간을 정한다")
+    func capacityIsNotAConfirmCondition() {
+        let host = member("me", isMe: true, isHost: true)
+        let twoOfThree = ride(status: .recruiting, members: [host, member("u2")], capacity: 3)
+        let threeOfThree = ride(status: .recruiting, members: [host, member("u2"), member("u3")], capacity: 3)
+
+        #expect(canConfirmMeeting(ride: twoOfThree), "2/3 에서 확정이 막혔다 — 그 방은 끝낼 길이 없어진다")
+        #expect(canConfirmMeeting(ride: threeOfThree), "3/3 에서 확정이 막혔다")
+        #expect(meetingStage(ride: twoOfThree, now: now) == .confirmByMe)
+        #expect(meetingStage(ride: threeOfThree, now: now) == .confirmByMe)
     }
 
     @Test("정원이 차고 내가 방장이면 약속 시간을 정할 수 있다")
@@ -103,32 +159,37 @@ struct MeetingStageTest {
     }
 
     /// 서버 `confirm` 은 **실시간 방만** 받는다(409 `NOT_REALTIME_PARTY`). 프리셋을 띄우면 무엇을
-    /// 눌러도 409 이므로, 약속 흐름이 붙기 전의 화면 그대로 둔다 — 「합승 완료」가 그 자리다.
+    /// 눌러도 409 이므로 띄우지 않는다.
+    ///
+    /// 떨어지는 단계가 `finishOnly` 에서 `MeetingStage.recruiting` 으로 바뀌었다 — 그 단계를
+    /// 지웠기 때문이다(「합승 완료」가 서버에서 사라져 거기서 할 수 있는 일이 하나도 없어졌고,
+    /// 「정원이 찼다」를 알려 주던 status 도 뜻이 바뀌었다). 실제로 그게 맞다: 이 방에서 사용자가
+    /// 할 수 있는 일은 **기다리거나 나가는 것**이고, 그건 모집 중 화면이 이미 말하는 바다.
     @Test("예약 방에서는 약속 시간을 정할 수 없다")
-    func reservationFinishOnly() {
+    func reservationCannotConfirm() {
         let reservation = ride(members: hostedByMe(), roomType: .reservation)
 
-        #expect(meetingStage(ride: reservation, now: now) == .finishOnly)
+        #expect(meetingStage(ride: reservation, now: now) == .recruiting)
         #expect(!canConfirmMeeting(ride: reservation))
     }
 
-    /// **예약 방은 나갈 수도, 손으로 닫을 수도 없다** — 위 테스트의 「확정 못 한다」와 짝이다.
+    /// 🔴 **예약 방에서도 나갈 수 있다** — 이 테스트가 **정반대로 뒤집힌 자리**다.
     ///
-    /// 예약 방은 만드는 순간부터 확정이다(서버 `Party.isConfirmed()` = `isReservation() || …`).
-    /// 그래서 서버의 답이 **셋 다 정해져 있다**:
+    /// 예전 이름은 「예약 방은 나가기도 합승 완료도 열지 않는다」였고, 근거는 「예약 방은 만드는
+    /// 순간부터 확정이라 나가기가 **영원히** 409 `CANNOT_LEAVE_CONFIRMED_PARTY` 다」였다.
+    /// **서버가 그 규칙과 그 코드를 함께 지웠다**(`b16551b7`: 「확정 방에서도 나갈 수 있고, 확정
+    /// 방에서 혼자 남으면 닫는다」).
     ///
-    /// | 누르면 | 서버 |
-    /// |---|---|
-    /// | 방 나가기 | 409 `CANNOT_LEAVE_CONFIRMED_PARTY` — 예약 방은 **영원히** |
-    /// | 합승 완료 | 409 `USE_DEPART_FOR_CONFIRMED_PARTY` |
-    /// | 약속 정하기 | 409 `NOT_REALTIME_PARTY` |
+    /// 뒤집힌 쪽을 못 박아 두는 이유: 예약 방은 `Ride.isConfirmed` 가 **늘 true** 라, 나가기 판정이
+    /// 확정을 보기만 하면 **모든 예약 방에서 나가기가 사라진다.** 들어간 사람에게 방을 벗어날 길이
+    /// 없고, 서버가 그 계정의 다른 방 합류·생성·예약까지 전부 막으므로(`ALREADY_JOINED_OTHER_PARTY`)
+    /// **앱 안에서 복구할 방법이 없다.** 되돌리기 쉬운 한 줄(`&& !ride.isConfirmed`)이 만드는 가장
+    /// 큰 사용자 피해라, 값으로 고정한다.
     ///
-    /// 끝내는 길은 **출발** 하나다. 위 테스트가 `isConfirmed = false` 인 예약(서버가 만들 수 없는
-    /// 상태)으로 프리셋만 보는 것과 달리, 여기서는 **실제로 서버에서 오는 모양**을 고정한다 —
-    /// 매퍼가 생성 응답·목록·검색 세 경로 모두에서 `isConfirmed = true` 를 세운다.
-    @Test("예약 방은 나가기도 합승 완료도 열지 않는다")
-    func reservationNeitherLeavesNorFinishes() {
-        for status in [RideStatus.recruiting, .matched] {
+    /// 변하지 않은 것: 약속 정하기는 여전히 닫혀 있다(409 `NOT_REALTIME_PARTY`).
+    @Test("예약 방에서도 나갈 수 있다")
+    func reservationCanLeave() {
+        for status in [RideStatus.recruiting, .confirmed] {
             let reservation = ride(
                 status: status,
                 members: hostedByMe(),
@@ -137,22 +198,53 @@ struct MeetingStageTest {
                 roomType: .reservation
             )
 
-            #expect(!canLeaveParty(ride: reservation), "\(status) 예약 방에서 나가기가 열려 있다")
-            #expect(!canFinishParty(ride: reservation), "\(status) 예약 방에서 합승 완료가 열려 있다")
+            #expect(canLeaveParty(ride: reservation), "\(status) 예약 방에서 나가기가 막혀 있다 — 벗어날 길이 없어진다")
             #expect(!canConfirmMeeting(ride: reservation), "\(status) 예약 방에서 약속 정하기가 열려 있다")
         }
+    }
+
+    /// 🔴 **확정된 실시간 방에서도 나갈 수 있다** — 위와 같은 사실의 실시간 쪽이다.
+    ///
+    /// 확정은 모집을 끝내지만(ACTIVE→COMPLETED) 이탈을 막지 않는다. 그리고 SSE `confirmed` 는
+    /// `isConfirmed` 만 세우고 status 는 건드리지 않으므로 **확정된 RECRUITING** 을 그리는 한
+    /// 프레임이 실제로 있다 — 거기서도 열려 있어야 한다.
+    @Test("확정된 방에서도 나갈 수 있다")
+    func confirmedCanLeave() {
+        for status in [RideStatus.recruiting, .confirmed] {
+            let confirmed = ride(status: status, isConfirmed: true, departureAt: at(30))
+            #expect(canLeaveParty(ride: confirmed), "\(status) 확정 방에서 나가기가 막혀 있다")
+        }
+    }
+
+    /// ★ **나가기를 막는 유일한 사유는 「내가 도착을 눌렀다」다** — 409 `ARRIVED_MEMBER_CANNOT_LEAVE`.
+    ///
+    /// 도착한 멤버가 곧 탑승자이고 택시비 정산 대상이라 장부에서 빠질 수 없기 때문이고, **도착 취소
+    /// API 가 없으므로** 되돌릴 수도 없다. 조건이 「방이 어떤 상태인가」에서 **「내가 무엇을
+    /// 눌렀는가」**로 옮겨 간 것이 이번 변경의 핵심이다.
+    ///
+    /// **남이 도착한 것은 나를 막지 않는다** — 그 줄을 함께 못 박는다. `members.contains { $0.hasArrived }`
+    /// 같은 식으로 잘못 쓰면 먼저 도착한 사람 하나가 나머지 전원을 가둔다.
+    @Test("도착을 누른 뒤에는 나갈 수 없다 - 남의 도착은 나를 막지 않는다")
+    func arrivedCannotLeave() {
+        let iArrived = ride(members: members(meArrived: true), isConfirmed: true, departureAt: at(-1))
+        let othersArrived = ride(members: members(otherArrived: true), isConfirmed: true, departureAt: at(-1))
+
+        #expect(!canLeaveParty(ride: iArrived), "도착을 누른 뒤에 나가기가 열려 있다 — 서버가 409 로 막는다")
+        #expect(canLeaveParty(ride: othersArrived), "남이 도착했다고 내 나가기를 막으면 안 된다")
     }
 
     /// 서버는 **멤버 2명 이상**에서만 확정을 받는다(409 `NOT_ENOUGH_MEMBERS`). 정원 1인 방은
     /// 「정원 참」이면서 혼자라 그 조건을 못 맞춘다 — `capacity` 가 아니라 **목록 길이**를 세는 이유다.
     @Test("혼자 있는 방에서는 약속 시간을 정할 수 없다")
-    func soloFinishOnly() {
+    func soloCannotConfirm() {
         let solo = ride(
             members: [member("me", isMe: true, isHost: true)],
             capacity: 1
         )
 
-        #expect(meetingStage(ride: solo, now: now) == .finishOnly)
+        // `finishOnly` 였다 — 그 단계를 지워 `MeetingStage.recruiting` 으로 떨어진다.
+        // 정원 1인 방은 「정원 참」이면서 혼자라, 할 수 있는 일이 기다리거나 나가는 것뿐이다.
+        #expect(meetingStage(ride: solo, now: now) == .recruiting)
         #expect(!canConfirmMeeting(ride: solo))
     }
 
@@ -179,7 +271,8 @@ struct MeetingStageTest {
     }
 
     /// 도착 창에는 **상한이 없다.** 약속 시간이 지난 뒤에도 도착을 알릴 수 있어야 한다 — 늦게 온
-    /// 사람이 노쇼를 면할 유일한 길이고, 서버 도착 창에도 상한이 없다.
+    /// 사람이 **그 방의 탑승자로 남을 유일한 길**이고(미도착자는 탑승 기록·정산에서 빠진다),
+    /// 서버 도착 창에도 상한이 없다.
     @Test("약속 시간이 지나도 미도착이면 도착을 알릴 수 있다")
     func lateArrivalStillOpen() {
         let late = ride(isConfirmed: true, departureAt: at(-5))
@@ -206,10 +299,12 @@ struct MeetingStageTest {
     /// 1초 단위로 짚는 이유: 분 단위로만 보면 「정각 포함/제외」가 갈리지 않는다.
     @Test("출발은 약속 시간 정각에 열린다")
     func departBoundary() {
+        // 출발이 방장 전용이 된 뒤로 이 경계는 **방장 구성**에서만 볼 수 있다 — `members()` 로
+        // 두면 방장 조건에 먼저 걸려 세 가지가 모두 false 가 되고, 경계를 짚지 못한다.
         func departableAtSeconds(_ offsetSeconds: Int) -> Bool {
             canDepartParty(
                 ride: ride(
-                    members: members(meArrived: true),
+                    members: hostedByMe(meArrived: true),
                     isConfirmed: true,
                     departureAt: iso(now.addingTimeInterval(TimeInterval(offsetSeconds)))
                 ),
@@ -222,20 +317,41 @@ struct MeetingStageTest {
         #expect(departableAtSeconds(-60), "지난 뒤에도 열린다")
     }
 
-    /// **출발은 방장 전용이 아니다** — 서버가 도착한 멤버 누구에게나 열어 두었다(`NOT_ARRIVED` 만 본다).
-    /// 「합승 완료」의 방장 조건을 베껴 오면 **방장이 늦는 방이 영원히 출발하지 못한다.**
-    @Test("출발은 도착한 멤버 누구나 누를 수 있다 - 방장 조건이 아니다")
-    func departNotHostOnly() {
-        // 내 줄에 host 가 없다(u2 가 방장) — 그래도 출발할 수 있어야 한다
-        let notHostButArrived = ride(
-            members: members(meArrived: true),
-            isConfirmed: true,
-            departureAt: at(-1)
-        )
+    /// 🔴 **출발은 방장 전용이다** — 이 테스트도 **정반대로 뒤집혔다**.
+    ///
+    /// 예전 이름은 「출발은 도착한 멤버 누구나 누를 수 있다 - 방장 조건이 아니다」였고, 근거는
+    /// 「방장 조건을 베껴 오면 방장이 늦는 방이 영원히 출발하지 못한다」였다. **서버가 그
+    /// 트레이드오프를 반대로 골랐다**(`b16551b7`: 「출발은 도착한 방장만 누른다」) — 그래서 지금
+    /// 방장이 오지 않는 방은 **실제로 출발할 수 없고**, 앱이 할 수 있는 일은 그 사실을 비방장에게
+    /// 말해 주는 것뿐이다.
+    ///
+    /// 그래서 단계가 둘로 갈렸다: 도착한 방장은 `MeetingStage.departByMe`(버튼), 도착한
+    /// 비방장은 `MeetingStage.departByHost`(안내문). 갈라 두지 않으면 비방장에게 403
+    /// `NOT_PARTY_HOST` 로만 끝나는 버튼을 띄운다.
+    @Test("출발은 도착한 방장만 누를 수 있다")
+    func departHostOnly() {
+        // 내 줄에 host 가 없다(u2 가 방장) — 도착해도 버튼이 없어야 한다
+        let notHostButArrived = ride(members: members(meArrived: true), isConfirmed: true, departureAt: at(-1))
+        let hostAndArrived = ride(members: hostedByMe(meArrived: true), isConfirmed: true, departureAt: at(-1))
 
-        #expect(!canFinishParty(ride: notHostButArrived), "내가 방장이 아닌 구성이어야 의미가 있다")
-        #expect(meetingStage(ride: notHostButArrived, now: now) == .departOpen)
-        #expect(canDepartParty(ride: notHostButArrived, now: now))
+        #expect(meetingStage(ride: notHostButArrived, now: now) == .departByHost)
+        #expect(!canDepartParty(ride: notHostButArrived, now: now), "비방장에게 출발이 열렸다 — 403 으로만 끝난다")
+
+        #expect(meetingStage(ride: hostAndArrived, now: now) == .departByMe)
+        #expect(canDepartParty(ride: hostAndArrived, now: now), "도착한 방장이 출발할 수 없다 — 방을 끝낼 길이 없어진다")
+    }
+
+    /// 비방장도 **도착은 해야 한다** — `departByHost` 는 「도착했는데 버튼이 없다」는 뜻이고,
+    /// 미도착이면 `MeetingStage.arriveOpen` 에 머물러 도착 버튼을 본다.
+    ///
+    /// 두 상태를 가르는 것이 요점이다: 저쪽은 **내가 할 일이 남았고**, 이쪽은 **방장을 기다린다**.
+    /// 한 문구로 뭉개면 할 일이 남은 사람에게 「기다려 주세요」라고 말하게 된다.
+    @Test("비방장이 미도착이면 방장 대기가 아니라 도착 단계다")
+    func nonHostNotArrivedStillArrives() {
+        let notHostNotArrived = ride(isConfirmed: true, departureAt: at(-1))
+
+        #expect(meetingStage(ride: notHostNotArrived, now: now) == .arriveOpen)
+        #expect(isMeetingTimePassed(departureAt: notHostNotArrived.departureAt, now: now))
     }
 
     @Test("도착하지 않으면 약속 시간이 지나도 출발할 수 없다")
@@ -298,7 +414,7 @@ struct MeetingStageTest {
     /// 「새 단계에서는 약속 흐름을 열지 않는다」가 안전한 기본값이다.
     @Test("대기 단계가 아닌 모든 status 는 CLOSED 다")
     func everyNonWaitingStatusIsClosed() {
-        for status in RideStatus.allCases where status != .recruiting && status != .matched {
+        for status in RideStatus.allCases where status != .recruiting && status != .confirmed {
             #expect(meetingStage(ride: ride(status: status), now: now) == .closed, "\(status)")
         }
     }

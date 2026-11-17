@@ -360,7 +360,7 @@ struct JoinStatusBadge: Equatable {
 func joinStatusBadge(status: RideStatus) -> JoinStatusBadge {
     switch status {
     case .recruiting: JoinStatusBadge(kind: .success, text: "모집 중")
-    case .matched: JoinStatusBadge(kind: .waiting, text: "모집 마감된 방")
+    case .confirmed: JoinStatusBadge(kind: .waiting, text: "약속이 정해진 방")
     case .completed: JoinStatusBadge(kind: .info, text: "합승이 끝난 방")
     case .canceled: JoinStatusBadge(kind: .error, text: "취소된 방")
     }

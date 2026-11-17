@@ -26,7 +26,6 @@ import Testing
             departure: "강남역",
             destination: "판교역",
             pickupTime: "2026-10-31T19:15:17.550211Z",
-            dropoffTime: "2026-10-31T19:15:17.571486Z",
             totalFare: 16500,
             farePerPerson: 16500,
             currentMembers: 1,
@@ -114,7 +113,9 @@ import Testing
     ///
     /// 실측(2026-11-01, 로컬 `:8080`): 내가 유일 멤버인 `status=MATCHING` 방을 하나 들고
     /// `GET /api/v1/users/me/parties` 를 불러도 `{"rides":[],"nextCursor":null,"hasNext":false}` 였다.
-    /// 서버가 하차 시각이 찍힌 기록만 거르기 때문이다(`dropoffTime is not null`).
+    /// 기록은 방이 **끝날 때**(FINISHED) 한 줄 생기고, 그 방에 도착한 멤버에게만 보이기 때문이다
+    /// (`m.arrivedAt is not null`). 예전에는 하차 시각이 찍힌 기록만 거른다(`dropoffTime is not null`)가
+    /// 이유였는데, 서버가 하차 시각을 승차 시각 하나로 바로잡으며(`135df701`) 그 조건은 지웠다 — 결론은 같다.
     ///
     /// 다음 사람이 경로 이름(`users/me/parties`)만 보고 「내 방 목록」으로 읽어
     /// `ActivePartyRepository` 의 로컬 기억을 이것으로 걷어내려 할 확률이 높다. 그러면

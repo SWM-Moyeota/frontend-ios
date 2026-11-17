@@ -123,7 +123,7 @@ import Testing
         let expected = User(
             id: "me", nickname: "성윤", verifiedLabel: "", rating: 0.0, rideCount: 2, isMe: true, isHost: true
         )
-        #expect(event == .memberJoined(member: expected, status: .matched, version: 4))
+        #expect(event == .memberJoined(member: expected, status: .confirmed, version: 4))
     }
 
     @Test("member-left 프레임의 빈 publicId 와 hostPublicId 는 null 로 접힌다")
@@ -198,29 +198,32 @@ import Testing
         #expect(!partyJoinException(failure: IllegalStateException("x"), error: nil).isNetwork)
     }
 
-    @Test("이미 좁혀진 합류 완료 추천 예외는 그대로 돌려준다")
+    // 「합승 완료」(`partyFinishException`)는 서버가 `/finish` 를 지우면서(`b16551b7`) 함께 지웠다 —
+    // 방을 끝내는 길인 출발(`partyDepartException`)이 그 자리를 잇는다.
+    @Test("이미 좁혀진 합류 출발 추천 예외는 그대로 돌려준다")
     func alreadyNarrowedExceptionsPassThrough() {
         let join = PartyJoinException(code: "A", serverMessage: "원문")
         #expect(partyJoinException(failure: join, error: ApiErrorDto(code: "B")).code == "A")
 
-        let finish = PartyFinishException(code: "A", serverMessage: "원문")
-        #expect(partyFinishException(failure: finish, error: ApiErrorDto(code: "B")).code == "A")
+        let depart = PartyDepartException(code: "A", serverMessage: "원문")
+        #expect(partyDepartException(failure: depart, error: ApiErrorDto(code: "B")).code == "A")
 
         let realtime = RealtimeMatchException(code: "A", serverMessage: "원문")
         #expect(realtimeMatchException(failure: realtime, error: ApiErrorDto(code: "B")).code == "A")
     }
 
-    @Test("완료 실패는 코드로만 갈리고 전송 실패에는 코드가 없다")
-    func finishFailure() {
-        let http = partyFinishException(
+    /// 403 `NOT_PARTY_HOST` 는 「합승 완료」에서 출발로 옮겨 왔다 — 출발이 방장 전용이 됐다(`b16551b7`).
+    @Test("출발 실패는 코드로만 갈리고 전송 실패에는 코드가 없다")
+    func departFailure() {
+        let http = partyDepartException(
             failure: httpException(403, "{}"),
-            error: ApiErrorDto(code: PartyFinishException.NOT_PARTY_HOST, message: "m")
+            error: ApiErrorDto(code: PartyDepartException.NOT_PARTY_HOST, message: "m")
         )
         #expect(http.isNotHost)
         #expect(http.httpStatus == 403)
         #expect(http.serverMessage == "m")
 
-        let transport = partyFinishException(failure: URLError(.timedOut), error: nil)
+        let transport = partyDepartException(failure: URLError(.timedOut), error: nil)
         #expect(transport.code == nil)
         #expect(transport.httpStatus == nil)
     }

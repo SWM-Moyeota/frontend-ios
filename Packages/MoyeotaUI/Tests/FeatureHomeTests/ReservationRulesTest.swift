@@ -355,28 +355,25 @@ import Testing
         PartyOpenException(code: code, serverMessage: nil, httpStatus: httpStatus)
     }
 
-    /// 「다시 시도」류를 403·409 에 붙이지 않는다 — `FinishFailureMessageTest` 가 세운 규칙이다.
+    /// 「다시 시도」류를 403·409 에 붙이지 않는다 — 옛 `FinishFailureMessageTest` 가 세운 규칙이고
+    /// (그 파일은 「합승 완료」와 함께 사라졌다) 지금은 `MeetingFailureMessageTest` 가 이어 받았다.
     private func expectNoRetryPromise(_ message: String, sourceLocation: SourceLocation = #_sourceLocation) {
         for forbidden in ["다시 시도", "잠시 후", "잠시만", "재시도"] {
             #expect(!message.contains(forbidden), "재시도를 약속한다: \(message)", sourceLocation: sourceLocation)
         }
     }
 
-    /// ★ 403 `NO_SHOW_RESTRICTED` — **재시도할 수 없는 실패**다. 끝나는 시각이 서버에 있고
-    /// 그때까지는 몇 번 눌러도 같은 403 이다.
-    ///
-    /// 그 시각(`restrictedUntil`)을 **여기서 말하지 않는다**: 이 화면은 그 값을 읽지 않으므로
-    /// 숫자를 적으면 지어내는 것이고, 「마이페이지에서 보세요」는 이 화면이 확인할 수 없는 약속이다.
-    @Test("노쇼 제재는 왜 막혔는지만 말하고 재시도를 약속하지 않는다")
-    func noShowRestrictedSaysWhyOnly() {
-        let message = reservationOpenFailureMessage(e: failure(PartyOpenException.NO_SHOW_RESTRICTED, httpStatus: 403))
+    /// 🔴 **노쇼 제재는 사라졌다** — 「노쇼 제재는 왜 막혔는지만 말하고 재시도를 약속하지 않는다」를
+    /// 이 테스트로 **대체했다**. 서버가 노쇼 기능을 통째로 지웠고(`b16551b7`, V37)
+    /// `PartyOpenException.isNoShowRestricted` 가 함께 사라졌다. 혹시 그 코드가 와도 앱은 **지어내지 않고**
+    /// 모르는 코드의 일반 문구로 떨어진다 — 올 수 없는 사유에 문구를 두면 그 자리가 영영 검증되지 않는다.
+    @Test("사라진 노쇼 제재는 문구를 갖지 않는다")
+    func removedNoShowHasNoCopy() {
+        let message = reservationOpenFailureMessage(e: failure("NO_SHOW_RESTRICTED", httpStatus: 403))
 
-        #expect(message == "노쇼 제재 중에는 방을 만들 수 없어요. 제재가 끝나면 다시 만들 수 있어요")
-        expectNoRetryPromise(message)
-        #expect(message.contains("노쇼"), "왜 막혔는지 말해야 한다")
-        // 모르는 숫자·다른 화면을 가리키지 않는다
-        #expect(!message.contains("시까지"), "\(message)")
-        #expect(!message.contains("마이페이지"), "\(message)")
+        #expect(message == RESERVATION_OPEN_FAILED_MESSAGE)
+        #expect(!message.contains("노쇼"), "서버에 없는 제재를 말한다: \(message)")
+        #expect(!message.contains("제재"), "서버에 없는 제재를 말한다: \(message)")
     }
 
     /// 409 `PARTY_TIME_CONFLICT` — 앱이 **예측하지 않는** 실패다(내 다른 예약 목록을 이 화면이

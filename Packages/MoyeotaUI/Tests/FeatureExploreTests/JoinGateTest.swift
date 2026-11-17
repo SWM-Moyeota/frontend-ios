@@ -81,7 +81,7 @@ struct JoinGateTest {
     /// 멤버 판정이 상태·정원보다 앞이다 — 내가 들어가 있는 방이 마감된 경우(MATCHED)가 흔하다.
     @Test("이미 참여 중인 방이 마감돼도 돌아가기다")
     func memberReturnsEvenWhenClosed() {
-        #expect(joinGate(status: .matched, joinedCount: 3, capacity: 3, iAmMember: true) == .alreadyJoined)
+        #expect(joinGate(status: .confirmed, joinedCount: 3, capacity: 3, iAmMember: true) == .alreadyJoined)
     }
 
     // ─── 인원 문구 ──────────────────────────────────────────────────────────

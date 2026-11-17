@@ -58,23 +58,24 @@ public struct RideRecordPageResponse: Decodable, Equatable, Sendable {
 /// 조용히 기본값이 되어 화면이 **모든 기록에 같은 상태 칩**을 그린다. `capacity`·좌표·`route`·
 /// `version` 도 같은 이유로 여기 없다.
 ///
-/// `pickupTime`·`totalFare`·`farePerPerson` 이 **셋 다 null 일 수 있다**: 1차 모드(기사 없이
-/// 방장이 합승 종료, 서버 `RideRecord.withoutDriver`)로 끝난 방이 그렇다. 요금은 기사가 입력할 때만
-/// 채워진다(서버 `dropOff(fare)`). **0 으로 접지 마라** — 화면이 「0원」을 그리면 거짓말이다.
+/// `totalFare`·`farePerPerson` 은 그 방의 **택시비 정산**에서 온다 — 정산이 없거나 내가 정산의
+/// 당사자가 아니면 **둘 다 null** 이다(서버가 함께 채우거나 함께 비운다). **0 으로 접지 마라** —
+/// 화면이 「0원」을 그리면 거짓말이다.
 ///
-/// `dropoffTime` 은 목록에 들어오는 조건 자체라 사실상 null 이 아니지만, 서버 스키마가 보장하지
-/// 않으므로 nullable 로 둔다(파싱이 터져 목록 전체가 사라지는 것보다 낫다).
+/// **`dropoffTime` 은 없다** — 서버가 하차 시각을 지우고 승차 시각(`pickupTime`) 하나로
+/// 바로잡았다(`135df701`). 승차 시각은 방장이 출발을 누른 시각이고, 자동 정리된 방은 약속 시각이다.
+/// 키를 남겨 두면 늘 nil 이 되어 날짜를 그리던 화면이 조용히 빈칸이 된다.
 public struct RideRecordResponse: Decodable, Equatable, Sendable {
     public var partyId: Int64
     public var departure: String?
     public var destination: String?
     public var pickupTime: String?
-    public var dropoffTime: String?
     public var totalFare: Int?
-    /// 서버가 계산한 1인 부담. `totalFare / currentMembers` **정수 나눗셈(내림)** 이다.
+    /// 내 부담 금액 — 보내는 사람은 받는 사람이 정한 **내가 보낼 금액**, 받는 사람은 택시비에서 다른
+    /// 사람들이 보낼 금액을 뺀 금액. 1/N 이 아니라서 **같은 방을 보는 두 사람이 다른 값을 받는다.**
     ///
-    /// **앱이 다시 계산하지 마라.** 앱의 `farePerPersonWon`(14·15 가 쓰는 예상 요금 계산)은
-    /// 10원 단위로 올림/반올림하므로, 끌어다 쓰면 기록 화면 금액이 실제 결제액과 어긋난다.
+    /// **앱이 다시 계산하지 마라.** 방장이 사람마다 적은 금액이 뭉개지고, 앱의 `farePerPersonWon`
+    /// (14·15 가 쓰는 예상 요금 계산)은 10원 단위로 맞추므로 실제 금액과도 어긋난다.
     public var farePerPerson: Int?
     /// 함께 탄 인원(나 포함). 정원(`capacity`)이 아니다 — 서버가 정원을 주지 않아 「2/3명」은 못 만든다.
     public var currentMembers: Int
@@ -85,7 +86,6 @@ public struct RideRecordResponse: Decodable, Equatable, Sendable {
         departure: String? = nil,
         destination: String? = nil,
         pickupTime: String? = nil,
-        dropoffTime: String? = nil,
         totalFare: Int? = nil,
         farePerPerson: Int? = nil,
         currentMembers: Int = 0,
@@ -95,7 +95,6 @@ public struct RideRecordResponse: Decodable, Equatable, Sendable {
         self.departure = departure
         self.destination = destination
         self.pickupTime = pickupTime
-        self.dropoffTime = dropoffTime
         self.totalFare = totalFare
         self.farePerPerson = farePerPerson
         self.currentMembers = currentMembers
@@ -103,7 +102,7 @@ public struct RideRecordResponse: Decodable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case partyId, departure, destination, pickupTime, dropoffTime, totalFare, farePerPerson, currentMembers, members
+        case partyId, departure, destination, pickupTime, totalFare, farePerPerson, currentMembers, members
     }
 
     public init(from decoder: any Decoder) throws {
@@ -112,7 +111,6 @@ public struct RideRecordResponse: Decodable, Equatable, Sendable {
         departure = try c.decodeIfPresent(String.self, forKey: .departure)
         destination = try c.decodeIfPresent(String.self, forKey: .destination)
         pickupTime = try c.decodeIfPresent(String.self, forKey: .pickupTime)
-        dropoffTime = try c.decodeIfPresent(String.self, forKey: .dropoffTime)
         totalFare = try c.decodeIfPresent(Int.self, forKey: .totalFare)
         farePerPerson = try c.decodeIfPresent(Int.self, forKey: .farePerPerson)
         currentMembers = try c.decodeOrDefault(.currentMembers, default: 0)

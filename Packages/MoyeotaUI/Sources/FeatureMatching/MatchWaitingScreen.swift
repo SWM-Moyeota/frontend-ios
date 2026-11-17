@@ -33,15 +33,15 @@ private struct FitKey: Equatable {
 ///   둘 다 **확인 다이얼로그를 거친다** — 뒤로가기 한 번에 방이 날아가면 사용자가 놀란다(QA O-1).
 ///   `onCancelSearch` 는 사용자가 「그만 찾기」를 확인한 뒤에만 호출된다.
 ///
-///   **나가기는 대기 단계 전부에서 가능하다** — 모집 중(`RideStatus.recruiting` = 서버 ACTIVE)이든
-///   정원이 찬 뒤(`RideStatus.matched` = 서버 COMPLETED)든. 서버 `Party.leave` 의 `ensureRecruiting()`
-///   이 그 두 값을 통과시키고, 정원이 찬 방에서 나가면 서버가 방을 ACTIVE 로 되돌려 다시 모집한다.
-///   예전에 정원이 찬 뒤의 나가기를 막았던 것은 **기사 모드 이야기다**(곧 배차가 시작돼 409 였다) —
-///   그 모드가 사라지면서 막을 이유도 사라졌다(`canLeaveParty`).
+///   **나가기는 대기 단계 전부에서 가능하다** — 모집 중이든 **약속이 확정된 뒤든**. 서버가
+///   「확정된 방은 나갈 수 없다」를 **버렸다**(`b16551b7`: 「확정 방에서도 나갈 수 있고, 확정 방에서
+///   혼자 남으면 닫는다」). 2026-11-06 ~ 11-12 사이에는 이 화면이 확정 방과 **모든 예약 방**에서
+///   나가기를 막고 있었다 — 들어간 사람에게 방을 벗어날 길이 없던 결함이다(`canLeaveParty`).
 ///
-///   남은 비활성 구간은 **닫힌 방 한 프레임**뿐이다: 서버가 방을 닫은 순간과 Route 가 그걸 알아채
-///   화면을 떠나는 순간 사이. 그 틈에 눌리면 409 로만 끝나므로 status 를 보고 즉시 버튼을 비활성
-///   문구로 바꾸고, 뒤로가기는 방을 유지한 채 홈으로만 보낸다(`onExitKeepingParty`).
+///   비활성이 되는 경우가 **둘**이다: ① **내가 도착을 눌렀다**(409 `ARRIVED_MEMBER_CANNOT_LEAVE`) —
+///   도착한 멤버가 곧 탑승자이고 정산 대상이라 서버가 묶는다. ② **닫힌 방 한 프레임** — 서버가 방을
+///   닫은 순간과 Route 가 그걸 알아채 화면을 떠나는 순간 사이. 둘 다 눌리면 409 로만 끝나므로 즉시
+///   버튼을 비활성 문구로 바꾸고, 뒤로가기는 방을 유지한 채 홈으로만 보낸다(`onExitKeepingParty`).
 ///
 ///   반대로 **403 `NOT_PARTY_MEMBER`(= 이미 나갔다)는 실패로 보이지 않는다** — 데이터 계층이 성공으로
 ///   되돌려 나가기 성공과 같은 길로 보낸다. 204 응답이 유실된 사용자가 다시 눌러 같은 문구에 갇히지
@@ -51,7 +51,8 @@ private struct FitKey: Equatable {
 ///   채팅방은 **정원이 찬 뒤에** 생기므로 모집 중에는 대개 nil 이다. 눌러도 열 것이 없는 버튼을 두지 않는다.
 /// - **다음 화면이 없다.** 정원이 차도 방은 이 화면에 머문다 — 기사·배차를 걷어낸 뒤로 서버가
 ///   `DISPATCHING`·`ONGOING` 을 보낼 수 없어 25 배차 현황·26 운행 중이 함께 사라졌다. 여기서 나가는
-///   길은 「합승 완료」(방장) · 「그만 찾기」/「방 나가기」 · 방이 닫힘 — 셋 다 14 홈이다.
+///   길은 「출발」(도착한 방장) · 「그만 찾기」/「방 나가기」 · 방이 닫힘 — 셋 다 14 홈이다.
+///   (넷째였던 「합승 완료」는 2026-11-12 에 사라졌다 — 서버가 `/finish` 를 없앴다.)
 /// - 매칭 조건(인원)은 **읽기 전용**이다. 방을 만들 때(16) 정해진 값이고 **바꾸는 API 가 없다** —
 ///   방장이 있더라도(서버 `MemberInfo.host`) 조건을 고치는 엔드포인트는 없다. 눌러도 아무 일 없는
 ///   「수정」 버튼을 두는 대신 카드 아래 한 줄로 이유를 적는다.
@@ -62,7 +63,9 @@ private struct FitKey: Equatable {
 /// 도메인 변경(2026-08-30): 「전원 준비 → 방장이 출발」 흐름이 백엔드에서 사라졌다
 /// (`/matching/ready`, `/matching/start` 삭제). 그래서 이 화면에는 준비/매칭 시작 버튼이 없다.
 /// 그 자리를 한동안 「정원이 차면 서버가 스스로 기사 매칭을 시작한다」가 메웠지만 그 흐름도 사라졌다 —
-/// 지금 정원이 찬 방이 하는 일은 **채팅으로 만날 곳을 정하고 방장이 「합승 완료」로 닫는 것**이다.
+/// 지금 방이 하는 일은 **채팅으로 만날 곳을 정하고, 방장이 약속을 확정하고, 출발지에서 만나
+/// 방장이 「출발」로 닫는 것**이다. **정원은 그 길의 조건이 아니다** — 3인 방에 2명이 모여도 확정할 수
+/// 있고, 정원이 꽉 차도 확정 없이는 끝낼 수 없다.
 ///
 /// 서버 계약(2026-09): `members[]` 가 닉네임·탑승 횟수·publicId 를 함께 주면서, 기다리는 동안
 /// **누가 모였는지**를 실제로 보여줄 수 있게 됐다. 내 줄은 `isMe`(publicId == 세션 uuid)로
@@ -70,8 +73,10 @@ private struct FitKey: Equatable {
 ///
 /// 방장 표시(2026-10-15): `members[]` 에 `host` 가 함께 오면서(Backend #240) **방장을 말할 수 있게
 /// 됐다** — 2026-08-30 에 지운 「`joinedAt` 최소값 추정」과 달리 이건 **서버 값**이다. 그래서
-/// ① 「합승 완료」를 방장에게만 보이고(서버가 그 API 를 방장 전용으로 좁혔다, Backend #237)
-/// ② 멤버 목록에 「방장」 배지를 붙인다(`showsHostBadge` — 폴백 때문에 **내 줄에는 붙지 않는다**).
+/// ① 방장 전용 동작(**약속 확정 · 출발**)을 방장에게만 보이고 ② 멤버 목록에 「방장」 배지를 붙인다
+/// (`showsHostBadge` — 폴백 때문에 **내 줄에는 붙지 않는다**).
+/// 그 ①에 「합승 완료」가 있었는데 서버가 그 API 를 없애면서(`b16551b7`) 「출발」이 자리를 이어받았다 —
+/// 출발도 같은 커밋에서 **방장 전용**이 됐다.
 ///
 /// 약속 흐름(2026-11-06): **약속 확정 → 출발지 도착 → 출발**이 이 화면 안으로 들어왔다. 새 화면은 0개다 —
 /// 서버가 그 셋을 같은 방의 상태 전이로 다루므로(`/confirm`·`/arrive`·`/depart`) 화면을 쪼개면 같은 방을
@@ -82,19 +87,22 @@ private struct FitKey: Equatable {
 /// | `recruiting` | 없음(예전과 같다) |
 /// | `confirmByMe` | 「몇 분 뒤에 만날까요?」 + 프리셋 칩 10·20·30·45·60분 |
 /// | `confirmByHost` | 방장이 정한다는 안내(`meetingHostNotice`) — **비활성 버튼을 두지 않는다** |
-/// | `finishOnly` | 없음 — 「합승 완료」가 그대로 그 자리다 |
 /// | `confirmedWaiting` | 「약속 10분 전부터…」 안내(`ARRIVE_NOT_OPEN_NOTICE`) |
-/// | `arriveOpen` | 「출발지 도착했어요」(+ 권한이 없으면 허용 안내) |
-/// | `arrivedWaiting` | 「도착했다고 알렸어요…」(`ARRIVED_WAITING_NOTICE`) |
-/// | `departOpen` | 「출발」 — **확인 다이얼로그가 노쇼를 숫자로 말한다**(`departConfirmMessage`) |
+/// | `arriveOpen` | 「출발지 도착했어요」(+ **묶인다는 사실** · 권한이 없으면 허용 안내) |
+/// | `arrivedWaiting` | 「도착했다고 알렸어요…」(`arrivedWaitingNotice`) — 방장 여부로 갈린다 |
+/// | `departByMe` | 「출발」 — **확인 다이얼로그가 빠지는 인원을 숫자로 말한다**(`departConfirmMessage`) |
+/// | `departByHost` | 방장이 출발한다는 안내(`departHostNotice`) — 시간은 됐는데 **내 화면엔 버튼이 없다** |
 ///
 /// 세 가지가 이 흐름에서 특히 조심한 자리다.
-/// 1. **확정되면 나갈 수 없다.** 서버가 확정과 함께 이탈을 막으므로 「방 나가기」를 같은 순간에
-///    비활성 문구로 바꾼다(`canLeaveParty`) — 나갈 수 있다고 믿은 사람이 안 나타나면 노쇼가 된다.
-/// 2. **확정되면 「합승 완료」가 사라진다.** 그 방을 끝내는 길은 「출발」뿐이고(409
-///    `USE_DEPART_FOR_CONFIRMED_PARTY`), 완료로 닫히면 **노쇼 기록 없이** 방이 끝난다(`canFinishParty`).
-/// 3. **100m 를 앱이 재지 않는다.** 도착 버튼은 좌표만 보내고, 멀면 서버가 400
-///    `TOO_FAR_FROM_DEPARTURE` 로 답한다 — 그 사유를 그대로 보여 준다(`arriveFailureMessage`).
+/// 1. **도착을 누르면 나갈 수 없다**(`ARRIVE_LOCKS_IN_NOTICE` · `canLeaveParty`). 2026-11-06 ~ 11-12
+///    사이에는 **확정**이 그 자리였는데 서버가 둘을 맞바꿨다(`b16551b7`) — 확정은 나가기를 막지
+///    않고, 도착이 막는다. 그 동안 앱은 확정 방과 **모든 예약 방**에서 나가기를 막고 있었다.
+/// 2. **출발은 방장 전용이다.** 그래서 `departByMe`/`departByHost` 가 갈려 있다 — 비방장에게
+///    버튼을 띄우면 403 `NOT_PARTY_HOST` 로만 끝나고, 숨기기만 하면 「왜 나만 안 되지」에 답할
+///    자리가 없다(`departHostNotice` — 옛 `finishHostNotice` 를 옮겨 온 안내문이다).
+/// 3. **반경을 앱이 재지 않는다.** 도착 버튼은 좌표만 보내고, 멀면 서버가 400
+///    `TOO_FAR_FROM_DEPARTURE` 로 답한다 — 그 사유를 **방 종류에 맞는 숫자**로 보여 준다
+///    (실시간 100m · 예약 400m — `arriveFailureMessage`·`arrivalRadiusMeters`).
 ///
 /// 레이아웃(2026-09-08): 배경이 레이더 애니메이션에서 **실지도**로 바뀌었다. 출발지·도착지 마커와
 /// 경로, 내 위치 파란 점을 그린다. **탐색 반경 원은 2026-10-14 에 지웠다** — 서버가 반경을
@@ -125,7 +133,6 @@ public struct MatchWaitingScreen: View {
     private let actionInProgress: Bool
     private let actionErrorMessage: String?
     private let onCancelSearch: () -> Void
-    private let onFinish: () -> Void
     private let onConfirmMeeting: (String) -> Void
     private let onArrive: (UserCoordinates) -> Void
     private let onDepart: () -> Void
@@ -136,7 +143,6 @@ public struct MatchWaitingScreen: View {
     // 나가기 확인 다이얼로그. 화면 안에서만 쓰는 UI 상태라 뷰모델로 올리지 않는다
     // (12 마이페이지의 로그아웃 확인과 같은 패턴).
     @State private var cancelConfirming = false
-    @State private var finishConfirming = false
     @State private var departConfirming = false
     /// 확정 다이얼로그가 들고 있는 선택. nil 이면 닫혀 있다.
     ///
@@ -153,21 +159,23 @@ public struct MatchWaitingScreen: View {
     ///   - now: 약속 단계 판정에 쓰는 지금 시각 — **기본값이 없다**(프로퍼티 주석)
     ///   - myLocation: 내 현재 위치. 지도의 파란 점이고, **「출발지 도착했어요」가 서버에 보내는 좌표**다.
     ///     권한이 없거나 아직 못 받았으면 nil — 점을 찍지 않고, 도착 버튼도 누를 수 없다
-    ///     (보낼 좌표가 없다 — 지어낸 좌표를 보내면 서버의 100m 판정이 거짓말 위에서 돈다).
+    ///     (보낼 좌표가 없다 — 지어낸 좌표를 보내면 서버의 반경 판정이 거짓말 위에서 돈다).
     ///   - locationGranted: 위치 권한이 있는가. 없으면 도착 자리에 **비활성 버튼 대신** 허용 안내가 들어간다
     ///   - onRequestLocationPermission: 위치 권한 재요청(17 탐색의 `LocationPermissionNotice` 와 같은 배선)
-    ///   - onFinish: 「합승 완료」 — 누르면 모두의 방이 닫힌다. 확인 다이얼로그 뒤에만 호출된다.
-    ///     버튼은 **확정 전 방의 방장에게만** 보인다(`canFinishParty`) — 서버가 이 API 를 방장 전용으로
-    ///     좁혔고(Backend #237), 확정된 방에는 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 로 거절한다.
-    ///     비방장에게는 같은 자리에 누가 끝내는지를 말하는 안내문이 들어가고 이 콜백은 쓰이지 않는다.
     ///   - onConfirmMeeting: 「약속 시간 정하기」 — 칩을 누른 순간 만든 **약속 시각**(ISO-8601)을 넘긴다.
     ///     확인 다이얼로그 뒤에만. 다이얼로그 제목이 되읽어 준 바로 그 값이다(`ConfirmingPreset`) —
     ///     동의한 값과 보내는 값이 같아야 한다(`MatchWaitingViewModel.confirmMeeting`).
+    ///     **만남 장소는 넘기지 않는다.** 서버는 좌표·이름까지 받지만(`2732cc75`) 이 화면은 그걸 고르는
+    ///     UI 가 없고, 뷰모델이 **방의 지금 출발지를 그대로** 싣는다. 화면이 좌표를 들고 다니면
+    ///     「보여 준 장소」와 「보낸 장소」가 갈릴 틈이 생긴다 — 시각에서 이미 겪은 함정이다.
+    ///     (「합승 완료」의 `onFinish` 는 지웠다 — 서버가 `/finish` 를 없앴다.)
     ///   - onArrive: 「출발지 도착했어요」 — 기기의 현재 좌표를 넘긴다.
     ///     `(Double, Double)` 이 아니라 `UserCoordinates` 를 넘기는 이유: 위·경도 전치가 컴파일을
     ///     통과하는 시그니처를 두지 않는다. 좌표 전치는 이 프로젝트에서 실제로 났던 결함이다.
-    ///   - onDepart: 「출발」 — 방이 **모두에게** 끝나고 **미도착자가 노쇼로 기록된다**. 확인 다이얼로그 뒤에만.
-    ///     방장 전용이 아니다 — 서버가 도착한 멤버 누구에게나 열어 두었다(`canDepartParty`).
+    ///   - onDepart: 「출발」 — 방이 **모두에게** 끝나고 **미도착자가 그 방의 탑승자에서 빠진다**. 확인 다이얼로그 뒤에만.
+    ///     **도착한 방장에게만** 보인다(`canDepartParty`) — `b16551b7` 부터 방장 전용이다. 예전 이 자리의
+    ///     주석은 「방장 전용이 아니다 — 서버가 도착한 멤버 누구에게나 열어 두었다」였고, 서버가 그
+    ///     트레이드오프를 반대로 골랐다. 비방장에게는 같은 자리에 `departHostNotice` 가 들어간다.
     ///   - onExitKeepingParty: 방을 **유지한 채** 화면만 벗어난다. 나가기가 막힌 단계의 뒤로가기가 여기로 온다
     ///   - onOpenChat: 이 방의 채팅방을 연다. **채팅방이 아직 없으면 nil** — 버튼 자체를 그리지 않는다
     public init(
@@ -181,7 +189,6 @@ public struct MatchWaitingScreen: View {
         actionInProgress: Bool = false,
         actionErrorMessage: String? = nil,
         onCancelSearch: @escaping () -> Void = {},
-        onFinish: @escaping () -> Void = {},
         onConfirmMeeting: @escaping (String) -> Void = { _ in },
         onArrive: @escaping (UserCoordinates) -> Void = { _ in },
         onDepart: @escaping () -> Void = {},
@@ -199,7 +206,6 @@ public struct MatchWaitingScreen: View {
         self.actionInProgress = actionInProgress
         self.actionErrorMessage = actionErrorMessage
         self.onCancelSearch = onCancelSearch
-        self.onFinish = onFinish
         self.onConfirmMeeting = onConfirmMeeting
         self.onArrive = onArrive
         self.onDepart = onDepart
@@ -215,27 +221,27 @@ public struct MatchWaitingScreen: View {
         // 약속 시간이 지났는가 — 단계에 드러나지 않는 한 가지다(미도착이면 arriveOpen 에 머문다).
         let meetingTimePassed = isMeetingTimePassed(departureAt: ride.departureAt, now: now)
 
-        // 서버가 나가기를 허용하는 단계인가 — 대기 단계이고 **확정 전**이면 참(canLeaveParty 주석).
+        // 서버가 나가기를 허용하는 단계인가 — 대기 단계이고 **내가 도착을 누르지 않았으면** 참
+        // (canLeaveParty 주석). 「확정 전」이 조건이던 것은 2026-11-12 에 뒤집혔다.
         let canLeave = canLeaveParty(ride: ride)
-        // 정원이 찼다 — **방을 손으로 닫는 단계**. 방장 여부와 무관한 표시가 이걸 본다.
-        let finishStage = isFinishStage(status: ride.status)
-        // 그 단계에서 **내가 방장이고 확정 전일 때만** 「합승 완료」 버튼을 보여 준다.
-        // 비방장에게는 비활성 버튼 대신 아래 footer 의 안내문이 간다 — canFinishParty 주석 참고.
-        let canFinish = canFinishParty(ride: ride)
-        // 「합승 완료」 안내문을 그릴 자리인가 — **확정된 방에는 그리지 않는다.** 확정 뒤에 「다 타면
-        // 방장이 합승 완료를 눌러요」를 띄우면 서버가 거절하는 경로를 기다리게 만든다.
-        let showsFinishNotice = finishStage && !ride.isConfirmed && !canFinish
+        // 내가 도착을 눌러 **이 방에 묶였는가** — 나가기 비활성의 두 사유를 문구로 가르는 데 쓴다.
+        let arrivedMyself = hasArrivedMyself(ride: ride)
 
         // 정원 도달 — 채팅으로 만날 곳을 정하는 시점이다. 문구·진행바가 이 경계로 갈린다.
         //
-        // `finishStage` 와 거의 같은 사실을 가리키지만 근거가 다르다: 이쪽은 **멤버 목록 길이**(`foundCount`),
-        // 저쪽은 **서버 status**. 변경분이 유실돼 둘이 어긋날 수 있어(`hasMemberDrift` 가 그걸 잡아 상세를
-        // 다시 읽는다) 각자의 자리에서 각자를 본다 — 진행바·인원 문구는 목록을, 단계 표시는 서버를 따른다.
-        let isFull = foundCount >= ride.capacity
+        // ★ **status 로 이 사실을 물을 수 없다.** 서버 COMPLETED 는 「정원 충족」이 아니라 「방장이 약속을
+        // 확정했다」이고, 정원이 차도 status 는 ACTIVE 다(`b16551b7`). 그래서 이 화면에 있던
+        // `finishStage = isFinishStage(status:)` 를 지웠다 — 그 값으로 헤드라인·버튼 문구를 가르면
+        // 2/3 짜리 확정 방에 「같이 탈 사람이 모였어요」를 그린다. **정원 판정의 유일한 참은 목록 길이와
+        // 정원의 비교**다(`isMatchFull` 과 같은 식 — 저쪽은 `ride` 를 받고 이쪽은 이미 풀린 `foundCount` 를 쓴다).
+        //
+        // `capacity > 0` 가 함께 걸려 있는 이유: 정원을 모르는 방(목록·더미 응답의 0)은 `0 >= 0` 으로
+        // 「다 모였어요」가 되어 **방금 만든 1인 방에 매칭 완료 문구**를 띄운다.
+        let isFull = ride.capacity > 0 && foundCount >= ride.capacity
         // 나를 뺀 인원 — **내가 목록에 있을 때만** 센다(otherMemberCount 주석).
         let otherCount = otherMemberCount(ride: ride)
         // 도착 인원. 확정된 방에서 사람들이 가장 자주 확인하는 숫자이고, 「출발」 확인 문구가 말하는
-        // 노쇼 대상 수와 **같은 목록에서** 나온다 — 사용자가 눈으로 맞춰 볼 수 있어야 한다.
+        // **탑승 기록·정산에서 빠지는 인원**과 같은 목록에서 나온다 — 눈으로 맞춰 볼 수 있어야 한다.
         let arrived = arrivedCount(ride: ride)
         // 진행바가 가리키는 것이 단계에 따라 **바뀐다.** 확정 전에는 「몇 명 모였나」(정원 기준)이고,
         // 확정 뒤에는 모으는 일이 끝났으므로 「몇 명 도착했나」다 — 확정된 방에서 늘 100% 로 꽉 찬
@@ -280,14 +286,12 @@ public struct MatchWaitingScreen: View {
                     sheetTop(isFull: isFull, otherCount: otherCount, arrived: arrived, progress: progress)
                 },
                 sheetDetail: {
-                    sheetDetail(isFull: isFull, canFinish: canFinish, stage: stage)
+                    sheetDetail(isFull: isFull, stage: stage)
                 },
                 sheetFooter: {
                     sheetFooter(
                         canLeave: canLeave,
-                        finishStage: finishStage,
-                        canFinish: canFinish,
-                        showsFinishNotice: showsFinishNotice,
+                        arrivedMyself: arrivedMyself,
                         stage: stage,
                         meetingTimePassed: meetingTimePassed
                     )
@@ -302,8 +306,10 @@ public struct MatchWaitingScreen: View {
         .overlay {
             // 「약속 시간 정하기」 확인 — **되돌릴 수 없는 전이**라 반드시 한 번 묻는다.
             //
-            // 되돌릴 수 없는 것이 셋이다: 모집이 끝나고 · 아무도 나갈 수 없게 되고 · 시간을 바꿀 수 없다
-            // (409 ALREADY_CONFIRMED). 그중 ②가 사용자에게 가장 무겁다 — 약속을 지키지 못하면 노쇼가 된다.
+            // 되돌릴 수 없는 것이 **둘**이다: 모집이 끝나고(참여가 막힌다) · 시간을 바꿀 수 없다
+            // (409 ALREADY_CONFIRMED). 셋째였던 「아무도 나갈 수 없게 된다」는 **지웠다** — 서버가 그 규칙을
+            // 버렸다(`b16551b7`). 사용자를 묶는 것은 이제 **도착**이고, 그 말은 도착 버튼 앞에 있다
+            // (`ARRIVE_LOCKS_IN_NOTICE`).
             //
             // 제목이 고른 **시각을 숫자로 되읽어 준다.** 칩에는 「10분」만 적혀 있어서, 그게 몇 시인지
             // 확인할 기회가 여기 한 번뿐이다. 그래서 **여기 적힌 시각이 그대로 서버로 간다** —
@@ -322,12 +328,13 @@ public struct MatchWaitingScreen: View {
                 )
             }
 
-            // 「출발」 확인 — **이 작업에서 가장 조심한 다이얼로그다.**
+            // 「출발」 확인 — **이 흐름에서 가장 조심한 다이얼로그다.**
             //
-            // 누르면 모두의 방이 끝나고, 그 순간 도착하지 않은 사람은 **노쇼로 기록된다** — 약속 시간부터
-            // (노쇼 횟수 × 24시간) 동안 방을 만들거나 참여할 수 없다. 누르는 사람은 보통 자기 제재가 아니라
-            // **남의 제재**를 만들게 되므로, 숫자를 보여 주지 않으면 그 무게를 알 수 없다.
-            // 확인 버튼을 Danger 색으로 두는 이유도 같다 — 되돌릴 수 없고 남에게 손해를 준다.
+            // 누르면 모두의 방이 끝나고, 그 순간 도착하지 않은 사람은 **그 방의 탑승자에서 빠진다** —
+            // 탑승 기록·탑승 횟수·택시비 정산 대상이 모두 「도착을 누른 멤버」 기준이다. 누르는 사람은
+            // 보통 자기 손해가 아니라 **남의 손해**를 만들게 되므로, 숫자를 보여 주지 않으면 그 무게를
+            // 알 수 없다(`departConfirmMessage` — 「노쇼로 기록된다」는 문구는 노쇼 기능이 서버에서
+            // 사라져 다시 썼다). 확인 버튼을 Danger 색으로 두는 이유도 같다 — 되돌릴 수 없고 남에게 손해를 준다.
             if departConfirming {
                 MoyeotaConfirmDialog(
                     title: "지금 출발할까요?",
@@ -343,33 +350,28 @@ public struct MatchWaitingScreen: View {
                 )
             }
 
-            // 「합승 완료」 확인 — 나 혼자가 아니라 **모두의** 방이 닫히는 행동이라 반드시 한 번 묻는다
-            if finishConfirming {
-                MoyeotaConfirmDialog(
-                    title: "합승을 완료할까요?",
-                    confirmText: "합승 완료",
-                    onConfirm: {
-                        finishConfirming = false
-                        onFinish()
-                    },
-                    onDismiss: { finishConfirming = false },
-                    body: "같이 탄 사람 모두의 방이 종료돼요. 다 타고 나서 눌러 주세요",
-                    dismissText: "아직이요"
-                )
-            }
+            // 「합승 완료」 확인 다이얼로그는 **지웠다** — 서버가 `POST /rooms/{id}/finish` 를 없앴다
+            // (`b16551b7`). 띄워 둬도 확인을 거친 끝에 404 로만 끝나는 다이얼로그였다.
 
-            // 뒤로가기·「그만 찾기」 공통 확인 — 확인해야만 실제로 방을 나간다
+            // 뒤로가기·「그만 찾기」 공통 확인 — 확인해야만 실제로 방을 나간다.
+            //
+            // 확정된 방에서는 **잃는 것이 다르다**: 「처음부터 다시 찾아야 해요」는 모집 중인 방 이야기이고,
+            // 확정된 방에서 나가면 **이미 정해진 약속**을 버리는 것이다. 그 차이를 말하지 않으면 사용자가
+            // 가벼운 취소로 읽는다 — 이 길은 서버가 다시 열어 준 길이라(`canLeaveParty`) 그만큼
+            // **누르기 쉬워졌고**, 그래서 무게를 여기서 한 번 말해 줘야 한다.
             if cancelConfirming {
                 MoyeotaConfirmDialog(
-                    title: "매칭을 그만둘까요?",
-                    confirmText: "그만 찾기",
+                    title: ride.isConfirmed ? "이 방에서 나갈까요?" : "매칭을 그만둘까요?",
+                    confirmText: ride.isConfirmed ? "방 나가기" : "그만 찾기",
                     onConfirm: {
                         cancelConfirming = false
                         onCancelSearch()
                     },
                     onDismiss: { cancelConfirming = false },
-                    body: "지금 나가면 이 방에서 빠지고 처음부터 다시 찾아야 해요",
-                    dismissText: "계속 찾기",
+                    body: ride.isConfirmed
+                        ? "정해진 약속에서 빠지고 이 방에 다시 들어올 수 없어요"
+                        : "지금 나가면 이 방에서 빠지고 처음부터 다시 찾아야 해요",
+                    dismissText: ride.isConfirmed ? "계속 함께하기" : "계속 찾기",
                     destructive: true
                 )
             }
@@ -377,7 +379,6 @@ public struct MatchWaitingScreen: View {
         // 원본 `remember` 는 화면이 컴포지션에서 빠지면 사라진다. `@State` 는 스택에 있는 동안 남으므로 직접 비운다.
         .onDisappear {
             cancelConfirming = false
-            finishConfirming = false
             departConfirming = false
             confirmingPreset = nil
         }
@@ -390,8 +391,14 @@ public struct MatchWaitingScreen: View {
     private func collapsedSheetHeight(stage: MeetingStage) -> CGFloat {
         // 「몇 분 뒤에 만날까요?」 + 칩 한 줄 + 1시간 한도 안내
         if stage == .confirmByMe { return 288 }
-        // 권한 안내 배너 + 「위치 권한 허용」 버튼이 도착 버튼 자리를 둘로 늘린다
-        if stage == .arriveOpen && !locationGranted { return 264 }
+        // 권한 안내 배너 + 「위치 권한 허용」 버튼이 도착 버튼 자리를 둘로 늘린다.
+        // 거기에 「도착을 알리면 나갈 수 없어요」 두 줄이 더 붙는다(`ARRIVE_LOCKS_IN_NOTICE`).
+        if stage == .arriveOpen && !locationGranted { return 304 }
+        // 권한이 있어도 묶인다는 안내 두 줄은 그대로 붙는다 — **그 줄이 잘리면 되돌릴 수 없는 버튼을
+        // 설명 없이 누르게 된다.** 접힘은 「지도를 넓게 보는 상태」일 뿐이어야 한다.
+        if stage == .arriveOpen { return 236 }
+        // 방장이 출발한다는 안내 배너 두 줄(`departHostNotice`)
+        if stage == .departByHost { return 240 }
         return 196
     }
 
@@ -509,6 +516,8 @@ public struct MatchWaitingScreen: View {
         // 확정된 방의 헤드라인은 **약속 시각 그 자체**다. 시각을 못 읽으면
         // 지어내지 않고 「약속 시간이 정해졌어요」로 떨어진다(meetingHeadline).
         if ride.isConfirmed { return meetingHeadline(departureAt: ride.departureAt) }
+        // 예전에는 이 줄과 다른 표시(배지·나가기 문구)의 근거가 달랐다(status 와 목록 길이).
+        // 지금은 **같은 `isFull`**(목록 길이)을 보므로 둘이 어긋날 수 없다.
         if isFull { return "같이 탈 사람이 다 모였어요" }
         // 「보통 2분 안에 모여요」는 지웠다 — 근거가 될 매칭 소요 통계가 없다.
         // 기다리는 사람에게 지킬 수 없는 시각을 약속하는 자리다(2026-10-13).
@@ -524,25 +533,29 @@ public struct MatchWaitingScreen: View {
         return "지금 같은 방향 \(foundCount)명 · 목표 \(ride.capacity)명"
     }
 
-    private func sheetDetail(isFull: Bool, canFinish: Bool, stage: MeetingStage) -> some View {
+    private func sheetDetail(isFull: Bool, stage: MeetingStage) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 정원이 찬 뒤 무슨 일이 일어나는지 알려주는 유일한 지점.
-            // 기사가 없으므로 할 일은 하나다 — 채팅으로 만날 곳을 정하고, 다 탔으면
-            // 방장이 「합승 완료」로 닫는다.
+            // 지금 무슨 일이 일어나는지 알려주는 유일한 지점.
+            // 기사가 없으므로 할 일은 하나다 — 채팅으로 만날 곳을 정하고, 방장이 약속을
+            // 확정하고, 출발지에서 만나 방장이 「출발」로 닫는다.
+            //
+            // 「합승 완료」를 가리키던 두 가지(`canFinish` 분기)를 지웠다 — 그 버튼이 서버에서
+            // 사라져(`b16551b7`) **없는 버튼을 눌러 달라고** 말하고 있었다. 그 역할(「다 타면
+            // 누가 끝내나」)은 확정 → 도착 → 출발의 각 단계가 footer 에서 직접 말한다.
             NoticeBanner(
                 // 확정된 방은 **기다리는 상태가 아니다** — 만날 시간이 정해져 있다.
                 // WAITING(주황)으로 두면 끝난 일을 미결로 보이게 한다.
                 kind: isFull && !ride.isConfirmed ? .waiting : .info,
-                text: noticeText(isFull: isFull, canFinish: canFinish, stage: stage)
+                text: noticeText(isFull: isFull, stage: stage)
             )
             Spacer().frame(height: 16)
 
             // 지금까지 모인 사람 — 서버 members[] 를 그대로 그린다(나 포함).
             // 대기 화면에서 가장 궁금한 것이 "누가 같이 타나"라 조건 카드보다 위에 둔다.
             //
-            // 확정된 방에서는 같은 목록이 **도착 현황**을 겸한다. 「출발」을 누르면 노쇼로
-            // 기록될 사람이 누구인지 확인할 수 있는 자리가 여기뿐이고, 확인 다이얼로그가
-            // 말하는 숫자(notArrivedCount)도 이 목록에서 나온다 — 눈으로 맞춰 볼 수 있다.
+            // 확정된 방에서는 같은 목록이 **도착 현황**을 겸한다. 「출발」을 누르면 탑승
+            // 기록·정산에서 빠질 사람이 누구인지 확인할 수 있는 자리가 여기뿐이고, 확인
+            // 다이얼로그가 말하는 숫자(notArrivedCount)도 이 목록에서 나온다 — 눈으로 맞춰 볼 수 있다.
             if !ride.members.isEmpty {
                 SectionLabel(text: "지금 모인 사람") {
                     // 「도착 2/3」 — 확정 전에는 도착 개념이 없어 nil 이고 그리지 않는다.
@@ -587,29 +600,28 @@ public struct MatchWaitingScreen: View {
         .padding(.horizontal, 16)
     }
 
-    private func noticeText(isFull: Bool, canFinish: Bool, stage: MeetingStage) -> String {
+    private func noticeText(isFull: Bool, stage: MeetingStage) -> String {
         // 확정된 방에서는 만날 곳·시간이 이미 정해졌다. 여기서 또 「정해요」라고
         // 하면 끝난 일을 시키는 셈이고, 다음에 할 일(도착·출발)은 푸터가 말한다.
         if ride.isConfirmed { return "약속 시간에 출발지에서 만나요" }
-        // 방장: 약속 흐름이 주인공이지만 「합승 완료」도 함께 보인다 —
-        // 이미 만나서 같이 탄 사람들은 약속 시간을 정할 이유가 없다.
+        // 방장 — 정원이 차 있든 아니든 **지금 인원으로 확정할 수 있다**(서버 `confirm` 이 정원을
+        // 보지 않는다). 그래서 두 가지를 말한다: 어디서 정하고, 확정하면 무슨 일이 일어나는지.
         if stage == .confirmByMe {
-            return "채팅으로 만날 곳을 정하고 약속 시간을 정해요. 이미 같이 탔다면 「합승 완료」를 눌러 주세요"
+            return "채팅으로 만날 곳을 정하고 약속 시간을 정해요. 지금 인원으로 정하면 모집이 끝나요"
         }
-        // 「눌러 주세요」는 **버튼이 보이는 사람에게만** 하는 말이다 —
-        // 비방장에게 하면 없는 버튼을 누르라고 시키는 셈이다.
-        if canFinish { return "채팅으로 만날 곳을 정해요. 다 타면 「합승 완료」를 눌러 주세요" }
-        // 비방장: 누가 끝내는지는 footer 안내문이 이름까지 말한다 — 여기서 겹쳐 쓰지 않는다.
-        if isFull { return "채팅으로 만날 곳을 정해요" }
-        return "정원이 차면 채팅으로 만날 곳을 정해요"
+        // 비방장: 누가 정하는지는 footer 안내문이 이름까지 말한다 — 여기서 겹쳐 쓰지 않는다.
+        // 자리가 남았어도 방장은 지금 정할 수 있으므로 「정원이 차면」이라고 하지 않는다.
+        if isFull || stage == .confirmByHost { return "채팅으로 만날 곳을 정해요" }
+        // 혼자인 방 — 서버가 2명 미만의 확정을 막으므로(409 `NOT_ENOUGH_MEMBERS`) **사람이 와야** 그
+        // 다음이 열린다. 「정원이 차면」이 아니라 「한 명이라도 오면」이다: 3인 방에 2명이면 그때 바로
+        // 정할 수 있다.
+        return "한 명이라도 오면 채팅으로 만날 곳을 정할 수 있어요"
     }
 
     @ViewBuilder
     private func sheetFooter(
         canLeave: Bool,
-        finishStage: Bool,
-        canFinish: Bool,
-        showsFinishNotice: Bool,
+        arrivedMyself: Bool,
         stage: MeetingStage,
         meetingTimePassed: Bool
     ) -> some View {
@@ -623,7 +635,7 @@ public struct MatchWaitingScreen: View {
         // 뒤로가기 한 번이면 이 대기 화면으로 돌아온다.
         //
         // 옅은 파랑 알약(`SoftButton`) — 주 CTA(파란 솔리드)와 같은 모양·높이라 한 가족으로 읽히고,
-        // 색은 한 단계 아래라 「합승 완료」·「출발」 같은 주 행동을 가리지 않는다(디자인 QA W2).
+        // 색은 한 단계 아래라 「약속 정하기」·「출발」 같은 주 행동을 가리지 않는다(디자인 QA W2).
         if let onOpenChat {
             SoftButton(text: "채팅 열기", onClick: onOpenChat)
                 .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
@@ -634,48 +646,32 @@ public struct MatchWaitingScreen: View {
         // 서버에 단계가 늘면(MeetingStage 에 값이 더해지면) 컴파일이 먼저 깨지게 한다.
         meetingBlock(stage: stage, meetingTimePassed: meetingTimePassed)
 
-        // 정원이 찼을 때 — 합승을 끝내는 자리. **확정 전 방 전용**이다: 확정된 방을 끝내는
-        // 길은 「출발」 하나이고(409 USE_DEPART_FOR_CONFIRMED_PARTY), 완료로 닫히면
-        // **노쇼 기록 없이** 방이 끝나 약속을 어긴 사람이 제재를 면한다 — canFinishParty 주석.
-        //
-        // **방장에게만 버튼**을 준다(서버가 방장 전용으로 좁혔다).
-        // 비방장에게는 **비활성 버튼을 두지 않는다**: 누를 수 없는 버튼은 왜 못 누르는지
-        // 말해 주지 못한다. 대신 같은 자리에 누가 방을 끝내는지를 한 줄로 적는다 —
-        // 숨기기만 하면 정원이 찬 뒤 할 일이 하나도 없는 화면이 된다.
-        if canFinish {
-            PrimaryCtaButton(
-                text: actionInProgress ? "완료하는 중…" : "합승 완료",
-                onClick: { finishConfirming = true },
-                enabled: !actionInProgress
-            )
-            .padding(.horizontal, 16)
-            Spacer().frame(height: 8)
-        } else if showsFinishNotice {
-            NoticeBanner(
-                kind: .info,
-                text: finishHostNotice(hostNickname: ride.members.hostDisplayNameOrNull())
-            )
-            .padding(.horizontal, 16)
-            Spacer().frame(height: 8)
-        }
+        // 「합승 완료」 버튼과 비방장 안내문(`finishHostNotice`)이 있던 자리 — **지웠다.** 서버가
+        // `/finish` 를 없앴다(`b16551b7`). 「누가 방을 끝내는가」를 말하던 안내문은 출발 단계의
+        // `departHostNotice` 로 옮겨 갔다(위 `meetingBlock` 의 `.departByHost`).
 
         // 나가기 — 매칭 시작·준비 버튼은 도메인에서 사라졌다. 접힘 상태에서도 보이도록 시트 하단에 고정한다.
         //
         // 비활성이 되는 경우가 **둘**이다(`canLeaveParty`).
-        // ① 닫힌 방 한 프레임 — 서버가 방을 닫았는데 Route 가 아직 화면을 떠나지 않은 순간.
+        // ① **내가 도착을 눌렀다** — 서버가 묶는다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`).
+        //    도착한 멤버가 곧 탑승자이고 택시비 정산 대상이라 장부에서 빠질 수 없기 때문이다.
+        //    되돌릴 길이 없으므로(도착 취소 API 없음) **무엇을 기다리면 되는지**까지 적는다.
+        // ② 닫힌 방 한 프레임 — 서버가 방을 닫았는데 Route 가 아직 화면을 떠나지 않은 순간.
         //    거기서 눌리면 409 로만 끝나므로 누를 수 없게 하고 **실제로 일어난 일**을 적는다.
-        // ② **확정된 방** — 서버가 확정과 함께 이탈을 막는다. 이 문구가 중요한 이유는
-        //    대가가 제재이기 때문이다: 나갈 수 있다고 믿은 사람이 약속 장소에 가지 않으면
-        //    「출발」이 그 사람을 노쇼로 기록한다. 그래서 「못 나간다」를 **지금** 말한다.
         //
-        // 숨기지 않고 비활성으로 남기는 이유: 이 자리가 비면 확정된 방에서 뒤로 갈 길이
-        // 사라진 것처럼 보인다. 화면을 벗어나는 길은 헤더의 뒤로가기(방 유지)로 열려 있다.
+        // ★ **「약속을 정한 뒤에는 나갈 수 없어요」를 지웠다.** 서버가 그 규칙을 버렸고
+        // (`b16551b7`) 그 문구는 **확정 방과 모든 예약 방**에서 나가기를 막고 있었다
+        // (`Ride.isConfirmed` 가 예약 방에서 늘 true 다) — 들어간 사람에게 방을 벗어날 길이
+        // 없던 자리다. 서버가 허용하는 일을 앱이 막으면 사용자는 복구할 수 없다.
+        //
+        // 숨기지 않고 비활성으로 남기는 이유: 이 자리가 비면 뒤로 갈 길이 사라진 것처럼
+        // 보인다. 화면을 벗어나는 길은 헤더의 뒤로가기(방 유지)로 열려 있다.
         //
         // 바탕 없는 빨간 글자 알약(`DangerTextButton`) — 디자인 문서의 「요청 취소」(button-danger).
         // 예전 회색 r16 상자는 위 파란 알약과 모양이 달라 버튼 셋이 세 모양이었고, 회색은 「되돌리기
         // 어려운 이탈」을 말하지 못했다(디자인 QA W2). 누르면 늘 확인 다이얼로그가 먼저 뜬다.
         DangerTextButton(
-            text: leaveLabel(canLeave: canLeave, finishStage: finishStage),
+            text: leaveLabel(canLeave: canLeave, arrivedMyself: arrivedMyself),
             onClick: { cancelConfirming = true },
             enabled: canLeave && !actionInProgress
         )
@@ -689,7 +685,7 @@ public struct MatchWaitingScreen: View {
     private func meetingBlock(stage: MeetingStage, meetingTimePassed: Bool) -> some View {
         switch stage {
         // 방장: 「몇 분 뒤에 만날까요?」 + 프리셋 칩. 자유 입력을 두지 않는 근거는
-        // MEETING_PRESET_MINUTES 주석 — 서버가 1시간 안만 받아서, 못 고르게 하는 UI 가 낫다.
+        // MEETING_PRESET_MINUTES 주석 — 서버가 5분 ~ 1시간만 받아서, 못 고르게 하는 UI 가 낫다.
         case .confirmByMe:
             MeetingPresetBlock(
                 enabled: !actionInProgress,
@@ -722,13 +718,24 @@ public struct MatchWaitingScreen: View {
                     .padding(.horizontal, 16)
                 Spacer().frame(height: 8)
             }
+            // ★ **도착은 되돌릴 수 없고 이 방에 묶는다**(409 `ARRIVED_MEMBER_CANNOT_LEAVE`,
+            // 취소 API 없음). 누른 뒤에 알리면 늦으므로 버튼 **앞**에 적는다 —
+            // 예약 방의 `reservationCommitmentNotice` 가 CTA 앞에 놓인 것과 같은 처방이다.
+            // 2026-11-12 이전에는 묶는 것이 「약속 확정」이라 이 말이 확정 블록에 있었다.
+            Text(ARRIVE_LOCKS_IN_NOTICE)
+                .moyeotaText(MoyeotaType.CaptionMd.hangulTrimmed, color: MoyeotaColor.TextMute)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+            Spacer().frame(height: 8)
             if !locationGranted {
                 // 권한이 없으면 **비활성 도착 버튼을 두지 않는다** — 17 탐색과 같은 처방:
                 // 왜 필요한지 적고, 다시 요청할 버튼을 준다. 21 은 진입 시 권한을 자동
                 // 요청하지 않으므로(대기 화면의 본질이 지도가 아니다) 이 자리가 그 사람이
                 // 권한 다이얼로그를 처음 보는 지점이다. 이미 거부했으면 버튼이 설정 앱을 연다
                 // (`MyLocationController.requestPermission` — iOS 는 한 번만 묻는다).
-                NoticeBanner(kind: .info, text: ARRIVE_NEEDS_PERMISSION_NOTICE)
+                // 반경 숫자가 방 종류로 갈린다 — 예약 방에 「100m」를 적으면 400m 까지 받아 주는
+                // 서버보다 **앱이 더 엄하게** 말한다.
+                NoticeBanner(kind: .info, text: arriveNeedsPermissionNotice(roomType: ride.roomType))
                     .padding(.horizontal, 16)
                 Spacer().frame(height: 8)
                 PrimaryCtaButton(text: "위치 권한 허용", onClick: onRequestLocationPermission)
@@ -736,7 +743,7 @@ public struct MatchWaitingScreen: View {
             } else {
                 PrimaryCtaButton(
                     // 좌표가 아직 없으면 **보낼 것이 없다.** 지어낸 좌표를 보내면 서버의
-                    // 100m 판정이 거짓말 위에서 돌므로, 기다리라고 말하고 막는다.
+                    // 반경 판정이 거짓말 위에서 돌므로, 기다리라고 말하고 막는다.
                     text: arriveLabel,
                     onClick: { if let myLocation { onArrive(myLocation) } },
                     enabled: !actionInProgress && myLocation != nil
@@ -744,13 +751,16 @@ public struct MatchWaitingScreen: View {
                 .padding(.horizontal, 16)
             }
             Spacer().frame(height: 8)
-        // 도착을 알렸고 약속 시간 전 — 누를 것이 없다. 한 일과 다음에 일어날 일만 적는다.
+        // 도착을 알렸고 약속 시간 전 — 누를 것이 없다. **10분의 창**을 설명하는 자리다
+        // (도착은 10분 전부터, 출발은 약속 시각 뒤부터). 문구가 방장 여부로 갈리는 이유는
+        // `arrivedWaitingNotice` 주석 — 비방장에게 「출발할 수 있어요」는 거짓이다.
         case .arrivedWaiting:
-            NoticeBanner(kind: .success, text: ARRIVED_WAITING_NOTICE)
+            NoticeBanner(kind: .success, text: arrivedWaitingNotice(isHost: ride.isHostedByMe))
                 .padding(.horizontal, 16)
             Spacer().frame(height: 8)
-        // 「출발」 — 되돌릴 수 없고 **남에게 제재를 만든다.** 확인 다이얼로그가 반드시 끼어든다.
-        case .departOpen:
+        // 「출발」 — 되돌릴 수 없고 **남을 탑승 기록·정산에서 빼놓는다.**
+        // 확인 다이얼로그가 반드시 끼어든다.
+        case .departByMe:
             PrimaryCtaButton(
                 text: actionInProgress ? "출발하는 중…" : "출발",
                 onClick: { departConfirming = true },
@@ -758,8 +768,17 @@ public struct MatchWaitingScreen: View {
             )
             .padding(.horizontal, 16)
             Spacer().frame(height: 8)
-        // 약속 흐름이 끼어들지 않는 단계. 아래 「합승 완료」·「그만 찾기」가 예전과 같다.
-        case .recruiting, .finishOnly, .closed:
+        // 도착했고 시간도 됐는데 **내가 방장이 아니라 버튼이 없다.** 비활성 버튼을 두지
+        // 않는 대신 누가 누르는지를 적는다 — `departHostNotice` 는 옛 `finishHostNotice` 를
+        // 옮겨 온 안내문이다(「합승 완료」가 사라져 가리킬 버튼을 잃었고, 여기서 다시
+        // 필요해졌다). WAITING(주황)인 이유: 기다리는 상태가 맞다.
+        case .departByHost:
+            NoticeBanner(kind: .waiting, text: departHostNotice(hostNickname: ride.members.hostDisplayNameOrNull()))
+                .padding(.horizontal, 16)
+            Spacer().frame(height: 8)
+        // 약속 흐름이 끼어들지 않는 단계. 아래 「그만 찾기」가 예전과 같다.
+        // (`finishOnly` 가지는 사라졌다 — 「합승 완료」와 함께 지워진 단계다.)
+        case .recruiting, .closed:
             EmptyView()
         }
     }
@@ -770,12 +789,16 @@ public struct MatchWaitingScreen: View {
         return "출발지 도착했어요"
     }
 
-    private func leaveLabel(canLeave: Bool, finishStage: Bool) -> String {
-        if !canLeave && ride.isConfirmed { return "약속을 정한 뒤에는 나갈 수 없어요" }
+    private func leaveLabel(canLeave: Bool, arrivedMyself: Bool) -> String {
+        if !canLeave && arrivedMyself { return "도착을 알린 뒤에는 나갈 수 없어요" }
         if !canLeave { return "이미 끝난 방이에요" }
         if actionInProgress { return "나가는 중…" }
-        // 「그만 찾기」가 아닌 건 **단계** 때문이다 — 더는 찾는 중이 아니다.
-        if finishStage { return "방 나가기" }
+        // 「그만 찾기」가 아닌 건 **더는 찾는 중이 아니기** 때문이다. 근거가
+        // `finishStage`(= status == .matched)에서 **확정 여부**로 바뀌었다: 확정되면
+        // 서버가 모집을 끝내므로 그때부터 「찾는」 일이 실제로 없다. 정원이 찬 것은
+        // 모집이 끝난 것과 다르다 — 정원이 차도 방장이 확정하기 전까지는 ACTIVE 이고,
+        // 누가 나가면 다시 자리가 생긴다(그 방에 「방 나가기」로 적으면 거짓이다).
+        if ride.isConfirmed { return "방 나가기" }
         return "그만 찾기"
     }
 }
@@ -785,9 +808,11 @@ public struct MatchWaitingScreen: View {
 /// 칩에는 숫자만 적고(「10분」) 단위는 위의 물음이 말한다 — 393dp 폭에서 「10분 뒤」 다섯 개는 줄을
 /// 넘긴다. 몇 시가 되는지는 **확인 다이얼로그가 되읽어 준다**(`meetingConfirmTitle`).
 ///
-/// 누르면 바로 보내지 않고 `onPick` 으로 확인 다이얼로그를 띄운다 — 확정은 되돌릴 수 없고, 그
-/// 순간부터 아무도 방을 나갈 수 없다. 누른 칩이 `selectedMinutes` 로 돌아와 선택 상태로 남으므로
-/// 다이얼로그 뒤에서 **무엇을 눌렀는지** 보인다.
+/// 누르면 바로 보내지 않고 `onPick` 으로 확인 다이얼로그를 띄운다 — 확정은 **한 번만** 할 수 있고
+/// (409 `ALREADY_CONFIRMED`) 모집을 끝낸다. 누른 칩이 `selectedMinutes` 로 돌아와 선택 상태로
+/// 남으므로 다이얼로그 뒤에서 **무엇을 눌렀는지** 보인다.
+///
+/// 「그 순간부터 아무도 방을 나갈 수 없다」는 **지웠다** — 서버가 그 규칙을 버렸다(`b16551b7`).
 ///
 /// `MoyeotaChip` 을 쓰는 이유: 16 매칭 조건 칩과 **같은 종류의 선택**이고, 전용 버튼을 새로 만들면
 /// 같은 일을 하는 두 번째 칩 모양이 생긴다(디자인 시스템 규칙: 2개 이상 화면에서 쓰이는 것만 승격).

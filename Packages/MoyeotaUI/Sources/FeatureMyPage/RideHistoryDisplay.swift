@@ -4,7 +4,7 @@ import MoyeotaDomain
 // 34 지난 탑승 기록의 **표시 규칙** — 무엇을 글자로 만들고, 무엇을 아예 그리지 않는가.
 //
 // 화면(`RideHistoryScreen`)에서 떼어 둔 이유는 `MyPageMenu` 와 같다: 「요금이 없으면 요금 줄을
-// 그리지 않는다」는 규칙은 눈으로 확인하려면 **1차 모드로 끝난 방을 하나 만들어** 다시 빌드해야
+// 그리지 않는다」는 규칙은 눈으로 확인하려면 **정산이 없는 방을 하나 만들어** 다시 빌드해야
 // 하는 종류다. 순수 함수로 두면 `RideHistoryRulesTest` 가 값으로 고정한다.
 //
 // SwiftUI 를 모르는 파일로 둔다.
@@ -21,13 +21,16 @@ let RIDE_HISTORY_ERROR_TEXT = "탑승 기록을 불러오지 못했어요"
 /// 거짓 문구를 들어낸 이력이 있어 「모른다」를 **타입으로** 남긴다.
 struct RideHistoryItem: Equatable, Sendable {
     var partyId: Int64
-    /// 하차 시각 표기. 파싱할 수 없으면 nil — 틀린 날짜보다 없는 편이 낫다.
+    /// **승차 시각** 표기. 파싱할 수 없으면 nil — 틀린 날짜보다 없는 편이 낫다.
+    ///
+    /// 하차 시각이었던 것이 승차 시각으로 바뀌었다 — 서버가 `dropoffTime` 을 지우고
+    /// `pickupTime` 하나로 바로잡았다(백엔드 `135df701`). 자세한 뜻은 `RideRecord.pickupTime`.
     var dateLabel: String?
     /// `출발 → 도착`. 둘 중 하나라도 없으면 있는 쪽만, 둘 다 없으면 nil.
     var routeLabel: String?
     /// 「나 포함 3명」. 서버 인원이 0 이면 nil(셀 수 없는 것을 세지 않는다).
     var memberLabel: String?
-    /// **nil 이면 요금 줄을 아예 그리지 않는다.** 1차 모드 기록이 그렇다.
+    /// **nil 이면 요금 줄을 아예 그리지 않는다.** 그 방에 택시비 정산이 없다는 뜻이다.
     var fare: RideHistoryFare?
     var members: [RideRecordMember]
 
@@ -48,13 +51,24 @@ struct RideHistoryItem: Equatable, Sendable {
     }
 }
 
-/// 요금 두 줄. **서버 값을 그대로 쓴다** — 앱이 다시 나누지 않는다.
+/// 요금 두 줄. **서버 값을 그대로 쓴다** — 앱이 나누지도, 되돌리지도 않는다.
 ///
-/// 서버 `farePerPerson` 은 `totalFare / memberCount` **정수 나눗셈(내림)** 인데, 앱의
-/// `farePerPersonWon`(14·15 의 예상 요금)은 10원 단위로 올림/반올림한다. 그걸 끌어다 쓰면
-/// **기록 화면 금액이 실제 결제액과 어긋난다** — 사용자는 어느 쪽이 거짓인지 알 길이 없다.
+/// ### `farePerPerson` 은 **1/N 이 아니다** ★ (2026-11-12)
+/// 예전에는 `totalFare / memberCount` 정수 나눗셈이었고, 이 주석은 「앱의 `farePerPersonWon` 은
+/// 10원 단위로 맞추니 끌어다 쓰면 어긋난다」만 경고하고 있었다. 서버가 택시비 정산을 **방장이
+/// 사람마다 부담 금액을 넣는 장부**로 다시 짰다(백엔드 `fe6ba35a`). 그래서:
+///
+/// | | 예전 | 지금 |
+/// |---|---|---|
+/// | 값의 출처 | 총액 ÷ 인원 | **방장이 그 사람에게 적어 넣은 금액** |
+/// | 같은 방을 보는 두 사람 | 같은 값 | **다른 값** |
+/// | 총액으로 되돌릴 수 있나 | 된다 | **안 된다**(손으로 조정한 금액이 뭉개진다) |
+///
+/// 그래서 라벨에서 **「1인」을 뺐다.** 「1인 16,500원」은 「한 사람당 16,500원씩」으로 읽히고, 그건
+/// 이제 거짓이다 — 내 몫이 16,500원이어도 다른 사람은 8,000원일 수 있다. 「내 몫」이라고 적으면
+/// 받는 사람(= 방장)에게는 「자기가 부담한 몫」이라 그쪽에서도 참이다.
 struct RideHistoryFare: Equatable, Sendable {
-    /// 「1인 16,500원」. 서버가 1인 부담을 주지 않았으면 nil.
+    /// 「내 몫 16,500원」. 서버가 내 부담을 주지 않았으면 nil. **「1인」이 아니다** — 위 주석의 표.
     var perPersonLabel: String?
     /// 「총 16,500원」. 서버가 총액을 주지 않았으면 nil.
     var totalLabel: String?
@@ -69,13 +83,14 @@ extension RideRecord {
     /// 기록 한 건 → 카드 한 장.
     ///
     /// ### 요금이 없으면 요금 자체를 안 만든다 ★ 이 화면의 1급 규칙
-    /// `RideRecord.totalFare`·`RideRecord.farePerPerson` 이 **둘 다** nil 인 기록은 1차 모드다
-    /// (기사 없이 방장이 합승 종료 — 서버가 요금을 입력받는 자리가 기사 하차 처리뿐이다).
-    /// 0 으로 접어 「0원」을 그리면 **「공짜로 탔다」는 거짓말**이 된다. 그래서 `RideHistoryFare` 를
-    /// 만들지 않고, 화면은 nil 을 보고 줄을 건너뛴다.
+    /// `RideRecord.totalFare`·`RideRecord.farePerPerson` 이 **둘 다** nil 인 기록은 **그 방에 택시비
+    /// 정산이 없는 것**이다(정산을 시작하지 않았거나 내가 그 정산의 당사자가 아니다 — 서버가 둘을 함께
+    /// 채우거나 함께 비운다). 0 으로 접어 「0원」을 그리면 **「공짜로 탔다」는 거짓말**이 된다. 그래서
+    /// `RideHistoryFare` 를 만들지 않고, 화면은 nil 을 보고 줄을 건너뛴다.
     ///
-    /// 한쪽만 있는 응답은 실측에서 본 적이 없지만(서버가 같은 `fare` 에서 둘을 만든다) 그때도
-    /// **있는 값만** 그린다 — 없는 쪽을 다른 쪽에서 계산해 채우면 위 어긋남이 그대로 일어난다.
+    /// 한쪽만 있는 응답은 실측에서 본 적이 없지만(서버가 같은 정산에서 둘을 만든다) 그때도
+    /// **있는 값만** 그린다 — 없는 쪽을 다른 쪽에서 계산해 채우면 안 된다. 특히
+    /// `totalFare / memberCount` 는 **더 이상 `farePerPerson` 이 아니다**(`RideHistoryFare` 주석).
     ///
     /// ### 그리지 않는 것
     /// 상태 칩(서버가 상태를 주지 않는다) · 방장 표시(`host` 필드가 없다) · 평점·매너 점수
@@ -83,7 +98,9 @@ extension RideRecord {
     func toHistoryItem(now: Date = Date(), zone: TimeZone = .current) -> RideHistoryItem {
         RideHistoryItem(
             partyId: partyId,
-            dateLabel: dropoffTime.flatMap { rideHistoryDateLabel(isoTime: $0, now: now, zone: zone) },
+            // 🔴 `dropoffTime` 이 아니다 — 서버가 하차 시각을 지웠다(백엔드 `135df701`). 그 필드로 두면
+            // 디코더가 없는 키를 조용히 nil 로 채워 **모든 카드의 날짜가 빈칸**이 된다(에러가 아니라 빈칸).
+            dateLabel: pickupTime.flatMap { rideHistoryDateLabel(isoTime: $0, now: now, zone: zone) },
             routeLabel: routeLabel(departure: departure, destination: destination),
             memberLabel: memberLabel(memberCount: memberCount, members: members),
             fare: fareOrNull(totalFare: totalFare, farePerPerson: farePerPerson),
@@ -118,7 +135,9 @@ private func memberLabel(memberCount: Int, members: [RideRecordMember]) -> Strin
 private func fareOrNull(totalFare: Int?, farePerPerson: Int?) -> RideHistoryFare? {
     if totalFare == nil && farePerPerson == nil { return nil }
     return RideHistoryFare(
-        perPersonLabel: farePerPerson.map { "1인 \(wonLabel(amount: $0))" },
+        // 「1인 …」이 아니라 「내 몫 …」이다 — 방장이 사람마다 적어 넣은 금액이라 **사람마다 다르다**
+        // (백엔드 `fe6ba35a`). 「1인」으로 적으면 「한 사람당 그만큼씩」으로 읽혀 거짓이 된다.
+        perPersonLabel: farePerPerson.map { "내 몫 \(wonLabel(amount: $0))" },
         totalLabel: totalFare.map { "총 \(wonLabel(amount: $0))" }
     )
 }
@@ -134,7 +153,10 @@ func wonLabel(amount: Int) -> String {
     return "\(amount < 0 ? "-" : "")\(grouped)원"
 }
 
-/// 하차 시각 표기. 올해면 `10월 31일 오후 4:15`, 다른 해면 `2026년 10월 31일`.
+/// **승차 시각** 표기. 올해면 `10월 31일 오후 4:15`, 다른 해면 `2026년 10월 31일`.
+///
+/// 하차 시각이었다 — 서버가 그 필드를 지웠다(`135df701`). 이름을 `…DateLabel` 로 둔 채
+/// 뜻만 바뀐 자리라 **호출부가 무엇을 넘기는지**가 전부다(`RideRecord.pickupTime`).
 ///
 /// 서버는 UTC ISO-8601 로 내려주므로 **문자열을 그대로 자르면 KST 오후 4시가 오전 7시로 보인다**
 /// (채팅에서 실제로 났던 결함과 같은 함정). 기기 시간대로 바꿔 쓴다.
@@ -391,8 +413,8 @@ private struct InstantScanner {
 extension String {
     /// 서버 ISO-8601(Instant 또는 오프셋 표기) → Instant. 그 외 형식은 nil.
     ///
-    /// `internal` 인 이유: 같은 모듈의 38 노쇼 기록(`NoShowRecordsDisplay.swift`)이 같은 서버 표기를
-    /// 읽는다. 파서를 한 번 더 베끼면 한쪽만 오프셋 표기를 받아 주는 식으로 조용히 갈린다.
+    /// `internal` 인 이유: 같은 모듈의 다른 화면이 같은 서버 표기를 읽을 때 이 파서를 쓴다. 파서를
+    /// 한 번 더 베끼면 한쪽만 오프셋 표기를 받아 주는 식으로 조용히 갈린다.
     func toInstantOrNull() -> RideHistoryInstant? {
         var scanner = InstantScanner(self)
         return scanner.parse()

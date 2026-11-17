@@ -519,7 +519,7 @@ public struct ProfileEditRoute: View {
             onBack: onBack
         )
         .task(id: userName) {
-            if case .resolved(let name, let imageUrl, _, _, _) = userName {
+            if case .resolved(let name, let imageUrl, _) = userName {
                 viewModel.prefill(name: name, imageUrl: imageUrl)
             }
         }

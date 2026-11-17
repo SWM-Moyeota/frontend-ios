@@ -1,27 +1,34 @@
 /// 경로 기준: `matching/party/PartyController.java`
 /// (@RequestMapping("/api/v1") + 메서드별 "/matching/...").
-/// 노쇼 두 개만 **다른 컨트롤러**다: `matching/noshow/NoShowController.java`
-/// (@RequestMapping("/api/v1/matching") + 메서드별 "/no-shows"·"/rooms/{partyId}/no-show-objection").
-/// 프리픽스를 합산한 결과가 같으므로 앱에서는 한 인터페이스에 둔다.
+/// 지금은 **이 인터페이스 전부가 그 한 컨트롤러**다 — 예전에 따로 있던 `matching/noshow/` 는
+/// 서버에서 사라졌다.
 ///
 /// (경로 메모 수정 2026-11-06: 백엔드에는 `interfaces/` 디렉터리가 **없다** — 이 주석이 오래
 /// `matching/interfaces/` 아래의 `PartyController.java` 를 가리키고 있었다. 실제 위치는 도메인별로
-/// `matching/party/`·`matching/noshow/` 또는 `…/presentation/` 이다. 파일을 찾으러 간 사람이
+/// `matching/party/` 또는 `…/presentation/` 이다. 파일을 찾으러 간 사람이
 /// 「컨트롤러가 사라졌다」로 결론 내리지 않도록 고쳐 둔다.)
 ///
+/// ⚠️ **택시비 정산은 여기 없다** — `faresplit/FareSplitController.java` 가 경로를
+/// `/api/v1/matching/rooms/{partyId}/fare-split…` 로 **같은 가지에 걸지만** 다른 모듈이고 앱에서도
+/// 다른 인터페이스(`FareSplitApi`)다. 프리픽스가 같다고 여기 끼워 넣지 말 것.
+///
 /// 주의: backend/http/matching.http 의 **앞 세 요청**은 v1 이 없는 옛 경로 + 옛 필드명(hostId)이라
-/// 신뢰하지 않는다. 예약·노쇼 요청(4번 이후)은 컨트롤러와 일치한다.
+/// 신뢰하지 않는다. 예약 요청(4번 이후)은 컨트롤러와 일치한다.
 ///
 /// **여기 전부가 토큰 필수다.** 목록·상세 조회까지 포함해 예외가 없다
 /// (Security 가 `/api/v1/auth/` 하위를 뺀 전 경로에 `anyRequest().authenticated()` 를 건다).
 /// 미로그인 상태에서 부르면 화면에 데이터 대신 401 에러가 뜨므로,
 /// 이 API 를 쓰는 화면은 로그인 뒤에만 열려야 한다.
 public protocol MatchingApi: Sendable {
-    func getParties() async throws -> PartyListResponse
-
-    /// 지도 화면 범위(남서·북동 모서리) 안의 ACTIVE 방 목록.
-    /// 전체 목록과 **경로가 같고** 서버(PartyController.listWithin)가 `params={swLat,swLng,neLat,neLng}`
-    /// 유무로 핸들러를 고른다 — 4개 중 하나라도 빠지면 전체 목록 핸들러로 떨어진다.
+    /// 지도 화면 범위(남서·북동 모서리) 안의 방 목록.
+    ///
+    /// **좌표 없이 부르는 전체 목록은 더 이상 없다**(서버 `2732cc75` 가 지웠다 — 「앱이 부르지 않는
+    /// GET /matching/rooms(좌표 없는 전체 목록)」). 네 쿼리가 전부 필수이고, 하나라도 빠지면
+    /// 400 이다. 예전에는 같은 경로의 무파라미터 핸들러로 조용히 떨어졌으니 **빈 목록처럼 보이지 않고
+    /// 에러로 보인다** — 바뀐 쪽이 낫다.
+    ///
+    /// 서버가 **정원이 찬 방을 뺀다**(`b16551b7`: 「근처 방·지도·예약 목록은 정원이 찬 방을 뺀다」).
+    /// 즉 여기 실려 온 방은 **지금 들어갈 수 있는 방**이다 — 목록에서 「모집 마감」을 그릴 일이 없다.
     /// 응답 아이템에는 departureLat/departureLng 가 포함된다.
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> PartyListResponse
 
@@ -59,8 +66,9 @@ public protocol MatchingApi: Sendable {
     /// 그 `04f6be7` 에서 **`fingerprint` 필드도 빠졌다** — 응답은 이제 두 값뿐이다. 서버가 아직 옛
     /// 버전이라 지문을 실어 보내도 디코더가 모르는 키를 흘린다(`MoyeotaJSON`).
     ///
-    /// 응답의 `status` 는 합류 **직후**의 방 상태다 — 내가 마지막 자리를 채웠으면 서버가 그 자리에서 정원 충족
-    /// 처리까지 끝내고 `COMPLETED` 를 돌려준다(기사 모드의 `MATCHING` 은 서버에서 사라졌다).
+    /// 응답의 `status` 는 합류 **직후**의 방 상태다. ⚠️ **정원을 채워도 `ACTIVE` 다**(`b16551b7` —
+    /// 서버 `COMPLETED` 는 이제 「방장이 약속을 확정한 실시간 방」만 뜻한다). 내가 마지막 자리를 채웠는지는
+    /// `currentMembers` 와 그 방의 정원을 직접 비교해야 안다(`PartyStatus` 주석).
     ///
     /// 합류자는 **Bearer 토큰에서 추출**된다(`PartyController.join(@PathVariable Long partyId, @CurrentUser Long memberId)`)
     /// — 경로의 memberId 는 사라졌다. 토큰 없이 호출하면 401 `{"code":"USER005","message":"로그인이 필요합니다."}`.
@@ -73,30 +81,53 @@ public protocol MatchingApi: Sendable {
     /// 실측: `/leave/{id}` → 204, `/leave/{id}/0` → 404. 옛 형태를 되살리면 조용히 404 다.
     func leaveParty(partyId: Int64) async throws
 
-    /// 합승 종료. 204. `PartyController.finish`.
-    /// COMPLETED(정원 참) 방에서만 되고, 참여자 누구든 한 명이 부르면 방 전체가 FINISHED 다.
-    /// 예전에는 「기사 없이 끝내는 1차 배포 모드 전용」이었지만, 기사가 운행을 끝내는 길이
-    /// 서버에서 사라져 지금은 방을 닫는 유일한 길이다.
-    func finishParty(partyId: Int64) async throws
+    // 「합승 종료」(`POST /matching/rooms/{partyId}/finish`)는 **서버에서 지워졌다**
+    // (`b16551b7`: 「구버전 종료 경로(/finish)…를 지운다」). 방을 끝내는 길은 `departParty` 하나다.
+    // 되살리면 404 이고, 404 는 이 앱에서 「없는 방」과 같은 문구로 보여 원인을 가린다.
 
-    /// 약속 시간 확정. 204. `PartyController.confirm`.
+    /// 약속 시간·만남 장소 확정. 204. `PartyController.confirm`.
     ///
-    /// **방을 끝내는 정식 경로의 첫 단계다.** 서버 Swagger 가 `finishParty` 를 「구버전 앱용 이전 경로」로
-    /// 적어 두었고, 확정된 방에 그걸 부르면 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 로 거절한다 —
-    /// 확정 → `arrive` → `depart` 가 지금의 정식 경로다.
+    /// **방을 끝내는 정식 경로의 첫 단계다** — 확정 → `arriveAtDeparture` → `departParty`.
     ///
-    /// 방장만, **실시간 방만**, 멤버 2명 이상, 모집 중(ACTIVE 또는 COMPLETED), 한 번만.
-    /// 본문은 `{"departureAt": "<ISO-8601 instant>"}` 하나다 — 약속 장소는 **늘 방의 출발지**라
-    /// 서버가 받지 않는다. 시간 형식의 함정은 `ConfirmMeetingRequestDto` 에 적어 두었다.
+    /// 조건: 방장만 · **실시간 방만**(예약 방은 409 `NOT_REALTIME_PARTY`) · 멤버 **2명 이상**
+    /// (`NOT_ENOUGH_MEMBERS`) · 열린 방 · 한 번만(`ALREADY_CONFIRMED`).
+    /// **정원이 찼는지는 보지 않는다** — 3인 방에 2명이어도 받는다.
     ///
-    /// 성공하면 모집이 끝나고(ACTIVE→COMPLETED) **아무도 나갈 수 없다**(409
-    /// `CANNOT_LEAVE_CONFIRMED_PARTY`). 그 사실은 SSE `confirmed` 로 모든 멤버에게 전해진다.
+    /// ### 본문이 한 필드에서 네 필드로 늘었다 (`2732cc75`)
+    /// 「약속 확정은 만남 장소(위도·경도·이름)를 늘 받는다. 바꾸지 않으면 앱이 지금 출발지를 그대로 보낸다」
+    /// — `departureAt`·`departureLat`·`departureLng`·`departure` 가 **전부 필수**다
+    /// (`@NotNull`/`@NotBlank`). 옛 한 필드 본문을 보내면 **400 `INVALID_REQUEST`** 이고, 그건
+    /// `MatchingErrorCode` 의 어느 사유도 아니라서 화면에는 일반 문구로만 보인다 —
+    /// 「확정이 안 된다」는 신고가 들어와도 원인을 짚을 단서가 없다. `ConfirmMeetingRequestDto` 참고.
+    ///
+    /// ### 확정이 방의 출발지를 **옮긴다**
+    /// 서버 `Party.confirm` 이 `departureLocation = plan.departure()` 로 덮어쓴다. 도착 판정(반경)이
+    /// 실제 만나는 곳을 기준으로 돌게 하려는 것이다. 그래서 장소를 바꾸지 않을 때도 지금 출발지를
+    /// 그대로 실어야 한다 — 빈 값을 보내면 방의 출발지가 빈 값으로 바뀐다.
+    ///
+    /// ### 약속 시간은 **지금부터 5분 뒤 ~ 1시간** 사이여야 한다
+    /// 벗어나면 400 `INVALID_MEETING_TIME`. 사용자가 다이얼로그를 열어 둔 채 시간을 끌면 하한에
+    /// 걸릴 수 있다 — 프리셋을 **누른 순간의 `now`** 로 계산해야 하는 이유다.
+    ///
+    /// 성공하면 ACTIVE→COMPLETED 이고 **참여만 막힌다 — 나가기는 된다**
+    /// (서버 `Party.leave` 는 확정 방을 거절하지 않는다. 막는 것은 「도착을 누른 사람」뿐:
+    /// 409 `ARRIVED_MEMBER_CANNOT_LEAVE`). 그 사실은 SSE `confirmed` 로 모든 멤버에게 전해지고,
+    /// 그 프레임에 **바뀐 출발지 셋이 함께 실려 온다**(`PartyConfirmedPayload`).
     func confirmMeeting(partyId: Int64, request: ConfirmMeetingRequestDto) async throws
 
     /// 출발지 도착. 204. `PartyController.arrive`.
     ///
     /// 본문은 **지금 내 위치**(`latitude`/`longitude`)다 — 서버가 방 출발지와의 거리를 PostGIS
-    /// `ST_DWithin` 으로 재서 100m 안인지 본다(`ArriveRequestDto` 에 왜 방 좌표를 보내면 안 되는지 적었다).
+    /// `ST_DWithin` 으로 재서 반경 안인지 본다(`ArriveRequestDto` 에 왜 방 좌표를 보내면 안 되는지 적었다).
+    ///
+    /// ### 반경이 방 종류로 갈린다 (`2732cc75`)
+    /// | 방 | 반경 | 왜 |
+    /// |---|---|---|
+    /// | 실시간 | **100m** | 만남 장소를 확정 때 채팅으로 정한 곳으로 옮기므로 좁아도 된다 |
+    /// | 예약 | **400m** | 출발지가 장소 검색 결과의 **중심점**(큰 역이면 역 한가운데)이고 확정으로 옮길 수 없다 — 실제로 만나는 출구까지 들어오게 넓게 잡는다 |
+    ///
+    /// 벗어나면 400 `TOO_FAR_FROM_DEPARTURE`. 숫자를 화면 문구에 박을 때 **100 하나로 말하면
+    /// 예약 방 사용자에게 거짓**이 된다(서버 `Party.arrivalRadiusMeters`).
     ///
     /// 열리는 시점은 **약속 시간 10분 전부터**다(서버 `Party.arrive` 의
     /// `now < departureAt − ARRIVAL_OPENS_BEFORE(10분)` 검사는 409 `ARRIVAL_NOT_OPEN` — 백엔드 PR #307 전의
@@ -106,14 +137,24 @@ public protocol MatchingApi: Sendable {
 
     /// 출발 — 방을 끝낸다. 204, **요청 본문 없다**. `PartyController.depart`.
     ///
-    /// **방장이 아니어도 된다**(`finishParty` 와 다른 점이다) — 도착한 멤버면 누구나. 조건은 약속 시간
-    /// **뒤**일 것, 멤버 2명 이상일 것, 부른 사람이 도착해 있을 것.
+    /// **방을 끝내는 유일한 길이다** — `/finish` 가 서버에서 사라졌다.
     ///
-    /// ⚠️ 그 순간 **도착하지 않은 멤버는 전부 노쇼로 기록된다**(노쇼 횟수 × 24시간 이용 제한).
-    /// 앱에는 되돌릴 길이 없다 — 본문이 없어 "실수로 호출"을 막아 주는 것도 없으므로, 화면 쪽에서
-    /// 확인을 받고 부를 것.
+    /// 조건을 전부 만족해야 한다(서버 `Party.depart`):
+    /// 1. **방장만** — `b16551b7` 이 바꿨다(「출발은 도착한 방장만 누른다」). 예전에는 도착한 멤버면
+    ///    누구나였다. 방장이 아니면 403 `NOT_PARTY_HOST`
+    /// 2. 확정된 방 — 아니면 409 `PARTY_NOT_CONFIRMED`
+    /// 3. 멤버 2명 이상 — 아니면 409 `NOT_ENOUGH_MEMBERS`
+    /// 4. `now >= departureAt` — 아니면 409 `MEETING_NOT_STARTED`
+    /// 5. **방장 자신이 도착해 있을 것** — 아니면 409 `NOT_ARRIVED`
     ///
-    /// 성공 뒤 서버가 `closed` 를 보내고 **그 방의 SSE 연결을 끊는다**.
+    /// ⚠️ **도착하지 않은 멤버는 그 방의 탑승자에서 빠진다.** 노쇼 제재는 없어졌지만(`b16551b7` 이
+    /// 기록·제재·이의 신청을 전부 지웠다) 대가가 사라진 건 아니다: 탑승 횟수·탑승 기록·**택시비 정산
+    /// 대상**이 모두 「도착을 누른 멤버」 기준이라, 아직 오는 중인 사람을 두고 누르면 그 사람은 같이
+    /// 탔는데도 정산에서 빠진다. 본문이 없어 "실수로 호출"을 막아 주는 것도 없으므로 화면 쪽에서
+    /// **도착하지 않은 인원을 세어 보여 주고** 확인을 받고 부를 것.
+    ///
+    /// 성공 뒤 서버가 `closed`(status `FINISHED`)를 보내고 **그 방의 SSE 연결을 끊는다**.
+    /// FINISHED 가 된 방은 방장이 택시비 정산을 시작할 수 있는 유일한 상태다.
     func departParty(partyId: Int64) async throws
 
     /// 방을 만들기 전 출발·도착 좌표만으로 예상 요금·소요시간·경로를 미리 본다.
@@ -134,39 +175,10 @@ public protocol MatchingApi: Sendable {
     /// 502 `ROUTE_SEARCH_FAILED`(OSRM 실패).
     func getRealtimeCandidates(request: RealTimeMatchingRequestDto) async throws -> [MatchCandidateResponse]
 
-    /// **내 노쇼 기록**. 200. 기준: `matching/noshow/NoShowController.java`
-    /// (`@RequestMapping("/api/v1/matching")` + `@GetMapping("/no-shows")`).
-    ///
-    /// 조회 주체는 토큰이 정한다(`@CurrentUser`) — 경로·쿼리에 식별자가 없다. 쿼리 파라미터가
-    /// **하나도 없다**: 커서도, 개수도, 필터도 없다. 서버가 최신순 **최대 20건**으로 잘라 주고
-    /// (`NoShowRepositoryDefaults.HISTORY_LIMIT`) 그게 전부다 —
-    /// 탑승 기록(`users/me/parties`)처럼 `size`·`cursor` 를 붙이면 **400 이 아니라 조용히 무시**된다
-    /// (그쪽 주석의 `status` 함정과 같다). 「더 보기」를 만들 수 없는 이유가 이것이다.
-    ///
-    /// **엔벨로프 키가 `noShows` 다**(예약·방 목록의 `list` 와 다르다 — `MyNoShowListResponse` 주석).
-    ///
-    /// 실패는 **401 하나뿐이다.** 서버가 이 조회에 업무 에러 코드를 두지 않았고(컨트롤러의
-    /// `@ApiResponses` 에 200 만 있다) 기록이 없어도 404 가 아니라 `{"noShows":[]}` 다.
-    /// 그래서 저장소도 전용 예외로 좁히지 않는다.
-    func getMyNoShows() async throws -> MyNoShowListResponse
-
-    /// **노쇼 이의 신청**. 기준: `matching/noshow/NoShowController.java`
-    /// (`@PostMapping("/rooms/{partyId}/no-show-objection")`).
-    ///
-    /// ### 이 도메인에서 **유일하게 201** 인 액션이다 ★
-    /// 나머지 액션은 204(확정·도착·출발·나가기·완료)거나 200(생성)인데 이것만
-    /// `ResponseEntity.status(CREATED)` 이고 **본문이 비어 있다**(`Location` 헤더도 없다).
-    /// 반환 타입을 붙이면 디코더가 빈 본문에서 터지므로 **반환값이 없다**(`RestClient.callUnit`) —
-    /// 성공의 증거는 상태 코드뿐이고, 접수된 내용은 `getMyNoShows` 를 다시 읽어 확인한다.
-    ///
-    /// 경로가 `/rooms/{partyId}/…` 라 방 액션들과 **같은 가지에 있는데 컨트롤러가 다르다.** 오타는
-    /// 404 가 아니라 **401** 로 떨어져 세션 만료로 오인하기 쉬운 자리다(이 파일의 다른 주석과 같은
-    /// 함정) — 값은 `AuthenticatedPathContractTest` 가 못 박는다.
-    ///
-    /// 방마다 **한 번만** 된다(서버 유니크 제약). 실패 사유는 다섯이고 전부
-    /// `NoShowObjectionException` 으로 좁혀 올린다 — 그중 둘은 409 라
-    /// 상태 코드로는 갈리지 않는다.
-    func submitNoShowObjection(partyId: Int64, request: NoShowObjectionRequestDto) async throws
+    // **노쇼 기록·이의 신청(`GET /matching/no-shows`, `POST /matching/rooms/{partyId}/no-show-objection`)은
+    // 서버에서 지워졌다** (`b16551b7`: 「노쇼 기록·제재·이의 신청…을 지운다」, DB 마이그레이션 V37 이
+    // 테이블까지 DROP). 되살리면 404 다. `MyProfileResponse` 의 `noShowCount`·`restrictedUntil` 키는
+    // 출시 앱 호환용으로 남아 있지만 **값이 늘 0·null 로 고정**이라 읽어도 아무것도 알 수 없다.
 
     /// **예약 방 생성**. `PartyController.reserve`.
     ///
@@ -181,33 +193,27 @@ public protocol MatchingApi: Sendable {
     ///
     /// **참여·나가기·상세·SSE 는 전용 엔드포인트가 없다** — 기존 방 API 를 그대로 쓴다
     /// (`joinParty`·`leaveParty`·`getPartyDetail`, SSE). 서버 Swagger 가 그렇게 못 박았다.
-    /// ⚠️ 다만 **예약 방에서 `leaveParty` 는 언제나 409 `CANNOT_LEAVE_CONFIRMED_PARTY` 다**:
-    /// 예약은 합류한 순간부터 확정 상태라(`confirmed = true`) 나갈 수 없다. 화면은 예약 방에
-    /// 「그만 찾기」를 **띄우면 안 된다** — 누를 수 없는 버튼이다.
+    /// ⚠️ 예약 방은 **합류한 순간부터 확정 상태다**(서버 `Party.isConfirmed()` 가
+    /// `isReservation() || departureAt != null` 이다) — 그래서 `confirmMeeting` 은 409
+    /// `NOT_REALTIME_PARTY` 로 막힌다. 하지만 **나가기는 된다**: 확정을 이유로 거절하던
+    /// `CANNOT_LEAVE_CONFIRMED_PARTY` 는 서버에서 사라졌다(`b16551b7`: 「확정 방에서도 나갈 수 있고」).
+    /// 지금 나가기를 막는 유일한 사유는 **도착을 누른 뒤**다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`).
     /// ⚠️ 출발 시각이 지난 예약에 합류하면 409 `PARTY_CLOSED` 다.
     ///
     /// 실패는 `PartyController.reserve` 의 `@ApiResponses` 기준으로
     /// 400 `SAME_DEPARTURE_DESTINATION`·`INVALID_CAPACITY`·`OUT_OF_SERVICE_AREA`·
-    /// `INVALID_DEPARTURE_TIME`·`INVALID_REQUEST` / 403 `NO_SHOW_RESTRICTED` /
-    /// 409 `ALREADY_JOINED_OTHER_PARTY`·`PARTY_TIME_CONFLICT` 다 —
+    /// `INVALID_DEPARTURE_TIME`·`INVALID_REQUEST` /
+    /// 409 `ALREADY_JOINED_OTHER_PARTY`·`PARTY_TIME_CONFLICT` 다
+    /// (403 `NO_SHOW_RESTRICTED` 는 노쇼 제재와 함께 사라졌다) —
     /// `PartyOpenException` 으로 좁힌다 — 방 생성과 **같은 예외**이고,
     /// 실시간 표에 갈래가 없는 둘은 그 예외의 `isPartyTimeConflict`·`isInvalidDepartureTime` 이다
     /// (`PARTY_TIME_CONFLICT` 는 실시간 생성에도 오고, 예약 전용은 `INVALID_DEPARTURE_TIME` 하나다).
     func createReservation(request: OpenReservationRequestDto) async throws -> OpenPartyResponse
 
-    /// **기간으로 보는 예약 목록**. `PartyController.listReservations`.
-    ///
-    /// 두 파라미터 모두 **ISO-8601 instant 문자열이고 필수다**(서버가 `@RequestParam Instant`).
-    /// `from >= to` 면 400 `INVALID_TIME_RANGE`, 모양이 깨지면 400 `INVALID_REQUEST` 다.
-    ///
-    /// ⚠️ **둘 중 하나를 빼면 응답 본문이 `{code, message}` 가 아니다.** 서버
-    /// `GlobalExceptionHandler` 에 누락 파라미터 핸들러가 없어 스프링 기본 에러 JSON 이 온다 —
-    /// 즉 `readApiError` 가 code 를 못 찾고 화면은 일반 문구로 떨어진다.
-    /// 그래서 파라미터를 **non-null 로 둔다**: nil 이면 `RestClient` 가 그 쿼리 키를 아예 빼 버려
-    /// (탑승 기록의 `cursor` 처럼) 추적하기 어려운 400 을 만든다.
-    ///
-    /// 뷰포트와 무관하다 — 지도 범위로 거르는 쪽은 `getReservationsSoon` 다.
-    func getReservations(from: String, to: String) async throws -> ReservationListResponse
+    // **기간으로 보는 예약 목록(`GET /matching/reservations?from&to`)은 서버에서 지워졌다**
+    // (`2732cc75`: 「앱이 부르지 않는 … GET /matching/reservations?from&to 와 INVALID_TIME_RANGE 삭제」).
+    // 화면이 쓰는 두 경로는 `getReservationsSoon`(지도 범위 + 30분 내)과
+    // `searchReservations`(출발지 1km + 하루)다. `INVALID_TIME_RANGE` 에러 코드도 함께 사라졌다.
 
     /// **곧 출발하는 예약** — 지도 범위 안, 지금부터 **30분 내** 출발. `PartyController.listSoonReservations`.
     ///
@@ -227,7 +233,9 @@ public protocol MatchingApi: Sendable {
     /// `departureLat`/`departureLng` + `destinationLat`/`destinationLng`, 실시간 후보 본문은
     /// `departureLat`/`departureLng` + `destLat`/`destLng`, 그리고 이 검색만 **네 개가 전부 줄어
     /// 있다**(`depLat`·`depLng`·`destLat`·`destLng`). 전체 표는 `OpenReservationRequestDto` 주석에 있다.
-    /// 틀리면 필수 파라미터 누락이라 스프링 기본 400(본문 모양이 다른 400 — `getReservations` 참고)이다.
+    /// 틀리면 필수 파라미터 누락이라 **본문 모양이 다른 400** 이다 — 서버 `GlobalExceptionHandler` 에
+    /// 누락 파라미터 핸들러가 없어 `{code, message}` 가 아닌 스프링 기본 에러 JSON 이 오고,
+    /// `readApiError` 가 code 를 못 찾아 화면은 일반 문구로 떨어진다.
     ///
     /// ### `date` 는 **한국 달력 날짜**다 — instant 가 아니다 ★
     /// 서버가 `@DateTimeFormat(iso = DATE) LocalDate` 로 받으므로 와이어 모양은 `yyyy-MM-dd`
@@ -262,30 +270,24 @@ public protocol MatchingApi: Sendable {
 }
 
 enum MatchingApiRoute: String, CaseIterable, ApiRouteSet {
-    case getParties, getPartiesWithin, getPartyDetail, openParty, joinParty, leaveParty, finishParty
+    case getPartiesWithin, getPartyDetail, openParty, joinParty, leaveParty
     case confirmMeeting, arriveAtDeparture, departParty
     case previewRoute, getRealtimeCandidates
-    case getMyNoShows, submitNoShowObjection
-    case createReservation, getReservations, getReservationsSoon, searchReservations
+    case createReservation, getReservationsSoon, searchReservations
 
     var route: ApiRoute {
         switch self {
-        case .getParties: .GET("api/v1/matching/rooms")
         case .getPartiesWithin: .GET("api/v1/matching/rooms", query: ["swLat", "swLng", "neLat", "neLng"])
         case .getPartyDetail: .GET("api/v1/matching/rooms/{partyId}")
         case .openParty: .POST("api/v1/matching/rooms")
         case .joinParty: .POST("api/v1/matching/rooms/{partyId}/join")
         case .leaveParty: .DELETE("api/v1/matching/leave/{partyId}")
-        case .finishParty: .POST("api/v1/matching/rooms/{partyId}/finish")
         case .confirmMeeting: .POST("api/v1/matching/rooms/{partyId}/confirm")
         case .arriveAtDeparture: .POST("api/v1/matching/rooms/{partyId}/arrive")
         case .departParty: .POST("api/v1/matching/rooms/{partyId}/depart")
         case .previewRoute: .POST("api/v1/matching/routes")
         case .getRealtimeCandidates: .POST("api/v1/matching/rooms/realtime")
-        case .getMyNoShows: .GET("api/v1/matching/no-shows")
-        case .submitNoShowObjection: .POST("api/v1/matching/rooms/{partyId}/no-show-objection")
         case .createReservation: .POST("api/v1/matching/reservations")
-        case .getReservations: .GET("api/v1/matching/reservations", query: ["from", "to"])
         case .getReservationsSoon: .GET("api/v1/matching/reservations/soon", query: ["swLat", "swLng", "neLat", "neLng"])
         case .searchReservations:
             .GET("api/v1/matching/reservations/search", query: ["depLat", "depLng", "date", "destLat", "destLng"])
@@ -295,10 +297,6 @@ enum MatchingApiRoute: String, CaseIterable, ApiRouteSet {
 
 struct RestMatchingApi: MatchingApi {
     let rest: RestClient
-
-    func getParties() async throws -> PartyListResponse {
-        try await rest.call(MatchingApiRoute.getParties.route)
-    }
 
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> PartyListResponse {
         try await rest.call(
@@ -328,10 +326,6 @@ struct RestMatchingApi: MatchingApi {
         try await rest.callUnit(MatchingApiRoute.leaveParty.route, path: ["partyId": partyId])
     }
 
-    func finishParty(partyId: Int64) async throws {
-        try await rest.callUnit(MatchingApiRoute.finishParty.route, path: ["partyId": partyId])
-    }
-
     func confirmMeeting(partyId: Int64, request: ConfirmMeetingRequestDto) async throws {
         try await rest.callUnit(MatchingApiRoute.confirmMeeting.route, path: ["partyId": partyId], body: request)
     }
@@ -352,21 +346,8 @@ struct RestMatchingApi: MatchingApi {
         try await rest.call(MatchingApiRoute.getRealtimeCandidates.route, body: request)
     }
 
-    func getMyNoShows() async throws -> MyNoShowListResponse {
-        try await rest.call(MatchingApiRoute.getMyNoShows.route)
-    }
-
-    // 201 + 빈 본문이라 `call<T>` 를 쓰면 빈 본문을 디코딩하다 터진다.
-    func submitNoShowObjection(partyId: Int64, request: NoShowObjectionRequestDto) async throws {
-        try await rest.callUnit(MatchingApiRoute.submitNoShowObjection.route, path: ["partyId": partyId], body: request)
-    }
-
     func createReservation(request: OpenReservationRequestDto) async throws -> OpenPartyResponse {
         try await rest.call(MatchingApiRoute.createReservation.route, body: request)
-    }
-
-    func getReservations(from: String, to: String) async throws -> ReservationListResponse {
-        try await rest.call(MatchingApiRoute.getReservations.route, query: ["from": from, "to": to])
     }
 
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> ReservationListResponse {

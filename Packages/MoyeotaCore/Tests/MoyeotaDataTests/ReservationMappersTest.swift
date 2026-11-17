@@ -44,8 +44,9 @@ import Testing
     /// 「약속 시간 정하기」를 띄우고, 누르면 서버가 409 `NOT_REALTIME_PARTY` 로 막는다.
     ///
     /// `Ride.isConfirmed` 도 같다 — 예약은 만들 때 출발 시각을 정하므로
-    /// 처음부터 확정이다. 확정의 대가는 **나갈 수 없다**는 것(409 `CANNOT_LEAVE_CONFIRMED_PARTY`)이라,
-    /// 이 값이 false 로 새면 화면이 누를 수 없는 「그만 찾기」를 띄운다.
+    /// 처음부터 확정이다. 확정은 **도착·출발이 열린다**는 뜻이라, 이 값이 false 로 새면 예약 방
+    /// 사용자에게 「출발지 도착했어요」가 영원히 안 뜬다. (한때는 「나갈 수 없다」는 뜻이기도 했다 —
+    /// 409 `CANNOT_LEAVE_CONFIRMED_PARTY`. 서버가 그 규칙을 버렸다(`b16551b7`): 확정이 나가기를 막지 않는다.)
     @Test("예약 항목은 roomType 이 없어도 예약 방이고 처음부터 확정이다")
     func reservationWithoutRoomType() throws {
         // 서버가 실제로 주는 모양 — roomType 키가 없다.
@@ -60,7 +61,7 @@ import Testing
 
         let ride = try decodeJSON(ReservationListResponse.self, body).list.single().toRide()
         #expect(ride.roomType == .reservation)
-        #expect(ride.isConfirmed, "예약 방은 처음부터 확정이다 — 「그만 찾기」를 띄우면 안 된다")
+        #expect(ride.isConfirmed, "예약 방은 처음부터 확정이다 — false 면 도착·출발이 열리지 않는다")
     }
 
     /// 생성 응답과 **방 id 키 이름이 다르다**: 이쪽은 `partyId`, `OpenPartyResponse` 는 `id`,
@@ -165,7 +166,7 @@ import Testing
         }
 
         #expect(try statusOf("ACTIVE") == .recruiting)
-        #expect(try statusOf("COMPLETED") == .matched)
+        #expect(try statusOf("COMPLETED") == .confirmed)
         #expect(try statusOf("FINISHED") == .completed)
         #expect(try statusOf("CANCELED") == .canceled)
     }

@@ -16,7 +16,7 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
     @Test("백엔드 PartyStatus 를 RideStatus 로 매핑한다")
     func mapsBackendPartyStatus() {
         #expect(partyStatusToRideStatus(status: "ACTIVE") == .recruiting)
-        #expect(partyStatusToRideStatus(status: "COMPLETED") == .matched)
+        #expect(partyStatusToRideStatus(status: "COMPLETED") == .confirmed)
         #expect(partyStatusToRideStatus(status: "FINISHED") == .completed)
         #expect(partyStatusToRideStatus(status: "CANCELED") == .canceled)
     }
@@ -125,7 +125,7 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         #expect(ride.id == "7")
         #expect(ride.origin == "서울시청")
         #expect(ride.destination == "강남역")
-        #expect(ride.status == .matched)
+        #expect(ride.status == .confirmed)
         #expect(ride.members.count == 2)
         #expect(isClose(37.5665, ride.originLat, 0.0001))
         #expect(isClose(127.0276, ride.destinationLng, 0.0001))
@@ -476,8 +476,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             destination: "강남역",
             capacity: 3,
             currentMembers: 1,
-            departureRadius: 500,
-            destinationRadius: 500,
             status: "ACTIVE",
             createdAt: "2026-08-24T09:00:00Z",
             estimateFare: 9600,
@@ -579,13 +577,13 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
     @Test("상세 응답 JSON 을 실제 서버 shape 그대로 역직렬화한다")
     func decodesDetailJSON() throws {
         // PartyDetailResult(… members, estimateFare, estimateTime, route) 기준.
-        // members 는 MemberInfo(publicId, nickname, imageUrl, badgeId, rideCount) —
+        // members 는 MemberInfo(publicId, nickname, imageUrl, rideCount) —
         // 내부 PK memberId 와 joinedAt 은 사라졌고, 둘째 멤버는 요약이 없는(탈퇴) 경우다.
-        // badgeId 는 서버 TODO 라 항상 null.
         //
-        // `taxiDriverId` 를 **일부러 남겨 둔다**: 서버가 출시된 앱 호환으로 이 키를 계속 실어 보내고,
-        // DTO 에는 받는 자리가 없다(기사·배차 삭제). 즉 이 줄은 디코더가 그 키를 모르는 키로 조용히
-        // 흘린다(`MoyeotaJSON`)는 계약을 지키는 자리다 — 지우면 그 보장이 사라진다.
+        // `taxiDriverId`·반경 두 키·멤버의 `badgeId` 를 **일부러 남겨 둔다**: 서버가 `2732cc75` 에서
+        // 응답에서 지웠고 DTO 에도 받는 자리가 없다. 즉 이 본문은 옛 서버(또는 캐시된 응답)가 그 키들을
+        // 실어 보내도 디코더가 모르는 키로 조용히 흘린다(`MoyeotaJSON`)는 계약을 지키는 자리다 —
+        // 지우면 그 보장이 사라진다.
         let body = """
             {"id":7,"departureLat":37.5665,"departureLng":126.978,"destinationLat":37.4979,
              "destinationLng":127.0276,"departure":"서울시청","destination":"강남역","capacity":3,
@@ -601,11 +599,11 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         let decoded = try decodeJSON(PartyDetailResponse.self, body)
         let ride = decoded.toRide(currentUuid: UUID_ME)
 
-        // 서버는 아직 반경을 내려보낸다(고정 500m) — DTO 는 그 모양대로 받는다.
-        #expect(decoded.departureRadius == 500)
-        #expect(decoded.destinationRadius == 500)
+        // 반경 두 키는 서버 응답에서 사라졌고(`2732cc75`) DTO 에서도 지웠다 — 본문에 남아 있어도
+        // 디코더가 흘린다(이 본문이 그걸 함께 증명한다: 반경·badgeId·taxiDriverId 를 모두 실어
+        // 두었는데 파싱이 깨지지 않는다).
         #expect(ride.id == "7")
-        #expect(ride.status == .matched)
+        #expect(ride.status == .confirmed)
         #expect(ride.members.map(\.id) == [UUID_ME, ""])
         #expect(ride.members.map(\.nickname) == ["성윤", "탈퇴한 회원"])
         #expect(ride.members.map(\.rideCount) == [4, 0])
@@ -642,16 +640,17 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
     }
 
     // 원본에는 없는 테스트다 — 이슈 #35 §3. 서버는 출시된 앱 호환으로 `taxiDriverId`(생성·상세)와
-    // `badgeId`(멤버)를 늘 null 로 실어 보내고, 옛 버전 앱이 사라지면 **키째 지운다**. 위 테스트들은 그
-    // 키를 일부러 싣거나(모르는 키 흘리기) DTO 생성자로 만들어서, 키가 사라진 날의 응답을 보지 않는다.
-    // Swift 합성 디코더는 키가 없으면 실패하므로(PORTING §3) 그날 방 화면·목록·SSE 가 한꺼번에 깨지지
-    // 않는지 응답마다 못 박는다.
-    @Test("호환 키(taxiDriverId·badgeId)가 없는 응답도 디코딩된다")
+    // `badgeId`(멤버)를 늘 null 로 실어 보내다가, 옛 버전 앱이 사라지면 **키째 지운다**고 했다.
+    // **그날이 왔다**(`2732cc75`: 「응답의 호환용 키 삭제: taxiDriverId, departureRadius·destinationRadius,
+    // members[].badgeId, pickupTime」). 위 테스트들은 그 키를 일부러 싣거나(모르는 키 흘리기) DTO
+    // 생성자로 만들어서, 키가 사라진 응답을 보지 않는다. Swift 합성 디코더는 키가 없으면 실패하므로
+    // (PORTING §3) 지금 서버 응답으로 방 화면·목록·SSE 가 한꺼번에 깨지지 않는지 응답마다 못 박는다.
+    @Test("호환 키(taxiDriverId·반경·badgeId)가 없는 응답도 디코딩된다")
     func decodesWithoutCompatKeys() throws {
-        // 상세(= SSE `connected` 스냅샷) — taxiDriverId 없음, 멤버마다 badgeId 없음.
+        // 상세(= SSE `connected` 스냅샷) — taxiDriverId·반경 없음, 멤버마다 badgeId 없음.
         let detailBody = """
             {"id":7,"departure":"서울시청","destination":"강남역","capacity":3,"currentMembers":2,
-             "departureRadius":500,"destinationRadius":500,"status":"ACTIVE","createdAt":"2026-08-30T09:00:00Z",
+             "status":"ACTIVE","createdAt":"2026-08-30T09:00:00Z",
              "members":[{"publicId":"\(UUID_ME)","nickname":"성윤","imageUrl":null,"rideCount":4,
                          "host":true,"arrived":false},
                         {"publicId":"\(UUID_OTHER)","nickname":"모여타","imageUrl":null,"rideCount":1,
@@ -662,17 +661,25 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         let detail = try decodeJSON(PartyDetailResponse.self, detailBody)
         let ride = detail.toRide(currentUuid: UUID_ME)
 
-        #expect(detail.members.map(\.badgeId) == [nil, nil])
+        // 받는 자리도 되살아나지 않는다 — 남겨 두면 기본값(반경 0·badgeId nil)이 「없는 키」를
+        // 그럴듯한 값으로 바꿔, 누군가 「반경 0m」·「배지 없음」을 화면에 그리게 된다.
+        let detailFields = fieldNames(PartyDetailResponse.CodingKeys.self)
+        #expect(!detailFields.contains("departureRadius"), "PartyDetailResponse 에 반경이 되살아났다")
+        #expect(!detailFields.contains("destinationRadius"), "PartyDetailResponse 에 반경이 되살아났다")
+        #expect(
+            !fieldNames(PartyDetailResponse.MemberInfo.CodingKeys.self).contains("badgeId"),
+            "MemberInfo 에 badgeId 가 되살아났다"
+        )
         #expect(ride.id == "7")
         #expect(ride.members.map(\.id) == [UUID_ME, UUID_OTHER])
         #expect(ride.members.map(\.isHost) == [true, false])
         #expect(ride.isHostedByMe)
         #expect(ride.estimatedFare == 9600)
 
-        // 생성 응답 — taxiDriverId 없음.
+        // 생성 응답 — taxiDriverId·반경 없음.
         let openBody = """
             {"id":12,"departure":"서울시청","destination":"강남역","capacity":3,"currentMembers":1,
-             "departureRadius":500,"destinationRadius":500,"status":"ACTIVE","createdAt":"2026-08-24T09:00:00Z",
+             "status":"ACTIVE","createdAt":"2026-08-24T09:00:00Z",
              "estimateFare":9600,"estimateTime":14,"route":"_p~iF~ps|U","roomType":"REALTIME","departureAt":null}
             """
         let opened = try decodeJSON(OpenPartyResponse.self, openBody).toRide()
@@ -691,7 +698,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         let joined = try decodeJSON(MemberJoinedPayload.self, joinedBody)
         let event = PartySseEvent.memberJoined(payload: joined).toPartyEvent(currentUuid: UUID_ME)
 
-        #expect(joined.member.badgeId == nil)
         guard case .memberJoined(let member, let status, let version) = event else {
             Issue.record("member-joined 로 옮겨지지 않았다: \(event)")
             return
@@ -788,12 +794,14 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
     @Test("합류 응답 JSON 을 실제 서버 shape 그대로 역직렬화한다")
     func decodesJoinResponseJSON() throws {
         // 백엔드 PartyController.join → PartyStatusResponse(status, currentMembers). 내가 마지막 자리를
-        // 채운 경우(서버가 그 자리에서 정원 충족까지 끝내고 COMPLETED 를 돌려준다).
-        let body = #"{"status":"COMPLETED","currentMembers":3}"#
+        // 채운 경우다 — ⚠️ **정원이 찼어도 `ACTIVE` 다.** 예전에는 서버가 그 자리에서 정원 충족까지
+        // 끝내고 `COMPLETED` 를 돌려줬지만, `b16551b7` 이 `COMPLETED` 의 뜻을 「방장이 약속을 확정했다」로
+        // 바꿨다. 그래서 합류 응답의 status 로는 「내가 마지막 자리를 채웠는지」를 알 수 없다 — 인원을 본다.
+        let body = #"{"status":"ACTIVE","currentMembers":3}"#
 
         let status = try decodeJSON(PartyStatusResponse.self, body).toPartyStatus()
 
-        #expect(status.status == .matched)
+        #expect(status.status == .recruiting)
         #expect(status.currentMembers == 3)
     }
 
@@ -849,7 +857,7 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
         let ride = try decodeJSON(PartyDetailResponse.self, body).toRide()
 
         #expect(ride.id == "7")
-        #expect(ride.status == .matched)
+        #expect(ride.status == .confirmed)
     }
 
     /// 상세 DTO 에 지문 필드가 **되살아나지 않는 것**을 못박는다. 서버가 지웠으니 되살리면 항상 null 인
@@ -1090,8 +1098,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             destination: "강남역",
             capacity: 3,
             currentMembers: members.count,
-            departureRadius: 500,
-            destinationRadius: 500,
             status: "COMPLETED",
             createdAt: "2026-08-17T09:00:00Z",
             members: members,
@@ -1136,7 +1142,6 @@ private let UUID_STRANGER = "01a06145-3caf-7614-a3bd-cee6e2531aaa"
             publicId: publicId,
             nickname: nickname,
             imageUrl: imageUrl,
-            badgeId: nil,
             rideCount: rideCount,
             host: host,
             arrived: arrived

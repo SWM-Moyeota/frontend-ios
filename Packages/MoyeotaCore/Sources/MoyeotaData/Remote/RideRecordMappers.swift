@@ -32,7 +32,6 @@ extension RideRecordResponse {
             departure: departure ?? "",
             destination: destination ?? "",
             pickupTime: pickupTime,
-            dropoffTime: dropoffTime,
             totalFare: totalFare,
             farePerPerson: farePerPerson,
             memberCount: currentMembers,

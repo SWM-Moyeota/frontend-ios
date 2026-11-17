@@ -89,7 +89,6 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     }
 
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw NetworkFailure() }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] {
         throw NetworkFailure()
     }
@@ -97,13 +96,11 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw NetworkFailure() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw NetworkFailure() }
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
-    func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
     // 예약 방 — 이 화면은 생성만 부른다. 나머지(목록·검색)는 17 탐색의 몫이다.
     func createReservation(request: NewReservation) async throws -> Ride {
         lock.withLock { reservationRequests.append(request) }
         return try await reservationResult(request)
     }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(
         departureLat: Double,
@@ -111,7 +108,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
         date: String,
         destination: ReservationDestination?
     ) async throws -> [ReservationSearchResult] { [] }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw NetworkFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw NetworkFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw NetworkFailure() }
     func departParty(partyId: Int64) async throws { throw NetworkFailure() }
 }
@@ -219,13 +218,13 @@ private let c = LatLng(35.10, 129.03)
     func reservationFailureCopy() async {
         let repository = FakeRideRepository()
         repository.reservationResult = { _ in
-            throw PartyOpenException(code: PartyOpenException.NO_SHOW_RESTRICTED, serverMessage: nil, httpStatus: 403)
+            throw PartyOpenException(code: PartyOpenException.PARTY_TIME_CONFLICT, serverMessage: nil, httpStatus: 409)
         }
         let viewModel = CreatePartyViewModel(repository: repository)
         let conditions = MatchConditions(capacity: 3, departureAt: "2026-11-09T09:30:00Z")
 
         await viewModel.createParty(origin: origin, destination: destination, conditions: conditions)?.value
-        #expect(viewModel.uiState.errorMessage == "노쇼 제재 중에는 방을 만들 수 없어요. 제재가 끝나면 다시 만들 수 있어요")
+        #expect(viewModel.uiState.errorMessage == "출발 2시간 안에 다른 예약이 있어요. 다른 시간으로 골라 주세요")
         #expect(!viewModel.uiState.needsActivePartyRefresh)
 
         repository.reservationResult = { _ in throw NetworkFailure() }

@@ -198,11 +198,11 @@ public final class CreatePartyViewModel {
                 // 살아 있는 태스크의 `URLError(.cancelled)` 는 원본 `IOException` 이라 아래 일반 문구로 간다.
                 if Task.isCancelled { return }
                 if let e = error as? PartyOpenException {
-                    // **같은 예외, 다른 표.** 실시간 표에 갈래가 없는 세 코드(403 `NO_SHOW_RESTRICTED` ·
-                    // 409 `PARTY_TIME_CONFLICT` — 둘 다 실시간 생성에도 온다 — 와 예약 전용 400
-                    // `INVALID_DEPARTURE_TIME`)가 있어서, 한 함수로 뭉개면 예약에서도 그 셋이 전부
-                    // 「잠시 후 다시 시도해 주세요」가 된다 — 세 가지 모두 「잠시」로는 풀리지 않는다
-                    // (`reservationOpenFailureMessage`).
+                    // **같은 예외, 다른 표.** 실시간 표에 갈래가 없는 두 코드(409 `PARTY_TIME_CONFLICT`
+                    // — 실시간 생성에도 온다 — 와 예약 전용 400 `INVALID_DEPARTURE_TIME`)가 있어서,
+                    // 한 함수로 뭉개면 예약에서도 둘이 전부 「잠시 후 다시 시도해 주세요」가 된다 —
+                    // 둘 다 「잠시」로는 풀리지 않고 다른 시간을 골라야 풀린다(`reservationOpenFailureMessage`).
+                    // (셋째였던 403 `NO_SHOW_RESTRICTED` 는 서버가 노쇼 기능을 지워 사라졌다 — `b16551b7`.)
                     self.uiState.errorMessage = departureAt != nil
                         ? reservationOpenFailureMessage(e: e)
                         : openFailureMessage(e: e)

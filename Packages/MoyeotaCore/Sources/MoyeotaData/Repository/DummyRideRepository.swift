@@ -41,8 +41,6 @@ public final class DummyRideRepository: RideRepository {
         ]
     }
 
-    public func getParties() async throws -> [Ride] { getNearbyParties() }
-
     // 서버 없이도 지도 화면이 그럴듯하게 동작하도록 출발 좌표로 직접 걸러낸다.
     // `swLat...neLat` 로 쓰지 않는다 — Swift 범위는 하한이 상한보다 크면 트랩한다(Kotlin `..` 은 빈 범위다).
     public func getPartiesWithin(
@@ -97,22 +95,27 @@ public final class DummyRideRepository: RideRepository {
     // 서버와 같은 모양으로 합류 직후 상태만 돌려준다 — 동승자 목록은 상세 조회가 맡는다.
     public func joinParty(partyId: Int64) async throws -> PartyStatus {
         let joined = getNearbyParties()[0]
+        // 합류 직후는 늘 모집 중이다 — 정원이 차도 서버는 ACTIVE 로 둔다(`b16551b7`). 확정된 방은 참여 자체가 막힌다
         return PartyStatus(
-            status: .matched,
+            status: .recruiting,
             currentMembers: joined.members.count
         )
     }
 
     public func leaveParty(partyId: Int64) async throws {}
 
-    public func finishParty(partyId: Int64) async throws {}
-
     // 약속 확정·도착·출발도 성공한 척만 한다. 더미는 방 상태를 들고 있지 않아 **다음 호출에 아무
     // 영향이 없다** — 확정한 뒤 getPartyDetail 을 읽어도 isConfirmed 는 여전히 false 다.
     // 그걸 흉내 내려면 더미가 방의 생애를 갖게 되는데, 그러면 「서버 없이 화면이 열리는가」만 보려는
     // 이 저장소가 두 번째 서버 구현이 된다(실패 경로는 흉내 낼 수 없으니 반쪽짜리다).
     // 확정/도착/출발이 실제로 어떤 모양인지는 FakeMatchingApi 를 쓰는 RemoteRideRepositoryTest 가 본다.
-    public func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+    public func confirmMeeting(
+        partyId: Int64,
+        departureAt: String,
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ) async throws {}
 
     public func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
 
@@ -142,11 +145,9 @@ public final class DummyRideRepository: RideRepository {
         )
     }
 
-    // 예약 조회 셋은 **빈 목록이 정답이다.** 더미에는 예약 방이 없고, 지어내면 프리뷰에서
+    // 예약 조회 둘은 **빈 목록이 정답이다.** 더미에는 예약 방이 없고, 지어내면 프리뷰에서
     // 「11월 13일 08:00 출발」 같은 **실재하지 않는 약속**을 그려 준다 — 실시간 후보
     // (findRealtimeCandidates)를 빈 목록으로 둔 것과 같은 근거다. 서버 없이 화면이 열리는지만 본다.
-    public func getReservations(from: String, to: String) async throws -> [Ride] { [] }
-
     public func getReservationsSoon(
         swLat: Double,
         swLng: Double,
