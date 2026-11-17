@@ -66,6 +66,13 @@ public struct FareSplitDetailScreen: View {
     // 토스를 열지 못했다. 한 번 실패하면 복사 안내를 띄운 채 둔다 — 다시 눌러 봐야 같은 결과다.
     @State private var tossFailed = false
 
+    /// 하단 고정 영역에 놓을 것이 있는가 — 오류 한 줄, 받는 사람의 「고치기」, 보내는 사람의 토스·「보냈어요」.
+    private var footerVisible: Bool {
+        if actionErrorMessage != nil { return true }
+        if detail.isPayer { return detail.canEdit }
+        return (showsTossButton(detail: detail) && !tossFailed) || showsMarkSentButton(detail: detail)
+    }
+
     public init(
         detail: FareSplitDetail,
         actionInProgress: Bool = false,
@@ -112,13 +119,17 @@ public struct FareSplitDetailScreen: View {
                             onConfirmClick: { confirming = $0 },
                             onRevertClick: { reverting = $0 }
                         )
+                        // 못 고치는 이유는 **본문 끝**에 둔다(2026-11-17 QA). 하단 고정 영역에 두면 긴 안내문이
+                        // 화면 아래를 차지해, 받는 사람이 가장 먼저 눌러야 할 「받았어요」를 가렸다.
+                        if !detail.canEdit, let reason = editBlockReason(detail: detail) {
+                            FareSplitHint(text: reason)
+                        }
                     } else {
                         SenderBlock(
                             detail: detail,
                             stage: senderStageOf(detail: detail),
                             tossFailed: tossFailed,
-                            onCopy: onCopy,
-                            onTossClick: openToss
+                            onCopy: onCopy
                         )
                     }
 
@@ -140,27 +151,30 @@ public struct FareSplitDetailScreen: View {
             // 원본 `verticalScroll` 은 자기 칸에서 잘린다.
             .clipped()
 
-            // 하단 고정 영역 — 역할마다 **딱 하나의 채워진 버튼**만 둔다.
+            // 하단 고정 영역 — 역할마다 **딱 하나의 채워진 버튼**만 둔다. 놓을 것이 없으면 영역째 그리지 않는다
+            // (빈 띠가 남으면 화면이 그만큼 좁아진다).
             VStack(spacing: 0) {
-                HorizontalDivider(color: MoyeotaColor.Hairline)
-                VStack(spacing: MoyeotaSpacing.Xs) {
-                    if let actionErrorMessage {
-                        NoticeBanner(kind: .error, text: actionErrorMessage)
+                if footerVisible {
+                    HorizontalDivider(color: MoyeotaColor.Hairline)
+                    VStack(spacing: MoyeotaSpacing.Xs) {
+                        if let actionErrorMessage {
+                            NoticeBanner(kind: .error, text: actionErrorMessage)
+                        }
+                        if detail.isPayer {
+                            PayerFooter(detail: detail, actionInProgress: actionInProgress, onEdit: onEdit)
+                        } else {
+                            SenderFooter(
+                                detail: detail,
+                                tossFailed: tossFailed,
+                                actionInProgress: actionInProgress,
+                                onTossClick: openToss,
+                                onMarkSentClick: { sending = true }
+                            )
+                        }
                     }
-                    if detail.isPayer {
-                        PayerFooter(detail: detail, actionInProgress: actionInProgress, onEdit: onEdit)
-                    } else {
-                        SenderFooter(
-                            detail: detail,
-                            tossFailed: tossFailed,
-                            actionInProgress: actionInProgress,
-                            onTossClick: openToss,
-                            onMarkSentClick: { sending = true }
-                        )
-                    }
+                    .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    .padding(.vertical, MoyeotaSpacing.Sm)
                 }
-                .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
-                .padding(.vertical, MoyeotaSpacing.Sm)
                 NavigationBarSpacer()
             }
             .background(MoyeotaColor.SurfaceCanvas)
@@ -287,7 +301,10 @@ private struct PayerBlock: View {
                     target: .accountNumber,
                     onCopy: onCopy
                 )
-                FareSplitHint(text: "동승자에게 보이는 계좌예요. 틀렸다면 아래 「금액·계좌 고치기」로 바꿔 주세요")
+                // 「고치기」 버튼이 있을 때만 그 버튼을 가리킨다 — 잠긴 뒤에도 「아래 버튼으로 바꿔 주세요」가 남아 있었다(2026-11-17 QA)
+                FareSplitHint(
+                    text: detail.canEdit ? "동승자에게 보이는 계좌예요. 틀렸다면 아래 「금액·계좌 고치기」로 바꿔 주세요" : "동승자에게 보이는 계좌예요"
+                )
             }
         }
 
@@ -386,10 +403,11 @@ private struct TransferRow: View {
     }
 }
 
-/// 받는 사람의 하단. 고칠 수 있으면 버튼, 못 고치면 **왜 못 고치는지**(`editBlockReason`).
+/// 받는 사람의 하단 — 고칠 수 있을 때만 「금액·계좌 고치기」.
 ///
-/// 버튼을 그냥 숨기지 않는 이유: 방장은 금액을 잘못 넣었다는 것을 알고 이 화면에 왔다. 고치는 길이
-/// 아무 말 없이 사라져 있으면 **정산을 취소하려 하고**, 그 길은 서버에 없다.
+/// 못 고칠 때 **왜 못 고치는지**(`editBlockReason`)는 여전히 말한다 — 다만 본문 끝에서 한다(위 `PayerBlock`
+/// 호출부). 버튼을 그냥 숨기지 않는 이유는 그대로다: 방장은 금액을 잘못 넣었다는 것을 알고 이 화면에 왔고,
+/// 고치는 길이 아무 말 없이 사라져 있으면 **정산을 취소하려 하는데** 그 길은 서버에 없다.
 private struct PayerFooter: View {
     let detail: FareSplitDetail
     let actionInProgress: Bool
@@ -398,8 +416,6 @@ private struct PayerFooter: View {
     var body: some View {
         if detail.canEdit {
             SecondaryButton(text: "금액·계좌 고치기", onClick: onEdit, enabled: !actionInProgress)
-        } else if let reason = editBlockReason(detail: detail) {
-            FareSplitHint(text: reason)
         }
     }
 }
@@ -411,7 +427,6 @@ private struct SenderBlock: View {
     let stage: SenderStage
     let tossFailed: Bool
     let onCopy: (FareSplitCopyTarget, String) -> Void
-    let onTossClick: (String) -> Void
 
     var body: some View {
         FareSplitCard {
@@ -451,11 +466,9 @@ private struct SenderBlock: View {
             }
         }
 
-        // 토스 버튼을 카드 아래에도 둔다 — 계좌 바로 아래가 「보내러 간다」의 자연스러운 자리다.
-        // 하단 고정 CTA 와 중복이 아니다: 저쪽은 스크롤과 무관하게 늘 보이는 자리다.
-        if showsTossButton(detail: detail) && !tossFailed, let deeplink = detail.tossDeeplink {
-            SecondaryButton(text: "토스로 보내기", onClick: { onTossClick(deeplink) })
-        }
+        // 「토스로 보내기」는 **하단 고정 영역 하나에만** 둔다(2026-11-17 QA). 예전에는 계좌 카드 아래에도
+        // 같은 버튼이 있었는데, 화면이 짧으면 같은 글자의 버튼 두 개가 한 화면에 동시에 보여 「둘이 다른
+        // 동작인가」를 묻게 했다. 하단 고정 버튼은 스크롤과 무관하게 늘 보이므로 그 하나로 충분하다.
     }
 }
 

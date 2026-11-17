@@ -204,9 +204,9 @@ enum OriginalAuthCopy {
 
     static let pledges: [AuthCopySource.Pledge] = [
         .init(title: "이용약관 · 개인정보 수집에 동의해요", description: "실명·생년월일·연락처는 본인 확인에만 써요"),
-        .init(title: "약속한 시간과 장소를 지킬게요", description: "무단 취소가 반복되면 이용이 제한돼요"),
+        .init(title: "약속한 시간과 장소를 지킬게요", description: "못 가게 되면 도착을 누르기 전에 미리 방에서 나와 주세요"),
         .init(title: "불쾌한 말과 행동을 하지 않을게요", description: "채팅방에서 메시지를 길게 눌러 신고할 수 있어요"),
-        .init(title: "매칭이 확정되면 꼭 나갈게요", description: "매칭 확정 후 오지 않으면 이용이 제한될 수 있어요"),
+        .init(title: "약속이 정해지면 꼭 나갈게요", description: "출발지에서 「도착」을 눌러야 함께 탄 것으로 기록돼요"),
     ]
 }
 

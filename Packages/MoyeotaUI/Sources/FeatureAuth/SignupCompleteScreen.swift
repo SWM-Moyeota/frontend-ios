@@ -85,7 +85,8 @@ public struct SignupCompleteScreen: View {
 private let completeGuideSteps = [
     "목적지를 넣으면 같은 방향 사람을 찾아요",
     "매칭되면 채팅으로 만날 곳을 정해요",
-    "내릴 때 1/N으로 나눠 내면 끝이에요",
+    // 「1/N으로 나눠 내면」은 지금 정산과 어긋났다 — 택시비를 낸 분이 사람마다 금액을 정한다(2026-11-17 QA)
+    "내린 뒤 택시비를 낸 분에게 내 몫을 보내면 끝이에요",
 ]
 
 // 큰 체크 배지 — Primary50 원 안에 Primary 체크표시

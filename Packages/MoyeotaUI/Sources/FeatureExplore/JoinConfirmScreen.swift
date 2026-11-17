@@ -518,9 +518,12 @@ private struct MemberRow: View {
                             color: clickable ? MoyeotaColor.InkPrimary : MoyeotaColor.TextMute
                         )
                     Spacer().frame(width: 8)
+                    // 방을 만든 사람이 「동승자」로만 보이면 누구에게 약속을 물어야 할지 알 수 없다(2026-11-17 QA)
                     Group {
                         if member.isMe {
                             MeBadge()
+                        } else if member.isHost {
+                            HostBadge()
                         } else {
                             PartnerBadge()
                         }
