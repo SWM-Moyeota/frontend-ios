@@ -30,7 +30,7 @@ import Testing
     @Test("모든 도형이 .circular 모서리를 쓴다")
     func everyShapeIsCircular() throws {
         let dirs = ["MoyeotaDesignSystem", "PresentationCore", "FeatureAuth", "FeatureOnboarding", "FeatureHome",
-                    "FeatureExplore", "FeatureMatching", "FeatureChat", "FeatureMyPage"]
+                    "FeatureExplore", "FeatureMatching", "FeatureChat", "FeatureMyPage", "FeatureFareSplit"]
         var seen = 0
         for dir in dirs {
             for file in SourceTree.swiftFiles(under: dir) {

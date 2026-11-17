@@ -53,11 +53,14 @@ import Testing
         #expect(!PartyJoinException(code: "X", serverMessage: nil, httpStatus: 404).isPartyNotFound)
     }
 
-    @Test("완료 예외는 상태 코드로 폴백하지 않는다")
-    func partyFinishException() {
-        #expect(!PartyFinishException(code: nil, serverMessage: nil, httpStatus: 403).isNotHost)
-        #expect(!PartyFinishException(code: nil, serverMessage: nil, httpStatus: 404).isPartyNotFound)
-        #expect(PartyFinishException(code: "NOT_PARTY_HOST", serverMessage: nil).isNotHost)
+    /// 「합승 완료」 예외(`PartyFinishException`)를 보던 자리다. 서버가 `/finish` 를 지우면서(`b16551b7`)
+    /// 그 예외도 사라졌고, 방을 끝내는 길이 출발 하나가 되며 `NOT_PARTY_HOST` 도 출발로 옮겨 왔다 —
+    /// 지키려는 성질(코드가 없으면 상태 코드로 사유를 지어내지 않는다)은 그대로 출발 예외에서 본다.
+    @Test("출발 예외는 상태 코드로 폴백하지 않는다")
+    func partyDepartException() {
+        #expect(!PartyDepartException(code: nil, serverMessage: nil, httpStatus: 403).isNotHost)
+        #expect(!PartyDepartException(code: nil, serverMessage: nil, httpStatus: 404).isPartyNotFound)
+        #expect(PartyDepartException(code: "NOT_PARTY_HOST", serverMessage: nil).isNotHost)
     }
 
     @Test("생성 예외의 경로 실패 갈래")
@@ -82,7 +85,7 @@ import Testing
         #expect(PartyJoinException(code: "C", serverMessage: "서버").message == "서버")
         #expect(PartyJoinException(code: "C", serverMessage: nil).message == "C")
         #expect(PartyJoinException(code: nil, serverMessage: nil).message == "방에 합류하지 못했습니다.")
-        #expect(PartyFinishException(code: nil, serverMessage: nil).message == "합승을 완료하지 못했습니다.")
+        #expect(PartyDepartException(code: nil, serverMessage: nil).message == "출발하지 못했습니다.")
         #expect(RealtimeMatchException(code: nil, serverMessage: nil).message == "추천을 가져오지 못했습니다.")
         #expect(PartyOpenException(code: nil, serverMessage: nil).message == "방을 만들지 못했습니다.")
         #expect(PartyLeaveException(code: nil, serverMessage: nil).message == "방에서 나가지 못했습니다.")

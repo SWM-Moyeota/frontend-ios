@@ -22,16 +22,26 @@ public enum ActiveStage: CaseIterable, Hashable, Sendable {
 public extension Ride {
     var activeStage: ActiveStage {
         switch status {
-        case .recruiting, .matched: .waiting
+        case .recruiting, .confirmed: .waiting
         case .completed, .canceled: .none
         }
     }
 
     /// 배너·카드에 쓰는 단계 문구. 21 대기 화면의 헤더 제목과 같은 말을 쓴다.
+    ///
+    /// ### 🔴 「같이 탈 사람이 모였어요」를 「약속이 정해졌어요」로 바꿨다 (2026-11-12) ★
+    /// 예전에는 `status == .matched` 를 「정원이 찼다」로 읽고 그 문구를 썼다. 서버가 그 값의 **뜻을
+    /// 바꿨다**(`b16551b7`): `RideStatus.confirmed`(= 서버 COMPLETED)는 「방장이 약속을 확정했다」이고,
+    /// **정원이 차도 status 는 ACTIVE** 다. 그래서 그 문구는 **3인 방에 2명 모인 확정 방**에
+    /// 「다 모였어요」를 그리고 있었다 — 오지 않을 세 번째 사람을 기다리게 만드는 거짓이다.
+    ///
+    /// 여기서 **정원을 다시 셀 수는 없다.** 이 값을 쓰는 홈 배너·카드가 보는 `Ride` 는 진행 중인 방
+    /// 조회(`ActivePartyRepository.resolve`)에서 오는데 그쪽은 멤버 목록이 비어 올 수 있어
+    /// `members.count >= capacity` 가 **거짓 음성**이 된다. 상태값으로 **참인 것만** 말한다 —
+    /// 그게 「약속이 정해졌다」다(정원은 21 대기 화면이 목록으로 직접 센다 — `isMatchFull`).
     var activeStageLabel: String {
         switch activeStage {
-        // 정원이 찬 방(MATCHED)은 「찾는 중」이 아니다 — 채팅으로 만날 곳을 정하는 동안 계속 이 문구다.
-        case .waiting: status == .matched ? "같이 탈 사람이 모였어요" : "같이 탈 사람 찾는 중"
+        case .waiting: status == .confirmed ? "약속이 정해졌어요" : "같이 탈 사람 찾는 중"
         case .none: "진행 중 탑승"
         }
     }

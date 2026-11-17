@@ -55,7 +55,7 @@ import Testing
 
         #expect(groups.group(MyPageGroupLabel.INFO) == nil, "안내 카드가 빈 채로 남았다")
         // 주소와 무관한 세 그룹은 그대로 있어야 한다 — 로그아웃·탈퇴가 사라지면 갇힌다.
-        #expect(groups.rowTexts(MyPageGroupLabel.RIDES) == ["지난 탑승 기록", "노쇼 기록"])
+        #expect(groups.rowTexts(MyPageGroupLabel.RIDES) == ["지난 탑승 기록"])
         #expect(groups.rowTexts(MyPageGroupLabel.SETTINGS) == ["알림 설정"])
         #expect(groups.rowTexts(MyPageGroupLabel.ACCOUNT) == ["로그인 수단 관리", "로그아웃", "탈퇴하기"])
     }
@@ -135,7 +135,6 @@ import Testing
             let leavesApp = switch row.action {
             case .notificationSettings, .openWeb, .sendMail: true
             case .rideHistory,
-                 .noShowRecords,
                  .loginMethods,
                  .logout,
                  .deleteAccount: false
@@ -195,7 +194,7 @@ import Testing
     ///
     /// ### 금지어에서 「탑승 기록」이 빠진 이유 (2026-11-01)
     /// **전제가 깨졌다 — 서버가 이제 준다.** `GET /api/v1/users/me/parties` 가 생겨
-    /// 하차까지 끝난 탑승 기록을 돌려준다(실측: 기록 2건, `dropoffTime` 내림차순 + 커서 페이징).
+    /// 끝난 탑승 기록을 돌려준다(실측: 기록 2건, 시각 내림차순 + 커서 페이징).
     /// 그래서 「지난 탑승 기록」 행이 들어왔고(34 재도입, `docs/BACKEND-GAP-CLEANUP.md` §6)
     /// 이 목록에 그 말이 남아 있으면 **행을 추가하는 순간 이 테스트가 빨개진다.**
     ///
@@ -235,38 +234,16 @@ import Testing
         #expect(!row.danger, "기록 보기는 되돌릴 수 없는 동작이 아니다")
     }
 
-    // ─────────────────────────── 노쇼 기록 (2026-11-06) ───────────────────────────
+    // ─────────────────────────── 노쇼 기록은 없다 (2026-11-12) ───────────────────────────
 
-    /// 38 로 들어가는 입구가 **있어야** 한다. 이 행이 없으면 노쇼로 찍힌 사용자가 **이의를 낼 길이
-    /// 앱 안에 하나도 없다** — 제재는 방 만들기·합류를 403 `NO_SHOW_RESTRICTED` 로 막기만 하고,
-    /// 그 403 을 받는 화면들은 기록도 이의 경로도 모른다.
-    ///
-    /// 「지난 탑승 기록」 **다음**이어야 한다: 같은 「탑승」 카드 안에서 평소에 보는 것이 위고,
-    /// 사고가 났을 때 보는 것이 아래다(계정 카드가 로그아웃 → 탈퇴 순인 것과 같은 기준).
-    @Test("노쇼 기록 행이 지난 탑승 기록 다음에 있다")
-    func noShowRowFollowsRideHistory() throws {
+    /// 「노쇼 기록」 행은 **지웠다** — 서버가 노쇼 기록·제재·이의 신청을 통째로 없앴다(`b16551b7`).
+    /// 행이 남아 있으면 38 이 404 로만 끝나는 화면을 연다. 「탑승」 카드에는 지난 탑승 기록 하나뿐이다.
+    @Test("노쇼 기록 행이 없다")
+    func noShowRowRemoved() throws {
         let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
-
-        #expect(rows.map(\.text) == ["지난 탑승 기록", "노쇼 기록"])
-        try #require(rows.count == 2)
-        #expect(rows[1].action == .noShowRecords)
-        // › (앱 안)이어야 한다. ↗ 로 달면 사용자는 브라우저가 열릴 줄 알고 누른다.
-        #expect(rows[1].mark == .chevron)
-        #expect(!rows[1].danger, "기록 보기는 되돌릴 수 없는 동작이 아니다")
-    }
-
-    /// **행 이름이 제재를 단정하지 않는다.** 「이용 제한」·「제재 내역」으로 적으면 제한이 걸린 적
-    /// 없는 사용자(절대다수)가 자기 계정에 제재가 있다고 읽는다. 이 행이 여는 화면은 기록 목록이고,
-    /// 지금 제한 여부는 **배너**가 서버 `restrictedUntil` 로만 말한다.
-    @Test("노쇼 기록 행 이름이 제재를 단정하지 않는다")
-    func noShowRowNameDoesNotAssertSanction() throws {
-        let rows = try #require(myPageGroups(links: allLinks).group(MyPageGroupLabel.RIDES)).rows
-        try #require(rows.count >= 2)
-        let text = rows[1].text
-
-        #expect(text == "노쇼 기록")
-        for forbidden in ["제재", "이용 제한", "정지"] {
-            #expect(!text.contains(forbidden), "제재를 단정하는 행 이름이다: \(text)")
+        #expect(rows.map(\.text) == ["지난 탑승 기록"])
+        for row in myPageGroups(links: allLinks).flatMap(\.rows) {
+            #expect(!row.text.contains("노쇼"), "사라진 기능의 행이다: \(row.text)")
         }
     }
 

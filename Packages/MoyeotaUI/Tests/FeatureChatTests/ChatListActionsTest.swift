@@ -17,7 +17,7 @@ import Testing
         Ride(
             id: "42", origin: "강남역", destination: "서울시청", departureLabel: "지금 출발", capacity: 3,
             members: members, farePerPerson: 0, totalFare: 0, status: status,
-            isConfirmed: status == .matched, roomType: roomType
+            isConfirmed: status == .confirmed, roomType: roomType
         )
     }
 
@@ -67,8 +67,8 @@ import Testing
 
     @Test("약속이 정해진 둘뿐인 방에서 나가면 약속이 취소된다")
     func confirmedPairCancelsMeeting() {
-        let pair = ride(.matched, [member("a", isHost: true), member("me", isMe: true)])
-        let trio = ride(.matched, [member("a", isHost: true), member("b"), member("me", isMe: true)])
+        let pair = ride(.confirmed, [member("a", isHost: true), member("me", isMe: true)])
+        let trio = ride(.confirmed, [member("a", isHost: true), member("b"), member("me", isMe: true)])
         guard case .leaveParty(let pairPlan) = chatLeavePlan(chatRoomId: 7, ride: pair),
               case .leaveParty(let trioPlan) = chatLeavePlan(chatRoomId: 7, ride: trio)
         else {
@@ -90,7 +90,7 @@ import Testing
 
     @Test("도착을 누른 뒤에는 나갈 수 없다")
     func arrivedIsBlocked() {
-        let arrived = ride(.matched, [member("a", isHost: true), member("me", isMe: true, arrived: true)])
+        let arrived = ride(.confirmed, [member("a", isHost: true), member("me", isMe: true, arrived: true)])
         #expect(chatLeavePlan(chatRoomId: 7, ride: arrived) == .blocked)
     }
 

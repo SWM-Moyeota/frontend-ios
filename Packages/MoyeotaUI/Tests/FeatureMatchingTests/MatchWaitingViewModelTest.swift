@@ -21,12 +21,13 @@ struct MatchWaitingViewModelTest {
         private var _hangDetail = false
         private var _detailCancelled = 0
         var leaveError: (any Error)?
-        var finishError: (any Error)?
         var confirmError: (any Error)?
         var arriveError: (any Error)?
         var departError: (any Error)?
         private(set) var leaveCalls = 0
         private(set) var confirmedDepartureAt: [String] = []
+        /// 확정 요청이 함께 실어 보낸 만남 장소 — 「무엇을 보냈는가」를 보는 자리다(`MeetingConfirmRequestTest` 와 같은 근거).
+        private(set) var confirmedPlaces: [MeetingPlace] = []
         private(set) var arrivedAt: [(latitude: Double, longitude: Double)] = []
         private(set) var departCalls = 0
 
@@ -84,12 +85,15 @@ struct MatchWaitingViewModelTest {
             if let leaveError { throw leaveError }
         }
 
-        func finishParty(partyId: Int64) async throws {
-            if let finishError { throw finishError }
-        }
-
-        func confirmMeeting(partyId: Int64, departureAt: String) async throws {
+        func confirmMeeting(
+            partyId: Int64,
+            departureAt: String,
+            latitude: Double,
+            longitude: Double,
+            placeName: String
+        ) async throws {
             confirmedDepartureAt.append(departureAt)
+            confirmedPlaces.append(MeetingPlace(latitude: latitude, longitude: longitude, name: placeName))
             if let confirmError { throw confirmError }
         }
 
@@ -104,7 +108,6 @@ struct MatchWaitingViewModelTest {
         }
 
         func getNearbyParties() -> [Ride] { [] }
-        func getParties() async throws -> [Ride] { throw StubError() }
         func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] {
             throw StubError()
         }
@@ -126,7 +129,6 @@ struct MatchWaitingViewModelTest {
 
         // 예약 방 — 21 대기 뷰모델은 부르지 않는다(만들기·찾기는 16·17 의 일이다).
         func createReservation(request: NewReservation) async throws -> Ride { throw StubError() }
-        func getReservations(from: String, to: String) async throws -> [Ride] { throw StubError() }
         func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] {
             throw StubError()
         }
@@ -141,6 +143,7 @@ struct MatchWaitingViewModelTest {
     private static let me = User(id: "me", nickname: "나", verifiedLabel: "", rating: 0, rideCount: 0, isMe: true)
     private static let other = User(id: "u2", nickname: "남", verifiedLabel: "", rating: 0, rideCount: 0)
 
+    /// 상세 조회·SSE 스냅샷이 주는 모양 — **출발지 좌표가 채워져 있다**(약속 확정이 그 값을 그대로 보낸다).
     private static func ride(members: [User] = [me], status: RideStatus = .recruiting) -> Ride {
         Ride(
             id: "1",
@@ -151,7 +154,9 @@ struct MatchWaitingViewModelTest {
             members: members,
             farePerPerson: 0,
             totalFare: 0,
-            status: status
+            status: status,
+            originLat: 35.2314,
+            originLng: 129.0846
         )
     }
 
@@ -377,13 +382,15 @@ struct MatchWaitingViewModelTest {
         #expect(repository.leaveCalls == 1, "중복 실행 차단이 듣지 않았다")
     }
 
-    @Test("나가기·합승 완료 실패는 사유별 문구로 옮긴다")
+    /// 「합승 완료」 실패 단언은 지웠다 — 서버가 `/finish` 를 없애 그 액션 자체가 사라졌다(`b16551b7`).
+    /// 나가기의 두 409 는 **정반대 행동**을 가리키므로(떠난다 / 머문다) 둘 다 본다.
+    @Test("나가기 실패는 사유별 문구로 옮긴다")
     func actionFailureMessages() async {
         let repository = FakeRepository(detail: Self.okDetail())
         let viewModel = make(repository)
 
         repository.leaveError = PartyLeaveException(
-            code: PartyLeaveException.PARTY_NOT_RECRUITING,
+            code: PartyLeaveException.PARTY_CLOSED,
             serverMessage: nil,
             httpStatus: 409
         )
@@ -392,31 +399,28 @@ struct MatchWaitingViewModelTest {
         #expect(!viewModel.actionState.inProgress)
         #expect(!viewModel.actionState.left)
 
+        repository.leaveError = PartyLeaveException(
+            code: PartyLeaveException.ARRIVED_MEMBER_CANNOT_LEAVE,
+            serverMessage: nil,
+            httpStatus: 409
+        )
+        viewModel.leaveParty()
+        #expect(await eventually {
+            viewModel.actionState.errorMessage == "도착을 알린 뒤에는 나갈 수 없어요. 방장이 출발하면 방이 끝나요"
+        })
+
         repository.leaveError = StubError()
         viewModel.leaveParty()
         #expect(await eventually { viewModel.actionState.errorMessage == "방에서 나가지 못했어요" })
-
-        repository.finishError = PartyFinishException(
-            code: PartyFinishException.NOT_PARTY_HOST,
-            serverMessage: nil,
-            httpStatus: 403
-        )
-        viewModel.finishParty()
-        #expect(await eventually {
-            viewModel.actionState.errorMessage == "방장만 합승을 완료할 수 있어요. 가장 먼저 참여한 분에게 부탁해 주세요"
-        })
-
-        repository.finishError = StubError()
-        viewModel.finishParty()
-        #expect(await eventually { viewModel.actionState.errorMessage == "합승을 완료하지 못했어요" })
-        #expect(!viewModel.actionState.finished)
+        #expect(!viewModel.actionState.left)
     }
 
     // ─── 약속 확정 · 도착 · 출발 ───────────────────────────────────────────────
 
-    /// 확정 프레임은 `isConfirmed` 와 약속 시각만 싣는다 — status 는 문자열이라 건드리지 않는다
-    /// (`Ride.withMeetingConfirmed`). 그래도 화면이 확정 단계를 그리는 근거가 이 두 값이다.
-    @Test("confirmed - SSE 가 확정을 알리면 isConfirmed 와 약속 시각을 반영한다")
+    /// 확정 프레임은 `isConfirmed`·약속 시각·**바뀐 출발지**를 싣는다 — status 는 문자열이라 건드리지 않는다
+    /// (`Ride.withMeetingConfirmed`). 확정이 방의 출발지를 만남 장소로 옮기므로(서버 `Party.confirm`) 출발지를
+    /// 덮어쓰지 않으면 도착 판정이 옛 좌표를 기준으로 돈다.
+    @Test("confirmed - SSE 가 확정을 알리면 isConfirmed·약속 시각·바뀐 출발지를 반영한다")
     func confirmedFrameApplies() async {
         let repository = FakeRepository(detail: .failure(StubError()))
         let viewModel = make(repository)
@@ -426,17 +430,27 @@ struct MatchWaitingViewModelTest {
         repository.latest()?.yield(.snapshot(ride: held, version: 3))
         #expect(await eventually { viewModel.uiState == .success(ride: held) })
 
-        repository.latest()?.yield(.confirmed(status: "COMPLETED", departureAt: "2026-11-06T06:30:00Z", version: 4))
+        repository.latest()?.yield(.confirmed(
+            status: "COMPLETED",
+            departureAt: "2026-11-06T06:30:00Z",
+            departureLat: 35.1631,
+            departureLng: 129.1635,
+            departurePlace: "센텀시티역 3번 출구",
+            version: 4
+        ))
 
         // status 는 들고 있던 RECRUITING 그대로다 — 프레임의 문자열 status 로 RideStatus 를 바꾸지 않는다.
         var confirmed = held
         confirmed.isConfirmed = true
         confirmed.departureAt = "2026-11-06T06:30:00Z"
+        confirmed.origin = "센텀시티역 3번 출구"
+        confirmed.originLat = 35.1631
+        confirmed.originLng = 129.1635
         #expect(await eventually { viewModel.uiState == .success(ride: confirmed) })
     }
 
     /// 아는 사람의 도착은 그 줄만 고치고, 모르는 사람의 도착은 **목록이 낡았다**는 뜻이라 상세를 읽는다
-    /// (`Ride.withMemberArrived`) — 노쇼 인원 수가 이 목록에서 나오기 때문이다.
+    /// (`Ride.withMemberArrived`) — 출발 확인이 말하는 「빠지는 인원」이 이 목록에서 나오기 때문이다.
     @Test("memberArrived - 아는 사람은 그 줄만 고치고, 모르는 사람이면 상세를 다시 읽는다")
     func memberArrivedFrame() async {
         let repository = FakeRepository(detail: .failure(StubError()))
@@ -460,7 +474,8 @@ struct MatchWaitingViewModelTest {
         #expect(viewModel.uiState == .success(ride: arrived), "없는 줄을 지어내면 안 된다")
     }
 
-    /// 204 면 확정은 사실이다 — SSE 를 기다리지 않고 들고 있는 방을 고친다. 보낸 값은 화면이 넘긴 그 문자열이다.
+    /// 204 면 확정은 사실이다 — SSE 를 기다리지 않고 들고 있는 방을 고친다. 보낸 값은 화면이 넘긴 그 문자열이고,
+    /// 만남 장소는 **방의 지금 출발지 그대로**다(바꾸는 UI 가 없다 — 좌표가 움직이지 않는다).
     @Test("confirmMeeting - 성공하면 보낸 시각 그대로 확정된 방을 그린다")
     func confirmMeetingSuccess() async {
         let held = Self.ride(members: [Self.me, Self.other])
@@ -475,6 +490,7 @@ struct MatchWaitingViewModelTest {
         confirmed.departureAt = "2026-11-06T06:30:00Z"
         #expect(await eventually { viewModel.uiState == .success(ride: confirmed) && !viewModel.actionState.inProgress })
         #expect(repository.confirmedDepartureAt == ["2026-11-06T06:30:00Z"], "다이얼로그가 보여 준 값이 아닌 시각을 보냈다")
+        #expect(repository.confirmedPlaces == [MeetingPlace(latitude: 35.2314, longitude: 129.0846, name: "부산대")])
     }
 
     /// 내 도착은 `member-arrived` 를 기다리지 않고 그 자리에서 고친다 — 고치지 않으면 같은 버튼을 다시 누른다.
@@ -505,13 +521,14 @@ struct MatchWaitingViewModelTest {
 
         #expect(await eventually { viewModel.actionState.departed && !viewModel.actionState.inProgress })
         #expect(repository.departCalls == 1)
-        #expect(!viewModel.actionState.finished, "합승 완료와 다른 신호다")
     }
 
     @Test("약속 확정·도착·출발 실패는 사유별 문구로 옮긴다")
     func meetingActionFailureMessages() async {
         let repository = FakeRepository(detail: Self.okDetail())
         let viewModel = make(repository)
+
+        #expect(await eventually { viewModel.uiState == .success(ride: Self.ride()) })
 
         repository.confirmError = PartyConfirmException(code: PartyConfirmException.ALREADY_CONFIRMED, serverMessage: nil)
         viewModel.confirmMeeting(departureAt: "2026-11-06T06:30:00Z")
@@ -522,6 +539,13 @@ struct MatchWaitingViewModelTest {
         #expect(await eventually {
             viewModel.actionState.errorMessage
                 == "출발지에서 100m 안에 있어야 도착을 알릴 수 있어요. 출발지로 더 가까이 가 주세요"
+        })
+
+        // 출발이 방장 전용이 되며 생긴 사유 — 이름 없이 「누가 눌러야 하는지」를 말한다
+        repository.departError = PartyDepartException(code: PartyDepartException.NOT_PARTY_HOST, serverMessage: nil)
+        viewModel.departParty()
+        #expect(await eventually {
+            viewModel.actionState.errorMessage == "방장만 출발할 수 있어요. 가장 먼저 참여한 분에게 부탁해 주세요"
         })
 
         repository.departError = StubError()

@@ -11,11 +11,13 @@ public enum NicknamePolicy {
     public static let MAX_LENGTH = AuthPolicy.NICKNAME_MAX_LENGTH
     private static let MIN_LENGTH = AuthPolicy.NICKNAME_MIN_LENGTH
 
-    // 금칙어·욕설 + 운영자 사칭어(모여타·관리자)
-    private static let BannedWords = [
-        "모여타", "관리자", "운영자", "admin",
-        "시발", "씨발", "병신", "새끼", "지랄", "미친", "좆", "썅",
-    ]
+    /// 운영자 사칭어. **걸린 단어를 문구에 그대로 보여 준다**(2026-11-17 QA) — 「모두모여타요」처럼 사칭 뜻이
+    /// 없는 닉네임도 글자가 겹치면 막히는데, 이유 없이 「사용할 수 없는 닉네임이에요」만 보이면 사용자가
+    /// 무엇을 고쳐야 할지 알 수 없었다. 영문은 대소문자를 가리지 않는다(「Admin」도 사칭이다).
+    private static let ImpersonationWords = ["모여타", "관리자", "운영자", "admin"]
+
+    /// 욕설. 이쪽은 **단어를 되읽어 주지 않는다** — 화면에 욕설을 다시 적을 이유가 없다.
+    private static let ProfanityWords = ["시발", "씨발", "병신", "새끼", "지랄", "미친", "좆", "썅"]
 
     public static func isValid(raw: String) -> Bool { validate(raw: raw) == nil }
 
@@ -26,7 +28,11 @@ public enum NicknamePolicy {
         if value.isEmpty { return "닉네임을 입력해 주세요" }
         if !matchesCharRule(value) { return "한글·영문·숫자만 쓸 수 있어요 (공백·특수문자·이모지 불가)" }
         if !AuthPolicy.isValidNickname(value: value) { return "닉네임은 \(MIN_LENGTH)~\(MAX_LENGTH)자로 입력해 주세요" }
-        if BannedWords.contains(where: { value.contains($0) }) { return "사용할 수 없는 닉네임이에요" }
+        if let word = ImpersonationWords.first(where: { value.lowercased().contains($0) }) {
+            // 조사(은/는)를 붙이지 않는 문장 — 「admin」·「모여타」 어느 쪽에도 맞는다
+            return "운영자로 보일 수 있는 말(「\(word)」)은 닉네임에 쓸 수 없어요"
+        }
+        if ProfanityWords.contains(where: { value.contains($0) }) { return "욕설·비속어가 들어간 닉네임은 쓸 수 없어요" }
         return nil
     }
 

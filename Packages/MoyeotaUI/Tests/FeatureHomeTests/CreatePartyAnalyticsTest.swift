@@ -39,20 +39,17 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
 
     func createParty(request: NewParty) async throws -> Ride { try await createResult(request) }
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw NetworkFailure() }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw NetworkFailure() }
     func getPartyDetail(partyId: Int64) async throws -> Ride { throw NetworkFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw NetworkFailure() }
     func findRealtimeCandidates(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> [MatchCandidate] { [] }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw NetworkFailure() }
     func leaveParty(partyId: Int64) async throws { throw NetworkFailure() }
-    func finishParty(partyId: Int64) async throws { throw NetworkFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw NetworkFailure() }
 
     // 예약 방 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 생성만 람다로 두어 「이벤트를 보내지
     // 않는다」를 성공·실패 양쪽에서 확인한다(iOS 전용 테스트).
     func createReservation(request: NewReservation) async throws -> Ride { try await reservationResult(request) }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(
         departureLat: Double,
@@ -63,7 +60,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
 
     // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
     // leave/finish 처럼 람다로 바꿔 호출을 세면 된다.
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw NetworkFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw NetworkFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw NetworkFailure() }
     func departParty(partyId: Int64) async throws { throw NetworkFailure() }
 }

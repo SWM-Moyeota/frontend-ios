@@ -19,7 +19,7 @@ import Testing
         partyId: Int64 = 69,
         departure: String = "강남역",
         destination: String = "판교역",
-        dropoffTime: String? = "2026-10-31T19:15:17.571486Z",
+        pickupTime: String? = "2026-10-31T19:15:17.571486Z",
         totalFare: Int? = 16500,
         farePerPerson: Int? = 16500,
         memberCount: Int = 1,
@@ -31,8 +31,7 @@ import Testing
             partyId: partyId,
             departure: departure,
             destination: destination,
-            pickupTime: nil,
-            dropoffTime: dropoffTime,
+            pickupTime: pickupTime,
             totalFare: totalFare,
             farePerPerson: farePerPerson,
             memberCount: memberCount,
@@ -42,7 +41,7 @@ import Testing
 
     // ─────────────────────────── 요금 (이 화면의 1급 규칙) ───────────────────────────
 
-    /// ★ 1차 모드 기록은 요금이 nil 이다. **표시 모델에 요금이 아예 없어야** 한다 —
+    /// ★ 택시비 정산이 없는 기록은 요금이 nil 이다. **표시 모델에 요금이 아예 없어야** 한다 —
     /// 0원으로 접으면 「공짜로 탔다」는 거짓말이 되고, 사용자는 그걸 영수증으로 읽는다.
     /// 이 저장소가 거짓 문구 19건을 들어낸 이력이 있는 바로 그 종류의 사고다.
     @Test("요금이 없는 기록은 요금 줄을 그리지 않는다")
@@ -53,28 +52,27 @@ import Testing
     }
 
     /// 요금이 있는 기록은 반대로 두 줄이 다 선다. 빈 블록을 만들지 않는지 함께 본다.
-    @Test("요금이 있는 기록은 1인 부담과 총액을 모두 보여준다")
+    @Test("요금이 있는 기록은 내 몫과 총액을 모두 보여준다")
     func fareShowsBoth() throws {
         let fare = try #require(record().toHistoryItem(now: now, zone: zone).fare)
 
-        #expect(fare.perPersonLabel == "1인 16,500원")
+        #expect(fare.perPersonLabel == "내 몫 16,500원")
         #expect(fare.totalLabel == "총 16,500원")
     }
 
-    /// ★ **1인 부담은 서버 값을 그대로 쓴다.** 앱이 다시 나누지 않는다.
+    /// ★ **내 몫은 서버 값을 그대로 쓴다.** 앱이 다시 나누지 않는다.
     ///
-    /// 서버 `farePerPerson` 은 `totalFare / memberCount` **정수 나눗셈(내림)** 이고,
-    /// 앱의 `farePerPersonWon`(14·15 의 예상 요금)은 10원 단위로 올림/반올림한다
-    /// (`FarePerPersonRuleTest`: 2666.67 → 2670 **올림**). 그걸 끌어다 쓰면 기록 화면 금액이
-    /// 실제 결제액과 어긋나고, 사용자는 어느 쪽이 거짓인지 알 길이 없다.
+    /// 서버 `farePerPerson` 은 이제 **방장이 그 사람에게 적어 넣은 금액**이다(백엔드 `fe6ba35a`) —
+    /// 1/N 이 아니고, 같은 방을 보는 두 사람이 다른 값을 받는다. 앱의 `farePerPersonWon`(14·15 의 예상
+    /// 요금, 10원 단위)이나 `totalFare / memberCount` 로 되돌리면 손으로 조정한 금액이 뭉개진다.
     ///
     /// 그래서 「앱이 나누면 2670 이 되는」 값을 일부러 넣어 **서버 값 2666 이 그대로 나오는지** 본다.
-    @Test("1인 부담은 서버 값을 그대로 쓴다")
+    @Test("내 몫은 서버 값을 그대로 쓴다")
     func perPersonUsesServerValue() throws {
         let item = record(totalFare: 8000, farePerPerson: 2666, memberCount: 3).toHistoryItem(now: now, zone: zone)
         let fare = try #require(item.fare)
 
-        #expect(fare.perPersonLabel == "1인 2,666원")
+        #expect(fare.perPersonLabel == "내 몫 2,666원")
         #expect(fare.totalLabel == "총 8,000원")
     }
 
@@ -91,7 +89,7 @@ import Testing
         let onlyPerPerson = try #require(
             record(totalFare: nil, farePerPerson: 3000).toHistoryItem(now: now, zone: zone).fare
         )
-        #expect(onlyPerPerson.perPersonLabel == "1인 3,000원")
+        #expect(onlyPerPerson.perPersonLabel == "내 몫 3,000원")
         #expect(onlyPerPerson.totalLabel == nil)
     }
 
@@ -172,7 +170,7 @@ import Testing
     /// 지난해 기록에는 해를 붙이고 시각은 빼 둔다 — 몇 달 전 탑승에서 분 단위는 줄만 길게 한다.
     @Test("다른 해의 기록에는 연도를 붙인다")
     func otherYearHasYear() {
-        let item = record(dropoffTime: "2025-07-25T02:10:00Z").toHistoryItem(now: now, zone: zone)
+        let item = record(pickupTime: "2025-07-25T02:10:00Z").toHistoryItem(now: now, zone: zone)
 
         #expect(item.dateLabel == "2025년 7월 25일")
     }
@@ -180,17 +178,17 @@ import Testing
     /// 틀린 날짜보다 없는 편이 낫다 — 파싱할 수 없는 형식이면 그 줄을 비운다.
     @Test("읽을 수 없는 시각은 날짜 줄을 비운다")
     func unreadableTimeNoDate() {
-        #expect(record(dropoffTime: "어제").toHistoryItem(now: now, zone: zone).dateLabel == nil)
-        #expect(record(dropoffTime: nil).toHistoryItem(now: now, zone: zone).dateLabel == nil)
+        #expect(record(pickupTime: "어제").toHistoryItem(now: now, zone: zone).dateLabel == nil)
+        #expect(record(pickupTime: nil).toHistoryItem(now: now, zone: zone).dateLabel == nil)
     }
 
     /// 자정이 「오전 0시」로 찍히지 않게 — `hour % 12` 만 쓰면 0 이 된다.
     @Test("자정과 정오는 12 시로 적는다")
     func midnightAndNoon() {
         // KST 자정 = UTC 전날 15:00
-        #expect(record(dropoffTime: "2026-10-31T15:00:00Z").toHistoryItem(now: now, zone: zone).dateLabel == "11월 1일 오전 12:00")
+        #expect(record(pickupTime: "2026-10-31T15:00:00Z").toHistoryItem(now: now, zone: zone).dateLabel == "11월 1일 오전 12:00")
         // KST 정오 = UTC 03:00
-        #expect(record(dropoffTime: "2026-11-01T03:00:00Z").toHistoryItem(now: now, zone: zone).dateLabel == "11월 1일 오후 12:00")
+        #expect(record(pickupTime: "2026-11-01T03:00:00Z").toHistoryItem(now: now, zone: zone).dateLabel == "11월 1일 오후 12:00")
     }
 
     // ─────────────────────────── 페이징·빈 상태 ───────────────────────────
@@ -249,5 +247,37 @@ import Testing
     @Test("표시 모델은 방 id 를 그대로 들고 있다")
     func partyIdCarriedOver() {
         #expect(record(partyId: 67).toHistoryItem(now: now, zone: zone).partyId == 67)
+    }
+
+    // ─────────────────────────── 택시비 정산 진입 ───────────────────────────
+
+    /// 못 박는 것: **택시비 정산으로 가는 길이 「요금이 이미 있는 카드」에 묶여 있지 않다.**
+    ///
+    /// 이 카드가 정산으로 가는 **유일한 길**이다 — 또 하나의 진입점인 22 탑승 상세는 21 대기 화면의
+    /// 카드에서만 열리고, 방이 끝나면 21 이 닫혀 **끝난 방의 22 에는 닿을 수 없다.**
+    ///
+    /// 그래서 조건을 `fare != nil`(= 정산이 이미 있다)로 두면 **방장이 자기 방을 영영 정산하지
+    /// 못한다**: 정산이 없으니 요금이 없고, 요금이 없으니 버튼이 없고, 버튼이 없으니 시작할 수 없다.
+    /// 그 고리를 끊는 것이 이 테스트다.
+    @Test("정산이 아직 없는 기록에서도 정산으로 갈 수 있다")
+    func fareSplitReachableWithoutFare() {
+        let item = record(totalFare: nil, farePerPerson: nil, memberCount: 2).toHistoryItem(now: now, zone: zone)
+
+        #expect(item.fare == nil, "정산이 없으니 요금 줄은 없어야 한다")
+        #expect(item.canOpenFareSplit, "요금이 없다고 정산 진입까지 막으면 시작할 길이 사라진다")
+    }
+
+    /// 못 박는 것: **혼자 탄 방에는 정산 진입이 없다.**
+    ///
+    /// 서버가 409 `NOT_ENOUGH_RIDERS` 로 막는 자리다(「함께 탄 사람이 2명 이상이어야 택시비를 나눌
+    /// 수 있습니다」). 나눌 상대가 없는 방에 버튼을 띄우면 눌러서 막다른 화면에 닿는다.
+    ///
+    /// 나머지 두 조건(끝난 방인가 · 내가 탑승자인가)은 **목록에 들어온 것만으로 이미 참**이다 —
+    /// 서버가 도착을 누른 멤버에게만 그 방의 기록을 준다(백엔드 `2732cc75`).
+    @Test("혼자 탄 기록에는 정산 진입이 없다")
+    func noFareSplitWhenAlone() {
+        #expect(!record(memberCount: 1).toHistoryItem(now: now, zone: zone).canOpenFareSplit)
+        #expect(!record(memberCount: 0).toHistoryItem(now: now, zone: zone).canOpenFareSplit, "인원을 모르는 기록도 열지 않는다")
+        #expect(record(memberCount: 2).toHistoryItem(now: now, zone: zone).canOpenFareSplit)
     }
 }

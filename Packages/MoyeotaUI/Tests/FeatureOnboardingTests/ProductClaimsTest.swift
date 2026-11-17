@@ -279,6 +279,18 @@ struct ProductClaimsTest {
     /// 하지 않을게요」만 홀로 설명이 없으면, 어겼을 때 무엇을 할 수 있는지 **알려 줄 자리가
     /// 있는데 비워 둔** 상태가 된다. 그리고 이 줄이 가리키는 길(24 채팅방 롱프레스)은 실제로
     /// 있다 — `ChatUiMessage.canReport` · `ChatRepository.reportMessage`.
+    /// **노쇼 제재는 없다.** 서버가 노쇼 기록·제재를 통째로 지웠다(백엔드 `b16551b7`). 그런데 서약에는
+    /// 「무단 취소가 반복되면 이용이 제한돼요」·「오지 않으면 이용이 제한될 수 있어요」가 남아 있었다
+    /// (2026-11-17 QA) — 전부 동의해야 가입되는 화면이 지킬 수단 없는 제재에 동의를 받고 있었다.
+    @Test("매너 서약은 없는 이용 제한을 약속하지 않는다")
+    func mannerPledgePromisesNoSanction() {
+        let all = pledges().map { $0.title + " " + ($0.description ?? "") }.joined(separator: " ")
+
+        for forbidden in ["이용이 제한", "제재", "노쇼"] {
+            #expect(!all.contains(forbidden), "없는 제재를 약속한다: \(forbidden)")
+        }
+    }
+
     @Test("매너 서약은 신고 창구가 생긴 것을 말한다")
     func mannerPledgeMentionsReporting() throws {
         let matches = pledges().filter { $0.title.contains("불쾌한 말과 행동") }
@@ -360,9 +372,9 @@ struct AuthCopySourceTest {
     let mannerPledgeItems: [PledgeItem] = [
         // 09 본인 인증에 있던 체크를 합쳤다.
         PledgeItem("이용약관 · 개인정보 수집에 동의해요", "실명·생년월일·연락처는 본인 확인에만 써요"),
-        PledgeItem(title: "약속한 시간과 장소를 지킬게요", description: "무단 취소가 반복되면 이용이 제한돼요"),
+        PledgeItem(title: "약속한 시간과 장소를 지킬게요", description: "못 가게 되면 도착을 누르기 전에 미리 방에서 나와 주세요"),
         PledgeItem("불쾌한 말과 행동을 하지 않을게요", "채팅방에서 메시지를 길게 눌러 신고할 수 있어요"),
-        PledgeItem("매칭이 확정되면 꼭 나갈게요", "매칭 확정 후 오지 않으면 이용이 제한될 수 있어요"),
+        PledgeItem("약속이 정해지면 꼭 나갈게요", "출발지에서 「도착」을 눌러야 함께 탄 것으로 기록돼요"),
     ]
     """#
 

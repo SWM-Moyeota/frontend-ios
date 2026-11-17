@@ -67,12 +67,6 @@ final class AppContainer {
     /// `publicId == currentUserUuid` 로 「나」를 판정한다(`RemoteRideRecordRepository`).
     let rideRecordRepository: any RideRecordRepository
 
-    /// 38 노쇼 기록·이의 신청. 매칭 API 를 그대로 쓴다 — 서버가 두 경로를 `/api/v1/matching` 아래에
-    /// 두었다(`NoShowController`). 따로 API 를 만들면 같은 프리픽스가 두 곳에 생긴다.
-    ///
-    /// `rideRecordRepository` 와 가르는 이유: 그쪽은 **탄** 방(커서 페이징·읽기 전용), 이쪽은 **안 탄
-    /// 것으로 기록된** 방이고 이의 신청이라는 **쓰기**까지 있다.
-    let noShowRepository: any NoShowRepository
 
     /// 세션을 넘기는 건 메시지의 「내 것」 판정 때문이다(`RemoteChatRepository`).
     /// 채팅은 실시간(STOMP) + 폴링을 함께 쓴다 — 소켓이 앞서고, 끊긴 구간은 폴링이 메운다.
@@ -82,6 +76,16 @@ final class AppContainer {
     /// 앱이 방 id 를 로컬에 기억했다가 상세 조회로 되살린다(`RemoteActivePartyRepository`).
     /// rideRepository·chatRepository 를 그대로 쓰므로 **둘의 선언 아래**에 둔다.
     let activePartyRepository: any ActivePartyRepository
+
+    /// 택시비 정산 — 동승이 끝난(FINISHED) 방에서 방장이 사람마다 부담 금액을 적은 장부를 만들고,
+    /// 함께 탄 나머지가 토스·은행 앱으로 각자 보낸다. **앱은 돈을 옮기지 않는다.**
+    ///
+    /// 세션을 넘기는 건 **내 송금 상태 한 자리** 때문이다. 나머지는 서버가 토큰으로 계산해 준다
+    /// (`myRole`·`myAmount`). 서버가 `myTransferStatus` 를 보내 주면(Backend PR #328) 이 의존도 쓸
+    /// 일이 없어지지만, **그 배포가 닿기 전에는 세션 uuid 로 `transfers` 에서 내 행을 찾는 것이
+    /// 유일한 길**이다 — 넘기지 않으면 보내는 사람 화면의 「보냈어요」가 영영 뜨지 않는다
+    /// (원본 로컬 실측 2026-11-12).
+    let fareSplitRepository: any FareSplitRepository
 
     init(baseUrl: String, debugLogging: Bool) throws {
         let sessionManager = SessionManager(storage: KeychainTokenStorage(), scope: applicationScope)
@@ -109,7 +113,6 @@ final class AppContainer {
         self.rideRepository = rideRepository
         self.placeRepository = RemotePlaceRepository(api: apis.place)
         self.rideRecordRepository = RemoteRideRecordRepository(api: apis.user, session: sessionManager)
-        self.noShowRepository = RemoteNoShowRepository(api: apis.matching)
         let chatRepository = RemoteChatRepository(
             api: apis.chat,
             session: sessionManager,
@@ -122,6 +125,7 @@ final class AppContainer {
             storage: activePartyStorage,
             session: sessionManager
         )
+        self.fareSplitRepository = RemoteFareSplitRepository(api: apis.fareSplit, session: sessionManager)
     }
 
     /// 백엔드 base URL. 기본값은 `Info.plist` 의 `MOYEOTA_BASE_URL`(빌드 설정 `Config/Base.xcconfig` →

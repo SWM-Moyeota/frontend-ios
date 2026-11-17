@@ -160,13 +160,16 @@ private func openExternal(_ url: URL?, fallbackMessage: String) {
 /// `Toast.makeText(…, LENGTH_LONG)` 의 자리. iOS 에 시스템 토스트가 없어 창 위에 직접 얹는다.
 ///
 /// 어떤 화면에서든 화면 상태 없이 부를 수 있어야 해서 SwiftUI 상태가 아니라 UIKit 뷰다.
+///
+/// 공개인 이유: 택시비 정산(FeatureFareSplit)이 복사 확인을 이 토스트로 알린다 — iOS 는 복사할 때 OS 가 아무것도
+/// 보여 주지 않아(원본 Android 13+ 와 다르다) 앱이 말하지 않으면 눌렸는지 알 수 없다(`copyToPasteboard`).
 @MainActor
-enum MoyeotaToast {
+public enum MoyeotaToast {
     /// `LENGTH_LONG` = 3.5초
     private static let duration = Duration.milliseconds(3_500)
     private static weak var current: UIView?
 
-    static func show(_ message: String) {
+    public static func show(_ message: String) {
         guard let window = keyWindow() else { return }
         current?.removeFromSuperview()
 

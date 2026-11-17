@@ -100,7 +100,7 @@ public struct FindIdScreen: View {
                 onPhoneDigitsChange(phoneDigits)
             },
             label: "휴대폰 번호",
-            placeholder: "010-1234-5678",
+            placeholder: "예: 010-1234-5678",
             errorText: verify.phoneMessage,
             keyboardOptions: KeyboardOptions(keyboardType: .phone),
             visualTransformation: PhoneNumberTransformation.visualTransformation,

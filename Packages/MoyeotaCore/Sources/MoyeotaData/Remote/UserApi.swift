@@ -130,7 +130,7 @@ public protocol UserApi: Sendable {
     ///
     /// 실측(2026-11-01, 로컬 `:8080`):
     /// - 기록 없음(`moyeota2`) → 200 `{"rides":[],"nextCursor":null,"hasNext":false}`
-    /// - 기록 2건 → 200, `dropoffTime` 내림차순(partyId 69 → 67)
+    /// - 기록 2건 → 200, 시각 내림차순(partyId 69 → 67). 그때는 `dropoffTime` 이었고 지금은 승차 시각(`pickupTime`)이다(`135df701`)
     /// - `size=1` 로 쪼갬 → 1페이지 `nextCursor=69, hasNext=true`,
     ///   `cursor=69` 2페이지 `nextCursor=null, hasNext=false`
     /// - `size=0`·`size=51` → 400 `INVALID_PAGE_SIZE`(`"조회 개수는 1~50 이어야 합니다."`)

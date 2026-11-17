@@ -104,7 +104,7 @@ public struct ReservationSearchResult: Hashable, Sendable {
     /// 도착지 없는 검색 결과 전체에 틀린 배지가 붙는다.
     ///
     /// 이 앱의 다른 Boolean 들과 달리 **`is` 접두사를 붙이지 않는다**(`Ride.isConfirmed`·
-    /// `User.isHost`·`NoShowRecord.isVoided` 와 다른 점이다). 접두사는 「참인가 거짓인가」를 묻는
+    /// `User.isHost`·`User.hasArrived` 와 다른 점이다). 접두사는 「참인가 거짓인가」를 묻는
     /// 말인데 이 값은 **셋 중 하나**라, `isDestinationNearby == nil` 이 「가까운지 아닌지가 null 이다」
     /// 라는 읽히지 않는 문장이 된다. 서버 필드명과 같은 이름을 쓰는 이점도 있다 — 이 레포가
     /// `arrived`/`isArrived`, `host`/`isHost` 로 호되게 배운 자리다.

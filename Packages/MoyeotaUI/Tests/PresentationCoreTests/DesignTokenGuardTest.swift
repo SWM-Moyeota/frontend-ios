@@ -16,7 +16,7 @@ import Testing
 /// 걸리면: 가장 가까운 토큰으로 바꾼다. 토큰에 없는 값이 정말 필요하면 디자인시스템에 토큰을 먼저 만든다.
 ///
 /// 읽는 범위는 원본의 `presentation/src/main/kotlin/com/moyeota/presentation`(core + feature 전부)다. iOS 에서는
-/// `PresentationCore`, `MainNavGraph`·`Routes` 가 옮겨 간 `AppNavigation`, 기능 모듈 일곱이다(docs/PORTING.md 2절).
+/// `PresentationCore`, `MainNavGraph`·`Routes` 가 옮겨 간 `AppNavigation`, 기능 모듈 여덟(2026-11 택시비 정산 `FeatureFareSplit` 추가)이다(docs/PORTING.md 2절).
 /// 디자인시스템(`MoyeotaDesignSystem`)은 토큰을 정의하는 곳이라 원본처럼 읽지 않는다.
 ///
 /// 색 무늬는 모두 `\b` 로 시작한다 — `ChipColor(red: …)` 같은 **다른 이름**의 생성자를 색으로 잡지 않는다(원본 리뷰
@@ -32,6 +32,7 @@ import Testing
     static let scannedDirs = [
         "PresentationCore", "AppNavigation",
         "FeatureAuth", "FeatureOnboarding", "FeatureHome", "FeatureExplore", "FeatureMatching", "FeatureChat", "FeatureMyPage",
+        "FeatureFareSplit",
     ]
 
     static let colorPatterns = [

@@ -23,22 +23,21 @@ import Testing
 
     // ─────────────────────────── 정원 ───────────────────────────
 
-    /// 서버 계약: 실시간 `Capacity` 는 1~3, **예약은 2~3**. 벗어나면 400 `INVALID_CAPACITY`.
-    @Test("정원 선택지는 모드마다 다르다 - 예약은 1 을 지운다")
+    /// 서버 계약: 실시간·예약 모두 **2~3**(실시간 최소 2 는 백엔드 `80957504`). 1 을 보내면 400 이고, 앱은 그
+    /// 400 을 「잠시 후 다시 시도」로 보여 줬다 — 영원히 실패하는 선택지를 띄우지 않는다.
+    @Test("정원 선택지는 두 모드 모두 2~3명이다")
     func capacityChoicesPerMode() {
-        #expect(capacityChoices(mode: .now) == [1, 2, 3])
+        #expect(capacityChoices(mode: .now) == [2, 3])
         #expect(capacityChoices(mode: .scheduled) == [2, 3])
     }
 
-    /// **1 을 고른 채 「시간 정하기」로 바꾸는 길이 있다** — 그 상태는 보낼 수 없으므로 접는다.
-    /// 고른 값 자체는 화면이 그대로 들고 있어서 모드를 되돌리면 1 이 살아 있다(여기서는 변환만 본다).
-    @Test("예약으로 바꾸면 1명은 2명으로 접힌다")
-    func scheduledFoldsSoloToTwo() {
+    /// 저장된 옛 상태의 1(예전 「혼자 출발」)이 남아 있어도 보내는 값은 2 다.
+    @Test("예전에 고른 1명은 어느 모드든 2명으로 접힌다")
+    func soloFoldsToTwo() {
         #expect(capacityFor(mode: .scheduled, selected: 1) == 2)
-        #expect(capacityFor(mode: .scheduled, selected: 2) == 2)
+        #expect(capacityFor(mode: .now, selected: 1) == 2)
+        #expect(capacityFor(mode: .now, selected: 2) == 2)
         #expect(capacityFor(mode: .scheduled, selected: 3) == 3)
-        // 실시간에서는 1 이 유효한 선택이다 — 접지 않는다(혼자 타기를 상품으로 인정한 결정)
-        #expect(capacityFor(mode: .now, selected: 1) == 1)
     }
 
     /// 화면에 없는 값이 들어와도 **가장 가까운 유효값**이다 — 서버가 막아 주는 것과 앱이 보내지 않는 것은 다른 보호막이다.
@@ -46,7 +45,7 @@ import Testing
     func outOfRangeCapacityClamps() {
         #expect(capacityFor(mode: .now, selected: 9) == 3)
         #expect(capacityFor(mode: .scheduled, selected: 9) == 3)
-        #expect(capacityFor(mode: .now, selected: 0) == 1)
+        #expect(capacityFor(mode: .now, selected: 0) == 2)
         #expect(capacityFor(mode: .scheduled, selected: 0) == 2)
     }
 
@@ -355,28 +354,25 @@ import Testing
         PartyOpenException(code: code, serverMessage: nil, httpStatus: httpStatus)
     }
 
-    /// 「다시 시도」류를 403·409 에 붙이지 않는다 — `FinishFailureMessageTest` 가 세운 규칙이다.
+    /// 「다시 시도」류를 403·409 에 붙이지 않는다 — 옛 `FinishFailureMessageTest` 가 세운 규칙이고
+    /// (그 파일은 「합승 완료」와 함께 사라졌다) 지금은 `MeetingFailureMessageTest` 가 이어 받았다.
     private func expectNoRetryPromise(_ message: String, sourceLocation: SourceLocation = #_sourceLocation) {
         for forbidden in ["다시 시도", "잠시 후", "잠시만", "재시도"] {
             #expect(!message.contains(forbidden), "재시도를 약속한다: \(message)", sourceLocation: sourceLocation)
         }
     }
 
-    /// ★ 403 `NO_SHOW_RESTRICTED` — **재시도할 수 없는 실패**다. 끝나는 시각이 서버에 있고
-    /// 그때까지는 몇 번 눌러도 같은 403 이다.
-    ///
-    /// 그 시각(`restrictedUntil`)을 **여기서 말하지 않는다**: 이 화면은 그 값을 읽지 않으므로
-    /// 숫자를 적으면 지어내는 것이고, 「마이페이지에서 보세요」는 이 화면이 확인할 수 없는 약속이다.
-    @Test("노쇼 제재는 왜 막혔는지만 말하고 재시도를 약속하지 않는다")
-    func noShowRestrictedSaysWhyOnly() {
-        let message = reservationOpenFailureMessage(e: failure(PartyOpenException.NO_SHOW_RESTRICTED, httpStatus: 403))
+    /// 🔴 **노쇼 제재는 사라졌다** — 「노쇼 제재는 왜 막혔는지만 말하고 재시도를 약속하지 않는다」를
+    /// 이 테스트로 **대체했다**. 서버가 노쇼 기능을 통째로 지웠고(`b16551b7`, V37)
+    /// `PartyOpenException.isNoShowRestricted` 가 함께 사라졌다. 혹시 그 코드가 와도 앱은 **지어내지 않고**
+    /// 모르는 코드의 일반 문구로 떨어진다 — 올 수 없는 사유에 문구를 두면 그 자리가 영영 검증되지 않는다.
+    @Test("사라진 노쇼 제재는 문구를 갖지 않는다")
+    func removedNoShowHasNoCopy() {
+        let message = reservationOpenFailureMessage(e: failure("NO_SHOW_RESTRICTED", httpStatus: 403))
 
-        #expect(message == "노쇼 제재 중에는 방을 만들 수 없어요. 제재가 끝나면 다시 만들 수 있어요")
-        expectNoRetryPromise(message)
-        #expect(message.contains("노쇼"), "왜 막혔는지 말해야 한다")
-        // 모르는 숫자·다른 화면을 가리키지 않는다
-        #expect(!message.contains("시까지"), "\(message)")
-        #expect(!message.contains("마이페이지"), "\(message)")
+        #expect(message == RESERVATION_OPEN_FAILED_MESSAGE)
+        #expect(!message.contains("노쇼"), "서버에 없는 제재를 말한다: \(message)")
+        #expect(!message.contains("제재"), "서버에 없는 제재를 말한다: \(message)")
     }
 
     /// 409 `PARTY_TIME_CONFLICT` — 앱이 **예측하지 않는** 실패다(내 다른 예약 목록을 이 화면이
@@ -412,7 +408,7 @@ import Testing
         #expect(message == "예약 방 인원은 2~3명이어야 해요")
         #expect(!message.contains("1~3"), "실시간 범위를 말하면 고를 수 없는 값을 고르라고 하게 된다")
         // 실시간 쪽은 그대로다 — 두 문구가 서로를 덮지 않는다
-        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 1~3명까지만 정할 수 있어요")
+        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 2~3명이어야 해요")
     }
 
     /// 겹치는 사유는 **같은 문장**을 쓴다 — 같은 사실을 두 가지로 말하지 않는다.
@@ -463,17 +459,10 @@ import Testing
         // 「계산 중」처럼 곧 나올 것처럼 말하지 않는다 — 서버가 끝까지 주지 않는다
         #expect(!RESERVATION_NO_ESTIMATE_NOTICE.contains("계산"), "\(RESERVATION_NO_ESTIMATE_NOTICE)")
         // 서버가 보내는 알림(예약 리마인더)을 **약속하지 않는다** — 앱이 확인할 수 없는 말이다
-        for copy in [RESERVATION_NO_ESTIMATE_NOTICE, RESERVATION_CAPACITY_NOTICE, RESERVATION_NEEDS_TIME_NOTICE] {
+        for copy in [RESERVATION_NO_ESTIMATE_NOTICE, RESERVATION_NEEDS_TIME_NOTICE] {
             #expect(!copy.contains("알림"), "없는 알림을 약속한다: \(copy)")
             #expect(!copy.contains("알려 드려요"), "없는 알림을 약속한다: \(copy)")
         }
-    }
-
-    @Test("예약 정원 안내는 2명부터라는 사실만 말한다")
-    func capacityNotice() {
-        #expect(RESERVATION_CAPACITY_NOTICE == "예약 방은 2명부터 만들 수 있어요")
-        // 혼자 출발 안내와 **함께 뜨지 않는다** — 예약에서 정원은 1 이 될 수 없다
-        #expect(soloCapacityNotice(capacity: capacityFor(mode: .scheduled, selected: 1)) == nil)
     }
 
     @Test("지금 출발이면 휠에 시각이 있어도 출발 시각을 싣지 않는다")

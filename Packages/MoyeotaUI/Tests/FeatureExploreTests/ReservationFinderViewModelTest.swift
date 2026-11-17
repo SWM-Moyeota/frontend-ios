@@ -106,10 +106,8 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     }
 
     func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { throw TestFailure() }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw TestFailure() }
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw TestFailure() }
     func getPartyDetail(partyId: Int64) async throws -> Ride { throw TestFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw TestFailure() }
     func findRealtimeCandidates(
@@ -124,8 +122,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func createParty(request: NewParty) async throws -> Ride { throw TestFailure() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
-    func finishParty(partyId: Int64) async throws { throw TestFailure() }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw TestFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
     func departParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(

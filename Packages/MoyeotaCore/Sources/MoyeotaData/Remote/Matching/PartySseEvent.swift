@@ -1,13 +1,16 @@
 import Foundation
 
 /// 서버 이벤트 이름(`RedisPartyChangeNotifier` · `PartySseRegistry`). 이 문자열이 계약이다 —
-/// **서버가 보내는 일곱 종을 전부 적어 둔다.** 모르는 이름은 조용히 건너뛰므로
+/// **서버가 보내는 여섯 종을 전부 적어 둔다.** 모르는 이름은 조용히 건너뛰므로
 /// (`parsePartySseFrame` 의 `default`), 하나를 빠뜨리면 그 변화가 화면에서 **아무 일도 안 일어남**으로만
 /// 보인다 — 예전에 넷만 알던 앱이 약속 확정·도착을 영영 못 본 이유가 그것이다.
+///
+/// `recruiting-closed` 는 **지웠다**(`b16551b7`). 빠뜨린 게 아니라 서버가 더 보내지 않는다 —
+/// 정원이 차도 방은 ACTIVE 로 남아 「모집이 끝났다」는 전이 자체가 없어졌고, 모집을 끝내는 건
+/// `EVENT_CONFIRMED` 하나다. 되살려 두면 올 수 없는 프레임의 분기를 화면이 영원히 들고 있게 된다.
 let EVENT_CONNECTED = "connected"
 let EVENT_MEMBER_JOINED = "member-joined"
 let EVENT_MEMBER_LEFT = "member-left"
-let EVENT_RECRUITING_CLOSED = "recruiting-closed"
 let EVENT_CONFIRMED = "confirmed"
 let EVENT_MEMBER_ARRIVED = "member-arrived"
 let EVENT_CLOSED = "closed"
@@ -29,10 +32,11 @@ public enum PartySseEvent: Equatable, Sendable {
     /// `hostPublicId` 는 **승계 후의 방장**이다(Backend #240) — `MemberLeftPayload` 참고.
     case memberLeft(payload: MemberLeftPayload)
 
-    /// `recruiting-closed` — `{"status": "COMPLETED", "version": N}`
-    case recruitingClosed(payload: RecruitingClosedPayload)
-
-    /// `confirmed` — `{"status": "COMPLETED", "departureAt": "...", "version": N}`
+    /// `confirmed` — `{"status": "COMPLETED", "departureAt": "...",
+    /// "departureLat": …, "departureLng": …, "departure": "...", "version": N}`.
+    ///
+    /// 출발지 셋이 함께 온다 — 확정이 방의 출발지를 만남 장소로 옮기기 때문이다
+    /// (`PartyConfirmedPayload` 에 무시하면 무슨 일이 벌어지는지 적었다).
     case confirmed(payload: PartyConfirmedPayload)
 
     /// `member-arrived` — `{"publicId": "...", "version": N}`.
@@ -76,8 +80,6 @@ func parsePartySseFrame(type: String?, data: String) -> PartySseFrame {
         return decode(type: EVENT_MEMBER_JOINED) { .memberJoined(payload: try decodeSseData(data)) }
     case EVENT_MEMBER_LEFT:
         return decode(type: EVENT_MEMBER_LEFT) { .memberLeft(payload: try decodeSseData(data)) }
-    case EVENT_RECRUITING_CLOSED:
-        return decode(type: EVENT_RECRUITING_CLOSED) { .recruitingClosed(payload: try decodeSseData(data)) }
     case EVENT_CONFIRMED:
         return decode(type: EVENT_CONFIRMED) { .confirmed(payload: try decodeSseData(data)) }
     case EVENT_MEMBER_ARRIVED:

@@ -1,6 +1,7 @@
 import FeatureAuth
 import FeatureChat
 import FeatureExplore
+import FeatureFareSplit
 import FeatureHome
 import FeatureMatching
 import FeatureMyPage
@@ -64,7 +65,7 @@ public struct MainNavGraph: View {
     private let chatRepository: any ChatRepository
     private let activePartyRepository: any ActivePartyRepository
     private let rideRecordRepository: any RideRecordRepository
-    private let noShowRepository: any NoShowRepository
+    private let fareSplitRepository: any FareSplitRepository
     private let pendingChatRoomId: Int64?
     private let onPendingChatRoomHandled: () -> Void
     private let installedVersionCode: Int64
@@ -77,11 +78,8 @@ public struct MainNavGraph: View {
     ///
     ///     **필수 인자다.** 기본값을 두면 배선을 빠뜨린 호출부가 컴파일에서 걸리지 않고 **실행 중에만** 34 가
     ///     「불러오지 못했어요」로 떨어진다 — 그 실패는 서버 장애와 구분되지 않는다.
-    ///   - noShowRepository: 38 노쇼 기록·이의 신청(`GET /api/v1/matching/no-shows`).
-    ///
-    ///     **필수 인자다** — `rideRecordRepository` 와 같은 이유다. 기본값을 두면 배선을 빠뜨렸을 때
-    ///     컴파일이 통과하고 **실행 중에만** 38 이 빈 화면으로 떨어진다. 그 화면은 노쇼로 찍힌 사람이
-    ///     이의를 낼 **유일한 창구**라, 조용히 비어 있는 것이 가장 나쁜 실패다.
+    ///   - fareSplitRepository: 39·40 택시비 정산과 14 홈의 「아직 보내지 않은 택시비」 배너.
+    ///     `rideRecordRepository` 와 같은 이유로 **필수 인자다** — 빠뜨리면 정산 화면이 실행 중에만 실패한다.
     ///   - pendingChatRoomId: 채팅 알림 탭으로 열어 달라는 방. 로그인돼 있고 그래프가 준비되면 그 채팅방을 **스택에 쌓고**
     ///     `onPendingChatRoomHandled` 로 소비를 알린다. 미로그인이면 무시한다(로그인 뒤 엉뚱한 방을 여는 것보다 낫다).
     ///   - installedVersionCode: 강제 업데이트 게이트가 비교할 설치 버전.
@@ -93,7 +91,7 @@ public struct MainNavGraph: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
+        fareSplitRepository: any FareSplitRepository,
         pendingChatRoomId: Int64? = nil,
         onPendingChatRoomHandled: @escaping () -> Void = {},
         installedVersionCode: Int64 = appVersionCode()
@@ -106,7 +104,7 @@ public struct MainNavGraph: View {
             chatRepository: chatRepository,
             activePartyRepository: activePartyRepository,
             rideRecordRepository: rideRecordRepository,
-            noShowRepository: noShowRepository,
+            fareSplitRepository: fareSplitRepository,
             pendingChatRoomId: pendingChatRoomId,
             onPendingChatRoomHandled: onPendingChatRoomHandled,
             installedVersionCode: installedVersionCode,
@@ -122,7 +120,7 @@ public struct MainNavGraph: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
+        fareSplitRepository: any FareSplitRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
@@ -135,7 +133,7 @@ public struct MainNavGraph: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
+        self.fareSplitRepository = fareSplitRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
@@ -158,7 +156,7 @@ public struct MainNavGraph: View {
                     chatRepository: chatRepository,
                     activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
-                    noShowRepository: noShowRepository,
+                    fareSplitRepository: fareSplitRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
                     installedVersionCode: installedVersionCode,
@@ -187,7 +185,7 @@ private struct MainNavHost: View {
     let chatRepository: any ChatRepository
     let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
-    let noShowRepository: any NoShowRepository
+    let fareSplitRepository: any FareSplitRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
     let installedVersionCode: Int64
@@ -219,7 +217,7 @@ private struct MainNavHost: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
+        fareSplitRepository: any FareSplitRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         installedVersionCode: Int64,
@@ -233,7 +231,7 @@ private struct MainNavHost: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
+        self.fareSplitRepository = fareSplitRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.installedVersionCode = installedVersionCode
@@ -281,7 +279,7 @@ private struct MainNavHost: View {
                     chatRepository: chatRepository,
                     activePartyRepository: activePartyRepository,
                     rideRecordRepository: rideRecordRepository,
-                    noShowRepository: noShowRepository,
+                    fareSplitRepository: fareSplitRepository,
                     pendingChatRoomId: pendingChatRoomId,
                     onPendingChatRoomHandled: onPendingChatRoomHandled,
                     probe: probe
@@ -327,7 +325,7 @@ private struct MainNavContent: View {
     let chatRepository: any ChatRepository
     let activePartyRepository: any ActivePartyRepository
     let rideRecordRepository: any RideRecordRepository
-    let noShowRepository: any NoShowRepository
+    let fareSplitRepository: any FareSplitRepository
     let pendingChatRoomId: Int64?
     let onPendingChatRoomHandled: () -> Void
     let probe: MainNavGraphProbe?
@@ -461,7 +459,7 @@ private struct MainNavContent: View {
         chatRepository: any ChatRepository,
         activePartyRepository: any ActivePartyRepository,
         rideRecordRepository: any RideRecordRepository,
-        noShowRepository: any NoShowRepository,
+        fareSplitRepository: any FareSplitRepository,
         pendingChatRoomId: Int64?,
         onPendingChatRoomHandled: @escaping () -> Void,
         probe: MainNavGraphProbe?
@@ -477,7 +475,7 @@ private struct MainNavContent: View {
         self.chatRepository = chatRepository
         self.activePartyRepository = activePartyRepository
         self.rideRecordRepository = rideRecordRepository
-        self.noShowRepository = noShowRepository
+        self.fareSplitRepository = fareSplitRepository
         self.pendingChatRoomId = pendingChatRoomId
         self.onPendingChatRoomHandled = onPendingChatRoomHandled
         self.probe = probe
@@ -888,22 +886,33 @@ private struct MainNavContent: View {
 
         // D · 홈 · 목적지 14–16
         case .home:
-            HomeRoute(
-                viewModel: navController.retained(for: entry) { HomeViewModel(repository: placeRepository) },
-                activeRide: activePartyViewModel.ride,
-                onSearchClick: {
-                    searchInitialQuery = ""
-                    createScheduled = false
-                    navController.navigate(.destination)
-                },
-                onActiveRideClick: openActiveStage,
-                onPlaceQuery: { query in
-                    searchInitialQuery = query
-                    createScheduled = false
-                    navController.navigate(.destination)
-                },
-                onTabSelect: navigateTab
-            )
+            // 14 홈의 「아직 보내지 않은 택시비」 배너. 보낼 정산이 없으면 아무것도 그리지 않는다.
+            //
+            // 원본은 `HomeRoute` 가 저장소를 직접 받는다. 여기서는 FeatureHome 이 FeatureFareSplit 을 import 하지
+            // 않도록 **호스트가 배너를 만들어 슬롯으로 꽂는다**(기능 모듈끼리는 서로를 모른다 — Package.swift 의 의존 방향).
+            // 배너 뷰모델은 홈 엔트리에 묶어 둔다 — 탭을 오가도 받아 둔 목록이 남고, 복귀 때 한 번만 다시 읽는다.
+            FareSplitBannerHost(
+                viewModel: navController.retained(for: entry) { FareSplitBannerViewModel(repository: fareSplitRepository) },
+                onOpen: { partyId in navController.navigate(.fareSplit(partyId: partyId)) }
+            ) { fareSplitBanner in
+                HomeRoute(
+                    viewModel: navController.retained(for: entry) { HomeViewModel(repository: placeRepository) },
+                    activeRide: activePartyViewModel.ride,
+                    fareSplitBanner: fareSplitBanner,
+                    onSearchClick: {
+                        searchInitialQuery = ""
+                        createScheduled = false
+                        navController.navigate(.destination)
+                    },
+                    onActiveRideClick: openActiveStage,
+                    onPlaceQuery: { query in
+                        searchInitialQuery = query
+                        createScheduled = false
+                        navController.navigate(.destination)
+                    },
+                    onTabSelect: navigateTab
+                )
+            }
             .environment(\.mapCameraMemory, navController.retained(for: entry) { MapCameraMemory() })
             .environment(\.tabSavedState, navController.retained(for: entry) { TabSavedState() })
             // 탭으로 돌아올 때마다 진행 중 방을 다시 읽는다 — 배너가 끝난 방을 가리키면 안 된다
@@ -1077,6 +1086,11 @@ private struct MainNavContent: View {
                 onLeave: {
                     activePartyViewModel.clearParty()
                     navigateTab(.home)
+                },
+                // 끝난 방에서 할 수 있는 일은 택시비 정산 하나다. 버튼을 띄울지는 화면이 정한다
+                // (`fareSplitEntryLabel` — 끝난 방 + 내가 도착을 누른 경우만).
+                onFareSplit: {
+                    if let id = selectedPartyId { navController.navigate(.fareSplit(partyId: id)) }
                 }
             )
         case .partnerProfile:
@@ -1158,7 +1172,6 @@ private struct MainNavContent: View {
                 userName: profileViewModel.userName,
                 onEditProfile: { navController.navigate(.profileEdit) },
                 onRideHistory: { navController.navigate(.rideHistory) },
-                onNoShowRecords: { navController.navigate(.noShowRecords) },
                 // logout() 은 실패하지 않는다 — 상태 전이는 위 `.task(id: loggedIn)` 이 받아 04a 로 보낸다.
                 // logoutRequested 를 먼저 세워 두면 그 전이를 세션 만료로 오해하지 않는다.
                 onLogout: {
@@ -1197,20 +1210,9 @@ private struct MainNavContent: View {
             // 사용자는 자기 기록이 사라졌다고 읽는다.
             RideHistoryRoute(
                 repository: rideRecordRepository,
-                onBack: back
-            )
-        case .noShowRecords:
-            // 38 노쇼 기록·이의 신청 — GET /api/v1/matching/no-shows, 최대 20건.
-            //
-            // 34 와 달리 **진행 중인 방과 무관**하다. 노쇼는 이미 끝난 방에서만 생기므로
-            // activePartyRepository 를 넘길 이유가 없다.
-            //
-            // 이 화면이 하는 일의 절반은 **이의 신청**이다. 노쇼는 약속 시간부터 (횟수 × 24시간)
-            // 동안 방 만들기·참여를 막는 실제 제재이고, 잘못 찍힌 사람이 그걸 되돌릴 길은 여기뿐이다
-            // — 조회가 실패하면 빈 목록이 아니라 「불러오지 못했어요 · 다시 시도」로 떨어뜨린다.
-            NoShowRecordsRoute(
-                repository: noShowRepository,
-                onBack: back
+                onBack: back,
+                // 함께 탄 사람이 2명 이상인 카드 = 정산으로 갈 수 있다(`RideHistoryItem.canOpenFareSplit`).
+                onFareSplit: { partyId in navController.navigate(.fareSplit(partyId: partyId)) }
             )
         case .loginMethods:
             // 로그인 수단 관리 — 원본 `composable(Routes.LOGIN_METHODS)`. 「비밀번호 재설정」은 04c 로 간다
@@ -1235,6 +1237,47 @@ private struct MainNavContent: View {
                 onSessionEndExpected: { accountDeleteRequested = true },
                 onDeleted: { accountDeleted = true },
                 onSessionKept: { accountDeleteRequested = false }
+            )
+
+        // J · 택시비 정산 39–40 (신규, 2026-11-12)
+        //
+        // **방 id 를 경로 인자로 받는다** — 화면 바깥 홀더(selectedPartyId·createdPartyId)를 쓰지 않는
+        // 근거는 Routes.swift 의 J 절 주석에 있다(진입점이 셋이고 서로 다른 스택 위치에서 온다).
+        case .fareSplit(let partyId):
+            FareSplitDetailRoute(
+                repository: fareSplitRepository,
+                // 정산이 아직 없을 때 「누가 시작할 수 있는가」를 방 상세로 묻는다
+                // (FareSplitDetailViewModel.absentState — 묻지 않으면 비방장에게 시작 버튼이 뜬다).
+                rideRepository: rideRepository,
+                // 0 이하를 nil 로 접는다 — 원본은 비어 있는 인자를 Bundle 이 0 으로 주는 경우를 막는다. iOS 는
+                // 경우가 인자를 강제하지만, 0 이 들어오면 서버가 404 를 「방이 사라졌다」로 답하고 실제 원인(앱의
+                // 배선)이 가려진다. 사실대로 「불러오지 못했어요」로 끝내고 되돌리는 쪽이 낫다.
+                partyId: partyId > 0 ? partyId : nil,
+                onBack: back,
+                onOpenEditor: { start in
+                    if partyId > 0 { navController.navigate(.fareSplitEdit(partyId: partyId, start: start)) }
+                },
+                // 「채팅으로 물어보기」 — 23 동승자 프로필의 onChatClick 과 같은 방식으로 **쌓는다**
+                // (navigateTab 으로 보내면 스택이 갈아엎여 정산 화면으로 돌아올 길이 없다).
+                //
+                // 그 방의 채팅방을 **바로** 열지는 못한다: 정산은 끝난 방의 것이고 그 방의 채팅방 id 를
+                // 아는 곳은 ActivePartyViewModel(진행 중인 방 전용)뿐이다. 목록을 열어 주는 것이
+                // 지금 할 수 있는 정확한 안내이고, 버튼이 뜨는 자리도 두 경우로 좁혀져 있다
+                // (showsChatFallback: 계좌 소실·기간 지남).
+                onOpenChat: { navController.navigate(.chat) }
+            )
+        case .fareSplitEdit(let partyId, let start):
+            FareSplitEditRoute(
+                repository: fareSplitRepository,
+                // 시작 폼은 **도착을 누른 멤버**를 방 상세에서만 알 수 있다(fareSplitRiders).
+                // 수정 폼은 이것을 쓰지 않는다 — 탑승자 전원이 이미 정산 상세 안에 있다.
+                rideRepository: rideRepository,
+                partyId: partyId > 0 ? partyId : nil,
+                mode: start ? .start : .edit,
+                onBack: back,
+                // 저장 성공 → 39 상세로 되돌아간다. 상세가 복귀하며 다시 읽으므로(onScreenStart)
+                // 여기서 값을 들고 넘기지 않는다 — 두 화면이 각자 상세를 들면 한쪽이 낡는다.
+                onSaved: back
             )
         }
     }

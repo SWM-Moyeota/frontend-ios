@@ -45,8 +45,14 @@ import Testing
         #expect(NicknamePolicy.validate(raw: "성윤!") == "한글·영문·숫자만 쓸 수 있어요 (공백·특수문자·이모지 불가)")
         #expect(NicknamePolicy.validate(raw: "가") == "닉네임은 2~10자로 입력해 주세요")
         #expect(NicknamePolicy.validate(raw: "가나다라마바사아자차카") == "닉네임은 2~10자로 입력해 주세요")
-        #expect(NicknamePolicy.validate(raw: "모여타짱") == "사용할 수 없는 닉네임이에요")
-        #expect(NicknamePolicy.validate(raw: "xadminx") == "사용할 수 없는 닉네임이에요")
+        // 사칭어는 **걸린 단어를 보여 준다**(2026-11-17 QA — 「모두모여타요타요」에 이유 없이 「사용할 수 없는 닉네임」만 떴다)
+        #expect(NicknamePolicy.validate(raw: "모여타짱") == "운영자로 보일 수 있는 말(「모여타」)은 닉네임에 쓸 수 없어요")
+        #expect(NicknamePolicy.validate(raw: "모두모여타요타요") == "운영자로 보일 수 있는 말(「모여타」)은 닉네임에 쓸 수 없어요")
+        #expect(NicknamePolicy.validate(raw: "xadminx") == "운영자로 보일 수 있는 말(「admin」)은 닉네임에 쓸 수 없어요")
+        // 영문 사칭어는 대소문자를 가리지 않는다
+        #expect(NicknamePolicy.validate(raw: "SuperAdmin") == "운영자로 보일 수 있는 말(「admin」)은 닉네임에 쓸 수 없어요")
+        // 욕설은 단어를 되읽어 주지 않는다
+        #expect(NicknamePolicy.validate(raw: "시발택시") == "욕설·비속어가 들어간 닉네임은 쓸 수 없어요")
         #expect(NicknamePolicy.validate(raw: " 길동이 ") == nil)
         #expect(NicknamePolicy.isValid(raw: "abc123"))
         #expect(NicknamePolicy.MAX_LENGTH == 10)

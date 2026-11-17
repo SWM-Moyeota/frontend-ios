@@ -1,15 +1,17 @@
 public protocol RideRepository: Sendable {
     func getNearbyParties() -> [Ride]
 
-    // 조회 — GET /api/v1/matching/rooms, /rooms/{partyId}
-    /// 목록 응답에는 좌표·요금·경로가 없다(partyId/출발/도착/인원/정원/상태만). 상세는 `getPartyDetail`.
-    func getParties() async throws -> [Ride]
+    // 조회 — GET /api/v1/matching/rooms?swLat&swLng&neLat&neLng, /rooms/{partyId}
+    //
+    // **좌표 없는 전체 목록(`getParties()`)은 지웠다** — 서버가 그 핸들러를 없앴다(`2732cc75`).
+    // 목록을 얻는 길은 뷰포트 조회(`getPartiesWithin`) 하나이고, 더미 구현의
+    // `getNearbyParties` 만 좌표 없이 쓴다.
 
     /// 지도 범위(남서 `swLat`/`swLng` ~ 북동 `neLat`/`neLng`) 안의 모집 중 방 목록.
     /// GET /api/v1/matching/rooms?swLat=&swLng=&neLat=&neLng=
     ///
-    /// `getParties` 와 같은 `Ride` 목록을 돌려주되, **출발 좌표(originLat/originLng)가 채워져 있다**
-    /// — 지도 핀을 찍는 데 쓴다. 도착 좌표·요금·경로는 여전히 없으니 `getPartyDetail` 로 받는다.
+    /// `Ride` 목록을 돌려주되 **출발 좌표(originLat/originLng)가 채워져 있다**
+    /// — 지도 핀을 찍는 데 쓴다. 서버가 **정원이 찬 방은 뺀다**(`b16551b7`). 도착 좌표·요금·경로는 여전히 없으니 `getPartyDetail` 로 받는다.
     func getPartiesWithin(
         swLat: Double,
         swLng: Double,
@@ -118,11 +120,11 @@ public protocol RideRepository: Sendable {
     ///
     /// 실패는 모두 `PartyOpenException` 으로 올라온다(409 `ALREADY_JOINED_OTHER_PARTY`·
     /// `PARTY_TIME_CONFLICT` / 400 `SAME_DEPARTURE_DESTINATION`·`OUT_OF_SERVICE_AREA`·`INVALID_CAPACITY`·
-    /// `INVALID_ROUTE_ESTIMATE` / **403 `NO_SHOW_RESTRICTED`** / 502 `ROUTE_SEARCH_FAILED` / 네트워크).
+    /// `INVALID_ROUTE_ESTIMATE` / 502 `ROUTE_SEARCH_FAILED` / 네트워크).
     /// 화면은 그 프로퍼티로 분기한다 — **한 문구로 뭉개면 안 된다.** 409 는 「잠시 후 다시 시도」가
-    /// **영구히 거짓**이고(아무도 합류하지 않은 ACTIVE 방은 서버 스윕 대상이 아니라 계정이 계속 막힌다),
-    /// 400 좌표·정원은 사용자가 **고쳐야** 하는 값이다. 403 은 **기다리면 풀리지만 몇 시간 단위**라 그 역시
-    /// 「잠시」가 아니고, 기한을 말하려면 프로필을 함께 읽어야 한다(`PartyOpenException.isNoShowRestricted`).
+    /// **영구히 거짓**이고(아무도 합류하지 않은 방은 혼자면 15분 모집 만료가 닫지만 그전까지 계정이 막힌다),
+    /// 400 좌표·정원은 사용자가 **고쳐야** 하는 값이다. 403 `NO_SHOW_RESTRICTED` 는 **더 이상 오지
+    /// 않는다** — 노쇼 제재가 서버에서 사라졌다(`b16551b7`).
     /// 409 `PARTY_TIME_CONFLICT` 는 지금 전후 2시간 안에 내 다른 예약이 있을 때다
     /// (`PartyOpenException.isPartyTimeConflict` — 실시간 문구 표에는 그 갈래가 없다).
     func createParty(request: NewParty) async throws -> Ride
@@ -136,18 +138,20 @@ public protocol RideRepository: Sendable {
     /// 흐름이라면 그 화면이 구독하는 `observePartyEvents` 의 첫 `PartyEvent.snapshot` 이 상세 전체를
     /// 주므로, 재조회를 거기에 맡기는 선택도 가능하다.
     ///
-    /// 돌려주는 `PartyStatus.status` 로 "내가 마지막 자리를 채웠는지"를 알 수 있다 — 정원이 차면 서버가
-    /// 그 자리에서 정원 충족 처리까지 끝낸다(`COMPLETED`). 앱은 트리거하지 않는다.
+    /// ⚠️ **돌려주는 `PartyStatus.status` 로는 「정원이 찼는지」를 알 수 없다.** 오래 그럴 수 있었다 —
+    /// 마지막 자리를 채우면 서버가 그 자리에서 `COMPLETED` 로 넘겼다. **지금은 아니다**: `COMPLETED` 는
+    /// 「방장이 약속을 확정한 실시간 방」만 뜻하고, **정원이 차도 `ACTIVE` 다**(`b16551b7`). 서버는
+    /// 참여만 `PARTY_FULL` 로 막는다. 정원 판정이 필요하면 인원과 정원을 직접 비교할 것
+    /// (`PartyStatus.currentMembers` vs 내가 들어간 방의 정원) — 상태값은 답이 아니다.
     ///
     /// **예약 방에 합류하는 길도 이것이다** — 서버에 예약 전용 합류 엔드포인트가 없다
-    /// (`createReservation`). 다만 예약은 합류한 순간부터 확정이라 **나갈 수 없고**(`leaveParty` 가
-    /// 409 `CANNOT_LEAVE_CONFIRMED_PARTY`), 출발 시각이 지난 예약은 409 `PARTY_CLOSED` 다.
+    /// (`createReservation`). 예약은 합류한 순간부터 확정이지만 **나갈 수 있다**(그 제약은
+    /// `b16551b7` 이 없앴다 — `leaveParty` 참고). 출발 시각이 지난 예약은 409 `PARTY_CLOSED` 다.
     ///
     /// 실패는 모두 `PartyJoinException` 으로 올라온다(401 미로그인 / 409 `ALREADY_JOINED_OTHER_PARTY`·
     /// `PARTY_FULL`·`PARTY_CLOSED`·`PARTY_TIME_CONFLICT` / 404 `PARTY_NOT_FOUND` /
-    /// **403 `NO_SHOW_RESTRICTED`** / 네트워크). 화면은 그 프로퍼티로 분기한다. 403 은 「이 방이 안 된다」가
-    /// 아니라 「**내가** 지금 아무 방에도 못 들어간다」라서 목록으로 되돌려 보내면 누르는 족족 같은 403 이다
-    /// (`PartyJoinException.isNoShowRestricted`).
+    /// 네트워크). 화면은 그 프로퍼티로 분기한다. 403 `NO_SHOW_RESTRICTED` 는 **더 이상 오지 않는다**
+    /// (노쇼 제재가 서버에서 사라졌다).
     ///
     /// 409 `PARTY_TIME_CONFLICT` 는 기준 시각 전후 2시간 안에 내 다른 예약이 있을 때다 — 기준은 예약 방이면
     /// 그 방의 출발 시각, 실시간 방이면 지금이다(서버 `PartyService.join` → `checkTimeConflict`).
@@ -164,45 +168,59 @@ public protocol RideRepository: Sendable {
     /// 나가기. DELETE /api/v1/matching/leave/{partyId}. 나가는 주체는 토큰이 정한다.
     /// 성공 시 Explore 목록 재조회 필요.
     ///
-    /// 마지막 멤버가 나가면 방은 CANCELED 로 닫힌다(실측).
+    /// 마지막 멤버가 나가면 방은 CANCELED 로 닫힌다(실측). **확정된 실시간 방에서 혼자 남는 경우도
+    /// 닫힌다** — 더 모을 수 없고 혼자서는 출발할 수 없기 때문이다(`b16551b7`). 예약 방은 출발 전까지
+    /// 다시 모을 수 있어 혼자 남아도 열어 둔다.
     ///
     /// 그 방의 멤버가 아니면 서버는 403 `NOT_PARTY_MEMBER` 를 주는데, **그 403 은 실패로 올라오지
     /// 않는다** — 데이터 계층이 성공으로 되돌린다. 「이미 나갔다」와 「나가기 성공」은 사용자가 할 일이
     /// 같기 때문이다(204 응답이 터널에서 유실되고 재시도하면 바로 이 경우가 된다). `joinParty` 의
     /// `PartyJoinException.isAlreadyInThisParty` 복구와 대칭이다.
     ///
-    /// 나머지 실패는 `PartyLeaveException` 이다(409 `PARTY_NOT_RECRUITING` — 매칭이 시작돼 나갈 수 없다 /
+    /// 나머지 실패는 `PartyLeaveException` 이다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`·`PARTY_CLOSED` /
     /// 404 `PARTY_NOT_FOUND` / 네트워크).
+    ///
+    /// ### 「확정된 방은 나갈 수 없다」는 **더 이상 사실이 아니다** ★
+    /// 서버가 그 규칙을 버렸다(`b16551b7`: 「확정 방에서도 나갈 수 있고」). 지금 나가기를 막는 유일한
+    /// 사유는 **내가 출발지 도착을 눌렀는가**다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`) — 도착한 멤버가
+    /// 곧 탑승자이고 택시비 정산 대상이라 장부에서 빠질 수 없기 때문이다.
+    ///
+    /// 그래서 **확정·예약을 이유로 나가기 버튼을 숨긴 자리는 전부 틀렸다.** 서버가 허용하는 일을 앱이
+    /// 막는 쪽의 실패라, 사용자에게는 방을 벗어날 길이 없어진다 — 숨길 근거는 **도착 여부** 하나다.
     func leaveParty(partyId: Int64) async throws
 
-    /// POST /api/v1/matching/rooms/{partyId}/finish (204) — 합승을 끝낸다.
-    /// 정원이 찬(`COMPLETED`) 방을 닫는 **유일한 길**이다 — 한 명이 닫으면 **모두의** 방이
-    /// `FINISHED` 가 된다. (예전에는 기사가 운행을 끝내는 길이 따로 있어 이쪽이 「1차 배포 모드 전용」
-    /// 이었지만, 기사·배차가 사라져 이제 분기가 없다.)
-    ///
-    /// **방장 전용이다**: Backend #237 이 이 API 를 방장에게만 허용했고, 2026-10-15 **운영에 배포됐다**.
-    /// 방장은 저장되는 값이 아니라 **지금 멤버 중 가장 먼저 합류한 사람**이고(`Party.hostId()` =
-    /// `min(joinedAt, memberId)`), 방장이 나가면 자동 승계된다.
-    ///
-    /// **앱은 방장을 식별할 수 있다** — 서버가 멤버마다 `members[].host` 를 내려 준다(Backend #240,
-    /// 반영 완료). 내부 PK `hostId` 는 응답에서 제거됐다. 그래서 호출부는 **버튼 노출을 먼저 막고**
-    /// (`canFinishParty` = 손으로 닫는 단계 && `Ride.isHostedByMe`), 실패 사유 안내는 그 뒤에 남는
-    /// 틈을 받는다 — 승계 신호를 놓치거나 순서가 역전돼 **내 스냅샷이 낡았을** 때 403 이 온다.
-    /// **「앱은 방장을 알 수 없다」로 되돌리지 말 것**: 그 서술은 `host` 가 붙기 전의 사실이고,
-    /// 그대로 믿으면 방장 게이팅이 근거 없는 추정으로 읽혀 지워진다.
-    ///
-    /// 실패는 모두 `PartyFinishException` 으로 올라온다 — **403 이 두 가지 뜻**이라
-    /// (`NOT_PARTY_HOST`·`NOT_PARTY_MEMBER`, 그리고 409 `PARTY_NOT_COMPLETED`) 화면은 상태 코드가
-    /// 아니라 그 예외의 프로퍼티로 분기한다. 모르는 코드·본문 없음은 code = null 이고 화면이 일반
-    /// 문구로 떨어진다.
-    func finishParty(partyId: Int64) async throws
+    // **`finishParty`(「합승 완료」, `POST /rooms/{partyId}/finish`)는 지웠다** — 서버가 그 경로를
+    // 없앴다(`b16551b7`: 「구버전 종료 경로(/finish)…를 지운다」).
+    //
+    // 방을 끝내는 길은 `departParty` 하나이고, 조건이 전혀 다르다:
+    //
+    // | | 옛 「합승 완료」 | 지금 「출발」 |
+    // |---|---|---|
+    // | 방 상태 | 정원이 찬(COMPLETED) 방 | **확정된** 방 |
+    // | 누가 | 방장 | **도착한 방장** |
+    // | 시각 | 아무 때나 | 약속 시각 **뒤** |
+    //
+    // 즉 「정원이 차면 끝낼 수 있다」가 「약속을 정하고 가서 만나야 끝낼 수 있다」로 바뀌었다.
+    // 정원은 이제 종료와 아무 관계가 없다.
 
-    /// POST /api/v1/matching/rooms/{partyId}/confirm (204) — 방장이 **약속 시간을 확정한다**.
-    /// 본문은 `{"departureAt": "..."}` 하나이고, 장소는 싣지 않는다 — 약속 장소는 **늘 방의 출발지**다.
+    /// POST /api/v1/matching/rooms/{partyId}/confirm (204) — 방장이 **약속 시간과 만남 장소를 확정한다**.
     ///
-    /// 이게 방을 끝내는 **정식 경로의 첫 단계**다: 확정 → 각자 「출발지 도착」 → 누군가 「출발」.
-    /// `finishParty` 는 **확정 전 방에만** 남는다 — 확정된 방에 부르면 서버가 409
-    /// `USE_DEPART_FOR_CONFIRMED_PARTY` 로 거절한다.
+    /// 이게 방을 끝내는 **정식 경로의 첫 단계**다: 확정 → 각자 「출발지 도착」 → 방장이 「출발」.
+    /// 확정 전 방을 끝낼 길은 **없다**(옛 「합승 완료」가 서버에서 사라졌다).
+    ///
+    /// ### 본문이 한 필드에서 네 필드로 늘었다 ★
+    /// `2732cc75` 가 만남 장소를 **필수**로 만들었다(「약속 확정은 만남 장소(위도·경도·이름)를 늘
+    /// 받는다. 바꾸지 않으면 앱이 지금 출발지를 그대로 보낸다」). 네 값이 모두 `@NotNull`/`@NotBlank` 라
+    /// **하나라도 빠지면 400 `INVALID_REQUEST`** 이고, 그 400 은 `PartyConfirmException` 의 어느
+    /// 사유도 아니라 화면에 일반 문구로만 보인다 — 「확정이 안 돼요」라는 신고가 와도 짚을 단서가 없다.
+    ///
+    /// ### 확정이 방의 출발지를 **옮긴다** ★
+    /// 서버가 받은 장소로 방의 출발지를 덮어쓴다(`Party.confirm`). 도착 판정 반경이 **실제 만나는 곳**을
+    /// 기준으로 돌게 하려는 것이다. 그래서 장소를 바꾸지 않을 때도 **지금 출발지를 그대로** 실어야
+    /// 한다(`latitude`·`longitude`·`placeName` 에 `Ride.originLat`·`Ride.originLng`·`Ride.origin`).
+    /// 빈 문자열을 보내면 방 이름이 빈 값이 되고, 좌표를 0 으로 보내면 400 `OUT_OF_SERVICE_AREA` 다.
+    /// 채팅으로 다른 곳을 정했다면 그 좌표·이름을 보내면 된다 — 그게 이 필드가 생긴 이유다.
+    /// 단, 도착지와 같은 좌표는 400 `SAME_DEPARTURE_DESTINATION` 이다.
     ///
     /// ### `departureAt` 의 모양이 곧 성패다 ★
     /// ISO-8601 **순간**(instant) 문자열이어야 한다 — `"2026-11-03T08:30:00Z"` 처럼 `Z` 로 끝나거나
@@ -211,22 +229,30 @@ public protocol RideRepository: Sendable {
     /// 그 400 은 `PartyConfirmException` 의 어느 사유도 아니라
     /// (code 는 `INVALID_REQUEST`) 화면에 일반 문구로 떨어진다 — 원인을 찾기 가장 어려운 실패다.
     ///
-    /// 서버가 받는 범위는 **지금부터 1시간 안**이고 과거 쪽으로는 1분의 시계 오차만 봐준다. 그래서
-    /// 화면은 프리셋(10·20·30·45·60분 후)으로만 고르게 한다 — 자유 입력은 사용자가 만들 수 있는 400 이다.
+    /// 서버가 받는 범위는 **지금부터 5분 뒤 ~ 1시간**이다(400 `INVALID_MEETING_TIME`). **하한이
+    /// 생겼다** — 예전에는 상한 하나였다. 그래서 프리셋(10·20·30·45·60분 후)도 **누른 순간의 `now`** 로
+    /// 계산해야 안전하다: 다이얼로그를 6분 열어 두면 10분 프리셋이 하한 아래로 내려가고, 60분 프리셋은
+    /// 1초만 지나도 상한을 넘는다.
     ///
-    /// 성공하면 **방의 성질이 바뀐다**: 모집이 끝나고(ACTIVE→COMPLETED) 아무도 나갈 수 없다
-    /// (409 `CANNOT_LEAVE_CONFIRMED_PARTY`). 화면 갱신은 따로 읽지 않아도 된다 —
-    /// SSE `PartyEvent.confirmed` 가 상태와 약속 시간을 싣고 온다(`observePartyEvents`).
+    /// 성공하면 **방의 성질이 바뀐다**: 모집이 끝나(ACTIVE→COMPLETED) **참여가 막힌다 — 나가기는 된다**.
+    /// 화면 갱신은 따로 읽지 않아도 된다 — SSE `PartyEvent.confirmed` 가 상태·약속 시간·**바뀐 출발지**를
+    /// 싣고 온다(`observePartyEvents`).
     ///
     /// 실패는 모두 `PartyConfirmException` 으로 올라온다
     /// (403 `NOT_PARTY_HOST`·`NOT_PARTY_MEMBER` / 409 `NOT_REALTIME_PARTY`·`ALREADY_CONFIRMED`·
-    /// `PARTY_NOT_RECRUITING`·`NOT_ENOUGH_MEMBERS` / 400 `INVALID_MEETING_TIME` / 404 / 네트워크).
+    /// `PARTY_CLOSED`·`NOT_ENOUGH_MEMBERS` / 400 `INVALID_MEETING_TIME` / 404 / 네트워크).
     /// **한 문구로 뭉개면 안 된다** — 사유마다 다음 행동이 다르고, 그 근거는 그 예외 주석의 표에 있다.
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws
+    func confirmMeeting(
+        partyId: Int64,
+        departureAt: String,
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ) async throws
 
     /// POST /api/v1/matching/rooms/{partyId}/arrive (204) — **출발지에 도착했다**고 알린다.
     /// 본문은 `{"latitude": …, "longitude": …}`, **지금 내 위치**다(방의 출발지 좌표가 아니다 —
-    /// 서버가 그 둘의 거리를 재서 100m 안인지 판정한다).
+    /// 서버가 그 둘의 거리를 재서 반경 안인지 판정한다 — **실시간 100m · 예약 400m**, `b16551b7`).
     ///
     /// 받아 주는 조건은 둘이다: 약속이 확정된 방일 것, 그리고 **약속 시간 10분 전부터**일 것.
     /// (서버 `Party.arrive` 는 `now < departureAt − 10분`(`ARRIVAL_OPENS_BEFORE`) 이면 409
@@ -247,13 +273,14 @@ public protocol RideRepository: Sendable {
 
     /// POST /api/v1/matching/rooms/{partyId}/depart (204, 본문 없음) — **출발한다 = 방을 끝낸다.**
     ///
-    /// ⚠️ **되돌릴 수 없고, 남에게 제재를 남긴다.** 이 호출이 성공한 순간 방은 FINISHED 가 되고,
-    /// 그때까지 도착을 누르지 않은 멤버는 **전부 노쇼로 기록된다**(노쇼 횟수 × 24시간 이용 제한,
-    /// 약속 시간부터 센다). 앱에는 취소하는 길이 없다 — 화면은 누르기 전에 반드시 확인을 받아야 한다.
-    /// 서버가 `restrictedUntil` 로 알려 주는 그 제재를, 만드는 쪽이 바로 이 호출이다.
+    /// ⚠️ **되돌릴 수 없다.** 이 호출이 성공한 순간 방은 FINISHED 가 되고, 그때까지 도착을 누르지 않은
+    /// 멤버는 **탑승자에서 빠진다** — 탑승 기록·택시비 정산 대상이 「도착을 누른 멤버」 기준이다.
+    /// 노쇼 제재는 서버에서 사라졌지만(`b16551b7`) 그 대가는 남는다. 화면은 누르기 전에 **도착하지
+    /// 않은 인원을 세어 보여 주고** 확인을 받아야 한다.
     ///
-    /// **방장 전용이 아니다** — 도착한 멤버면 누구나 누를 수 있다(`finishParty` 와 다른 점이다).
-    /// 조건은 약속 시간 **뒤**일 것, 멤버 2명 이상일 것, 그리고 **내가 도착해 있을 것**.
+    /// **방장 전용이다**(`b16551b7`: 「출발은 도착한 방장만 누른다」 — 예전에는 도착한 멤버면 누구나였다).
+    /// 조건은 방장일 것, 약속 시간 **뒤**일 것, 멤버 2명 이상일 것, 그리고 **방장 자신이 도착해 있을 것**.
+    /// FINISHED 가 된 방은 방장이 택시비 정산을 시작할 수 있는 유일한 상태다.
     ///
     /// 성공하면 SSE `PartyEvent.closed` 가 오고 **서버가 그 방의 구독을 끊는다** — 화면은 그 신호로
     /// 닫으면 된다(이 호출의 반환을 기다릴 필요가 없다). 다른 멤버가 먼저 눌렀다면 내 호출은 409
@@ -261,7 +288,7 @@ public protocol RideRepository: Sendable {
     ///
     /// 실패는 모두 `PartyDepartException` 으로 올라온다
     /// (409 `PARTY_CLOSED`·`PARTY_NOT_CONFIRMED`·`NOT_ENOUGH_MEMBERS`·`MEETING_NOT_STARTED`·
-    /// `NOT_ARRIVED` / 403 `NOT_PARTY_MEMBER` / 404 / 네트워크).
+    /// `NOT_ARRIVED` / 403 `NOT_PARTY_HOST`·`NOT_PARTY_MEMBER` / 404 / 네트워크).
     func departParty(partyId: Int64) async throws
 
     // 기사 요약 조회(`GET /rooms/{partyId}/driver`)와 긴급 신고 두 개
@@ -276,9 +303,8 @@ public protocol RideRepository: Sendable {
     // 생성 하나**를 들고 나머지는 전부 이쪽으로 위임하는 얇은 껍데기가 된다 — 호출부가
     // 「방 id 를 어느 저장소에 물어야 하나」를 매번 되묻게 되는 구조다. 돌려주는 것도 같은 `Ride` 다.
     //
-    // 노쇼(`NoShowRepository`)를 따로 뺀 것과 **반대 방향의 판단**이고
-    // 기준은 하나다: **같은 모델로 같은 동작을 하는가.** 예약은 방이라 그렇고, 노쇼는 끝난 방에
-    // 남은 제재라 아니다.
+    // 기준은 하나다: **같은 모델로 같은 동작을 하는가.** 예약은 방이라 그렇다(택시비 정산은 끝난 방에
+    // 붙는 다른 장부라 `FareSplitRepository` 로 따로 뺐다 — 반대 방향의 같은 판단이다).
 
     /// **예약 방 생성.** POST /api/v1/matching/reservations (200, 생성된 방).
     ///
@@ -289,15 +315,14 @@ public protocol RideRepository: Sendable {
     /// 그 0 을 「공짜」로 그리지 말 것.
     ///
     /// 돌려주는 방은 **처음부터 확정**이다(`Ride.isConfirmed` true, `Ride.roomType`
-    /// `RoomType.reservation`) — 즉 「약속 시간 정하기」를 띄우면 안 되고
-    /// (`confirmMeeting` 이 409 `NOT_REALTIME_PARTY`), **「그만 찾기」도 띄우면 안 된다**
-    /// (`leaveParty` 가 409 `CANNOT_LEAVE_CONFIRMED_PARTY`). 예약을 만든 사람에게는 방을 벗어날 길이
-    /// 없는 셈이라, 화면은 **만들기 전에** 확인을 받는 쪽이 맞다.
+    /// `RoomType.reservation`) — 즉 「약속 시간 정하기」를 띄우면 안 된다
+    /// (`confirmMeeting` 이 409 `NOT_REALTIME_PARTY`). **나가기는 된다** — 확정을 이유로 막던
+    /// `CANNOT_LEAVE_CONFIRMED_PARTY` 는 서버에서 사라졌다(`b16551b7`, `leaveParty` 참고).
     ///
     /// 성공 뒤 갱신 대상: 홈·탐색의 진행 중 방 배너(진행 중인 방이 하나 생겼다)와, 예약 목록·검색을
     /// 보여 주는 화면(새 방이 그 목록에 들어간다 — 서버 필터가 `ACTIVE` 라 바로 보인다).
     ///
-    /// 실패는 `createParty` 와 **같은 `PartyOpenException`** 으로 올라온다(403 `NO_SHOW_RESTRICTED` /
+    /// 실패는 `createParty` 와 **같은 `PartyOpenException`** 으로 올라온다(
     /// 409 `ALREADY_JOINED_OTHER_PARTY`·`PARTY_TIME_CONFLICT` / 400 `INVALID_DEPARTURE_TIME`·
     /// `INVALID_CAPACITY`·`INVALID_REQUEST`·`SAME_DEPARTURE_DESTINATION`·`OUT_OF_SERVICE_AREA` /
     /// 네트워크). 실시간 표에 갈래가 없는 둘은 `PartyOpenException.isPartyTimeConflict`·
@@ -310,21 +335,8 @@ public protocol RideRepository: Sendable {
     /// 고르라고** 말하게 된다. 그리고 예약의 정원 1 은 그 코드로도 오지 않는다(400 `INVALID_REQUEST`).
     func createReservation(request: NewReservation) async throws -> Ride
 
-    /// **기간으로 보는 예약 목록.** GET /api/v1/matching/reservations?from=&to=
-    ///
-    /// `from`·`to` 는 **ISO-8601 instant 문자열**이고 둘 다 필수다(`"2026-11-13T00:00:00Z"`).
-    /// `from >= to` 면 400 `INVALID_TIME_RANGE` — 같은 시각도 거절된다.
-    ///
-    /// 돌려주는 `Ride` 는 `getParties` 의 것과 **같은 모델이되 채워진 자리가 다르다**:
-    /// 출발·도착 좌표가 **둘 다** 있고(`getParties` 는 출발만), `Ride.departureAt` 이 채워져 있고,
-    /// `Ride.roomType` 이 `RoomType.reservation` 이며
-    /// `Ride.isConfirmed` 가 true 다. 요금·경로는 없다(상세를 읽어도 없다 — 서버가 추정하지 않는다).
-    ///
-    /// **뷰포트와 무관하다** — 지도에 보이는 것만 거르려면 `getReservationsSoon` 다.
-    ///
-    /// 실패를 전용 예외로 감싸지 않는다(조회의 관례). 400 두 가지는 **앱이 만드는 실패**라
-    /// 화면 문구로 가릴 값이 아니고, `from`·`to` 를 앱이 만드므로 애초에 나지 않아야 한다.
-    func getReservations(from: String, to: String) async throws -> [Ride]
+    // **기간 예약 목록(`getReservations(from:to:)`)은 지웠다** — 서버가 `GET /matching/reservations?from&to`
+    // 를 없앴다(`2732cc75`). 화면이 쓰는 예약 조회는 `getReservationsSoon`·`searchReservations` 둘이다.
 
     /// **곧 출발하는 예약** — 지도 범위 안, 지금부터 **30분 내** 출발.
     /// GET /api/v1/matching/reservations/soon?swLat=&swLng=&neLat=&neLng=

@@ -24,6 +24,8 @@ private let HomeCollapsedSheetHeight: CGFloat = 142
 /// 이동(디스크립션):
 /// - 상단 「{단계} · {목적지} 보기」 배너 → 진행 중인 방의 단계 화면 21/25/26 (onActiveRideClick)
 ///   — 진행 중인 방이 없으면(`activeRide` nil) 배너 자체가 없다
+/// - 그 아래 「아직 보내지 않은 택시비」 배너의 줄 탭 → 39 택시비 정산(`fareSplitBanner` 슬롯이 이동까지 들고 온다)
+///   — 보낼 정산이 없으면 배너 자체가 없다
 /// - 「목적지 검색」 바 탭 → 15 (onSearchClick)
 /// - 「즐겨찾기」 행 탭 → 15, 도로명주소로 검색어 자동 입력 (onFavoritePlaceClick)
 /// - 하단탭 합승/채팅/마이 → 17/24/35 (onTabSelect)
@@ -44,6 +46,18 @@ private let HomeCollapsedSheetHeight: CGFloat = 142
 public struct HomeScreen: View {
     /// 지금 진행 중인 내 방. nil 이면 지도 위 배너를 그리지 않는다
     private let activeRide: Ride?
+    /// 14 홈의 **「아직 보내지 않은 택시비」 배너** — 꽂지 않으면(nil) 아무것도 그리지 않는다.
+    ///
+    /// 슬롯으로 받는 이유: 이 화면이 정산을 **알 필요가 없다.** 목록 조회·복귀 재조회·「비면 그리지
+    /// 않기」를 전부 `FareSplitBannerHost`(FeatureFareSplit)가 안에서 끝내므로, 여기에 저장소를 들이면 홈이
+    /// 정산의 상태를 한 겹 더 들고 다니게 된다(그리고 그 상태는 진행 중 방과 아무 관계가 없다).
+    ///
+    /// **진행 중 방 배너와 독립이다.** 끝난 방의 정산이라 `activeRide` 가 nil 인 사람에게도 떠야 한다 —
+    /// 실제로 그게 흔한 경우다(동승이 끝나면 진행 중 방이 사라진다).
+    ///
+    /// **보낼 정산이 없으면 nil 로 온다**(빈 배너를 넘기지 않는다) — 배너 묶음의 높이가 지도의 안쪽 여백이 되므로,
+    /// 빈 자리를 넘기면 지도가 상태바 높이만큼 내려앉는다(`FareSplitBannerHost` 주석).
+    private let fareSplitBanner: AnyView?
     /// 기기 실위치. nil(권한 없음·아직 fix 없음)이면 파란 점을 그리지 않고 카메라도 옮기지 않는다
     private let myLocation: UserCoordinates?
     /// 서버 즐겨찾기(GET /users/me/favorite-places). 호출부가 sequence 순으로 정렬해 넘긴다
@@ -87,6 +101,7 @@ public struct HomeScreen: View {
 
     public init(
         activeRide: Ride? = nil,
+        fareSplitBanner: AnyView? = nil,
         myLocation: UserCoordinates? = nil,
         favoritePlaces: [FavoritePlace] = [],
         editingFavorites: Bool = false,
@@ -106,6 +121,7 @@ public struct HomeScreen: View {
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         self.activeRide = activeRide
+        self.fareSplitBanner = fareSplitBanner
         self.myLocation = myLocation
         self.favoritePlaces = favoritePlaces
         self.editingFavorites = editingFavorites
@@ -141,6 +157,7 @@ public struct HomeScreen: View {
                     HomeMapBackground(
                         sheet: sheet,
                         activeRide: activeRide,
+                        fareSplitBanner: fareSplitBanner,
                         myLocation: myLocation,
                         onActiveRideClick: onActiveRideClick
                     )
@@ -235,6 +252,7 @@ func homeZoomControlOffsetY(bannerHeight: CGFloat, visibleBottom: CGFloat) -> CG
 private struct HomeMapBackground: View {
     let sheet: MapSheetState
     let activeRide: Ride?
+    let fareSplitBanner: AnyView?
     let myLocation: UserCoordinates?
     let onActiveRideClick: () -> Void
 
@@ -254,11 +272,13 @@ private struct HomeMapBackground: View {
 
     var body: some View {
         let myPosition = latLngOrNull(latitude: myLocation?.latitude, longitude: myLocation?.longitude)
+        // 지도 위 배너 둘 — 진행 중인 방 복귀, 그리고 아직 보내지 않은 택시비. **둘은 서로 독립이다.**
+        let hasBanner = activeRide != nil || fareSplitBanner != nil
         ZStack(alignment: .top) {
             NaverMapView(
                 // 앵커 기준 시트 높이를 빼 카메라 중심이 시트 뒤가 아니라 실제 보이는 영역에 잡히게 한다
                 contentPadding: EdgeInsets(top: bannerHeight, leading: 0, bottom: sheet.settledSheetHeight, trailing: 0),
-                zoomControlOffsetY: sheet.expanded && activeRide != nil
+                zoomControlOffsetY: sheet.expanded && hasBanner
                     ? homeZoomControlOffsetY(
                         bannerHeight: bannerHeight,
                         visibleBottom: sheet.containerHeight - sheet.settledSheetHeight
@@ -281,19 +301,37 @@ private struct HomeMapBackground: View {
                     bearingDegrees: myLocation?.bearingDegrees
                 )
             }
-            // 진행 중인 방이 있으면 지도 위에 복귀 배너 하나만 얹는다 — 배너 밖은 여전히 지도의 것이다
-            if let activeRide {
+            // 지도 위에 얹는 배너 둘 — 진행 중인 방 복귀, 그리고 아직 보내지 않은 택시비. 배너 밖은 여전히 지도의 것이다.
+            // **둘은 서로 독립이다**: 동승이 끝나면 진행 중 방이 사라지므로 정산 배너만 뜨는 경우가 오히려
+            // 흔하다. 그래서 바깥 조건이 「둘 중 하나라도 있으면」이고, 상태바 자리도 그 안에 있다 — 진행 중 방에
+            // 묶어 두면 정산 배너만 있을 때 상태바에 파고든다. 정산 배너는 보낼 것이 없으면 nil 로 오므로
+            // (`FareSplitBannerHost`) 둘 다 없는 날은 지금처럼 묶음 자체가 없다.
+            if hasBanner {
                 VStack(spacing: 0) {
                     StatusBarSpacer()
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { statusBarHeight = $0 }
-                    ActiveRideBanner(ride: activeRide, onClick: onActiveRideClick)
-                        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
-                        .padding(.top, homeBannerTopPadding(statusBarHeight: statusBarHeight))
-                        .padding(.bottom, 8)
+                    if let activeRide {
+                        ActiveRideBanner(ride: activeRide, onClick: onActiveRideClick)
+                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                            .padding(.top, homeBannerTopPadding(statusBarHeight: statusBarHeight))
+                            .padding(.bottom, 8)
+                    }
+                    if let fareSplitBanner {
+                        // 맨 위 배너일 때만 진행 배너와 같은 위 여백을 준다 — 아래에 붙을 때는 진행 배너의 아래 여백이 간격이다.
+                        fareSplitBanner
+                            .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                            .padding(.top, activeRide == nil ? homeBannerTopPadding(statusBarHeight: statusBarHeight) : 0)
+                            .padding(.bottom, MoyeotaSpacing.Xs)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bannerHeight = $0 }
             }
+        }
+        // 배너가 모두 사라지면(정산을 보내고 돌아왔다·진행 중 방이 끝났다) 지도의 위 여백도 돌려놓는다 — 묶음이 사라지면
+        // 높이를 알려 줄 뷰가 없어, 그대로 두면 마지막 배너 높이만큼 카메라 중심이 내려간 채 남는다.
+        .onChange(of: hasBanner) { _, present in
+            if !present { bannerHeight = 0 }
         }
     }
 

@@ -79,8 +79,12 @@ public final class MatchWaitingViewModel {
     /// | 값 | 액션 | 성공하면 |
     /// |---|---|---|
     /// | `left` | 「그만 찾기」·「방 나가기」 | 방을 떠난다 → 홈 |
-    /// | `finished` | 「합승 완료」(확정 **전** 방 전용) | 방이 닫힌다 → 홈 |
-    /// | `departed` | 「출발」(확정된 방) | 방이 **모두에게** 닫힌다 → 홈 |
+    /// | `departed` | 「출발」(도착한 방장) | 방이 **모두에게** 닫힌다 → 홈 |
+    ///
+    /// `finished`(「합승 완료」)는 **지웠다** — 서버가 `POST /rooms/{id}/finish` 를 없앴다
+    /// (`b16551b7`). 방을 끝내는 길은 `departParty` 하나이고, 조건이 「정원이 찼다」에서
+    /// **「약속을 정하고 가서 만났다」**로 바뀌었다. 두 플래그가 같은 곳(홈)으로 보냈으므로 지워도
+    /// 잃는 전이는 없다.
     ///
     /// 확정(`confirmMeeting`)과 도착(`arriveAtDeparture`)은 **화면을 떠나지 않는다** — 같은 방에
     /// 머문 채 단계만 바뀌므로 플래그를 두지 않고, 성공 시 들고 있는 방을 그 자리에서 고친다.
@@ -89,20 +93,17 @@ public final class MatchWaitingViewModel {
         public var inProgress: Bool
         public var errorMessage: String?
         public var left: Bool
-        public var finished: Bool
         public var departed: Bool
 
         public init(
             inProgress: Bool = false,
             errorMessage: String? = nil,
             left: Bool = false,
-            finished: Bool = false,
             departed: Bool = false
         ) {
             self.inProgress = inProgress
             self.errorMessage = errorMessage
             self.left = left
-            self.finished = finished
             self.departed = departed
         }
     }
@@ -119,8 +120,9 @@ public final class MatchWaitingViewModel {
 
     public private(set) var actionState = ActionState()
 
-    /// 서버가 **방이 닫혔다**고 알려 왔다(`PartyEvent.closed`). 누가 닫았는지(합승 완료·30분 만료·
-    /// 마지막 멤버 이탈)는 화면 동작이 같아 구분하지 않는다 — Route 가 받아 홈으로 보낸다.
+    /// 서버가 **방이 닫혔다**고 알려 왔다(`PartyEvent.closed`). 누가 닫았는지(누군가의 「출발」·
+    /// 모집 만료·마지막 멤버 이탈·도착자 없는 자동 정리)는 화면 동작이 같아 구분하지 않는다 —
+    /// Route 가 받아 홈으로 보낸다.
     ///
     /// 확인용 상세 재조회를 하지 않는다: 서버는 이 신호 뒤에 구독을 끊고, 닫힌 방을 한 번 더 읽어도
     /// 「닫혔다」는 사실만 다시 확인할 뿐이다(예전에는 FINISHED/CANCELED 를 상세로 읽어 와야 알았다).
@@ -421,14 +423,19 @@ public final class MatchWaitingViewModel {
     /// | `PartyEvent.snapshot` | 들고 있던 방을 **통째로 교체**(가장 신뢰할 수 있는 값) · 폴백 끔 |
     /// | `PartyEvent.memberJoined` | 멤버 목록에 더하고(같은 publicId 는 교체) status 갱신 (`Ride.withMemberJoined`) |
     /// | `PartyEvent.memberLeft` | publicId 로 제거 + status 갱신 + **방장 승계 반영** (`Ride.withHostSuccession`) |
-    /// | `PartyEvent.confirmed` | 약속 확정 반영 (`Ride.withMeetingConfirmed`) — **status 는 건드리지 않는다** |
+    /// | `PartyEvent.confirmed` | 약속 확정 + **바뀐 출발지** 반영 (`Ride.withMeetingConfirmed`) — status 는 건드리지 않는다 |
     /// | `PartyEvent.memberArrived` | 그 멤버의 도착 표시 (`Ride.withMemberArrived`) |
-    /// | `PartyEvent.recruitingClosed` | 상세를 1회 읽는다 — 프레임이 status 를 **문자열**로만 싣는다 |
     /// | `PartyEvent.closed` | 닫힘 신호만 세운다 → Route 가 홈으로 |
     /// | `PartyEvent.disconnected` | 폴백 폴링 켬. 상태는 **그대로 둔다** — 곧 올 스냅샷이 보정한다 |
     ///
-    /// 상세 1회 조회가 붙는 경우는 둘이다 — **누가 나갔는지 모를 때**(publicId nil)와, 서버가 지목한
-    /// **방장이 내 목록에 없을 때**(`RideDelta.needsDetail` — 서버 계약이 그렇게 하라고 적어 두었다).
+    /// 상세 1회 조회가 붙는 경우는 셋이다 — **누가 나갔는지 모를 때**(publicId nil), 서버가 지목한
+    /// **방장이 내 목록에 없을 때**, 그리고 **확정 프레임의 출발지 셋이 반쪽일 때**
+    /// (`RideDelta.needsDetail` — 세 경우 다 서버 계약이 그렇게 하라고 적어 두었다).
+    ///
+    /// `recruiting-closed` 분기는 **지웠다** — 서버가 그 이벤트를 없앴다(`b16551b7`). 「정원이 차서
+    /// 모집이 끝난다」는 전이 자체가 사라졌고(정원이 차도 ACTIVE 다), 모집을 끝내는 신호는
+    /// `PartyEvent.confirmed` 하나다. 그 분기가 하던 일(status 문자열을 옮길 수 없어 상세를 1회 읽기)은
+    /// 받을 프레임이 없어 **영원히 돌지 않는 코드**였으므로 남겨 두면 읽는 사람을 속인다.
     private func applyEvent(_ event: PartyEvent) async {
         switch event {
         case .snapshot(let ride, let version):
@@ -470,7 +477,11 @@ public final class MatchWaitingViewModel {
         // 그러면 서버가 값을 늘릴 때 두 곳이 어긋난다. 확정 사실만 싣고 status 는 다음 스냅샷·
         // 폴백 상세가 맞춘다 — 화면이 이 단계에서 보는 값은 `isConfirmed` 라(`meetingStage`)
         // 그 지연이 사용자에게 보이지 않는다.
-        case .confirmed(_, let departureAt, let version):
+        //
+        // ★ **출발지 셋은 반대로 꼭 받아야 한다.** 확정이 방의 출발지를 만남 장소로 옮기므로
+        // (서버 `Party.confirm`), 무시하면 지도가 옛 출발지를 가리키고 **도착 버튼이 틀린 곳을
+        // 기준으로 판정**돼 약속 장소에 서 있는 사람이 400 `TOO_FAR_FROM_DEPARTURE` 를 맞는다.
+        case .confirmed(_, let departureAt, let departureLat, let departureLng, let departurePlace, let version):
             switch deltaVerdict(held: heldVersion, incoming: version) {
             case .drop:
                 break
@@ -478,7 +489,14 @@ public final class MatchWaitingViewModel {
                 await readDetail()
             case .apply:
                 heldVersion = version ?? heldVersion
-                await applyDelta { $0.withMeetingConfirmed(departureAt: departureAt) }
+                await applyDelta {
+                    $0.withMeetingConfirmed(
+                        departureAt: departureAt,
+                        departureLat: departureLat,
+                        departureLng: departureLng,
+                        departurePlace: departurePlace
+                    )
+                }
             }
         // 누가 출발지에 도착했다. 내 도착도 같은 길로 올 수 있지만, 그걸 기다리지 않는다 —
         // 액션 성공 시 `arriveAtDeparture` 가 내 줄을 그 자리에서 고친다(SSE 는 at-most-once).
@@ -491,20 +509,6 @@ public final class MatchWaitingViewModel {
             case .apply:
                 heldVersion = version ?? heldVersion
                 await applyDelta { $0.withMemberArrived(publicId: publicId) }
-            }
-        // 모집이 끝났다. **이 프레임만으로는 반영할 수 없다** — 서버가 싣는 status 가 문자열이라
-        // 위 `.confirmed` 와 같은 이유로 옮길 수 없고, 그렇다고 버리면 모집을 끝낸
-        // 사유가 합류가 아닐 때(약속 확정이 ACTIVE→COMPLETED 로 닫는다) 내 status 가 낡은 채
-        // 남는다. 그래서 상세를 1회 읽는다 — 이 신호는 방 하나에 한 번뿐이라 비용이 1건이다.
-        case .recruitingClosed(_, let version):
-            switch deltaVerdict(held: heldVersion, incoming: version) {
-            case .drop:
-                break
-            case .resync:
-                await readDetail()
-            case .apply:
-                heldVersion = version ?? heldVersion
-                await readDetail()
             }
         case .closed:
             realtimeAlive = false
@@ -531,8 +535,8 @@ public final class MatchWaitingViewModel {
     /// 변경분을 들고 있는 방에 적용한다. 바탕이 없으면(로딩·에러) 적용할 대상이 없어 상세를 1회 읽는다 —
     /// 증분은 **바탕이 있을 때만** 쓸 수 있다.
     ///
-    /// 적용 결과가 `needsDetailAfterDelta` 면 상세를 1회 읽어 서버 쪽으로 맞춘다 — 사유는 둘이고
-    /// (방장 지목을 못 맞췄다 / 목록이 status 와 모순이다) 처방이 같다. 그때는 **목록이 아니라 서버를
+    /// 적용 결과가 `needsDetailAfterDelta` 면 상세를 1회 읽어 서버 쪽으로 맞춘다 — 사유는 여럿이고
+    /// (방장·도착자 지목을 못 맞췄다 / 확정 프레임이 반쪽이다 / 목록이 정원을 넘었다) 처방이 같다. 그때는 **목록이 아니라 서버를
     /// 믿는다**. 주기 호출이 아니라 그 순간 1회이며, 읽어 온 결과에는 이 검사를 다시 걸지 않으므로
     /// (읽기 결과는 `readDetail` 이 `UiState.success` 로 직접 세운다) **되돌이가 되지 않는다** —
     /// 프레임 하나당 추가 조회는 최대 1건이다.
@@ -687,8 +691,8 @@ public final class MatchWaitingViewModel {
     /// 「나가지 못했어요」를 보고 다시 눌렀을 때 **같은 문구의 403** 에 갇히지 않는다 — 그 상태에서는
     /// 로컬 기억과 홈 배너가 그 방을 계속 들고 있어 화면상 나는 아직 그 방에 있다.
     ///
-    /// 남은 실패는 `leaveFailureMessage` 가 사유별로 가른다 — 409 는 「매칭이 시작돼 못 나간다」라서
-    /// 재시도 안내와 **다음 행동이 다르다**(완료의 `finishFailureMessage` 와 같은 선례).
+    /// 남은 실패는 `leaveFailureMessage` 가 사유별로 가른다 — 「이미 끝난 방」과 「내가 도착을 눌러
+    /// 묶인 방」이 둘 다 409 인데 **다음 행동이 정반대**다(홈으로 돌아간다 / 출발을 기다린다).
     public func leaveParty() {
         let repository = self.repository
         let partyId = self.partyId
@@ -707,81 +711,101 @@ public final class MatchWaitingViewModel {
         }
     }
 
-    /// 「합승 완료」 — 방을 닫는 **유일한** 길이다. 한 명이 누르면 **모두의** 방이 끝난다.
-    ///
-    /// 실패 사유가 여럿이고 **각각 다음 행동이 다르다** — 그래서 `finishFailureMessage` 로 문구를 가른다.
-    /// 예전에는 네트워크 끊김도, 403 도, 409 도 전부 「합승을 완료하지 못했어요」 하나였다.
-    ///
-    /// 특히 Backend #237 이후 이 API 는 **방장 전용**이라 비방장은 403 `NOT_PARTY_HOST` 를 받는다.
-    /// 버튼은 이제 **방장에게만 보인다**(`canFinishParty`) — 서버가 멤버마다 `host` 를 내려 주기
-    /// 시작하면서(Backend #240 **반영 완료**) 노출 조건을 걸 근거가 생겼다. 예전 주석이 걸림돌로
-    /// 적어 두었던 「`hostId` 가 내부 PK `Long` 이라 앱이 방장을 식별할 수 없다」는 **지난 이야기다**:
-    /// 그 `hostId` 는 응답에서 제거됐고, 방장은 멤버 목록의 `publicId` 옆에 `host` 로 온다.
-    ///
-    /// 그래도 이 403 경로는 **남는다.** 방장은 멤버가 나갈 때마다 남은 멤버 중
-    /// `min(joinedAt, memberId)` 로 자동 승계되는데(저장값이 아니라 파생값), 서버가 그걸 알려 주는
-    /// 신호는 `member-left` 한 번뿐이다 — 반영은 `Ride.withHostSuccession` 이 맡지만, 그 신호를
-    /// 놓치거나(SSE 는 at-most-once) **순서가 역전되면** 다음 스냅샷까지 내 목록이 낡은 채로 남는다
-    /// (역전된 프레임은 상세 재조회로 메운다 — `RideDelta.needsDetail`). 즉 노출을 막아도
-    /// **스냅샷이 낡은 틈**은 남아 있고, 그 틈에서 눌린 「합승 완료」를 받아 주는 자리가 이 403 문구다.
-    public func finishParty() {
-        let repository = self.repository
-        let partyId = self.partyId
-        runAction(
-            failureMessage: FINISH_FAILED_MESSAGE,
-            messageOf: { ($0 as? PartyFinishException).map { finishFailureMessage(e: $0) } }
-        ) { [weak self] in
-            try await repository.finishParty(partyId: partyId)
-            guard let self else { return }
-            self.actionState.finished = true
-            Analytics.track(.partyFinished(memberCount: self.heldRide?.members.count ?? 0))
-        }
-    }
+    // 「합승 완료」(`finishParty`)는 **지웠다** — 서버가 `POST /rooms/{id}/finish` 를 없앴다
+    // (`b16551b7`: 「구버전 종료 경로(/finish)…를 지운다」). 방을 끝내는 길은 `departParty` 하나다.
+    //
+    // 함께 지운 것: `FINISH_FAILED_MESSAGE` · `finishFailureMessage` · `isFinishStage` ·
+    // `canFinishParty` · `ActionState.finished`. 그 403 `NOT_PARTY_HOST` 문구가 들고 있던 사실
+    // (「방장만 끝낼 수 있다」)은 **사라지지 않았다** — 출발이 방장 전용이 되면서 그 사유가
+    // `departFailureMessage` 로 옮겨 갔고, 비방장용 안내문은 `departHostNotice` 로 옮겼다.
+    //
+    // `finish_party` 분석 이벤트는 **`departParty` 가 이어 받는다** — 아래 주석 참고.
 
     /// 「약속 시간 정하기」 — 사용자가 **다이얼로그에서 본 그 시각**(`departureAt`, ISO-8601)을 보낸다.
     ///
     /// ### 왜 분(minutes)이 아니라 시각을 받나 ★
     /// 예전에는 분만 받아 여기서 `clock` 으로 다시 만들었다. 그러면 시계를 **두 번** 읽게 되고,
     /// 다이얼로그를 띄운 뒤 분이 바뀌면 **사용자가 동의한 시각과 저장되는 시각이 달라진다**
-    /// (실측 2026-11-06: 「오전 10:59에 만날까요?」로 묻고 11:00 으로 확정됐다). 확정은 되돌릴 수
-    /// 없고 어기면 노쇼가 되므로, 동의한 값과 보내는 값이 갈리면 안 된다.
+    /// (실측 2026-11-06: 「오전 10:59에 만날까요?」로 묻고 11:00 으로 확정됐다). 확정은 **한 번만**
+    /// 할 수 있고(409 `ALREADY_CONFIRMED`) 그 시각에 사람들이 모이므로, 동의한 값과 보내는 값이
+    /// 갈리면 안 된다.
     ///
     /// 예전 주석은 「화면이 만들면 1시간 한도에 가까워진다」고 적었는데 **반대다.** 캡처한 값은
     /// `고른시각 + 60분` 이라 제출 시점의 `지금 + 60분` 보다 늘 **앞**이다 — 오히려 한도에서 멀어진다.
     /// 재계산 쪽이 한도에 정확히 걸터앉아 앱·서버 시계 오차에 취약했다.
     ///
-    /// 다이얼로그를 **10분 넘게** 열어 두면 캡처한 값이 과거가 되어 서버가 400
-    /// `INVALID_MEETING_TIME` 으로 거절한다 — `confirmFailureMessage` 가 「더 가까운 시간으로 골라
+    /// 다이얼로그를 **5분 넘게** 열어 두면 캡처한 10분 프리셋이 서버 하한(5분) 아래로 내려가 400
+    /// `INVALID_MEETING_TIME` 으로 거절된다 — `confirmFailureMessage` 가 범위를 적고 「다시 골라
     /// 주세요」로 답하므로 사용자가 할 일이 분명하다. 조용히 다른 시각을 보내는 쪽보다 낫다.
+    ///
+    /// ### 만남 장소를 **함께** 보낸다 ★ (2026-11-12)
+    /// 서버가 `departureLat`·`departureLng`·`departure` 를 **필수**로 만들었다(`2732cc75`). 넷 중
+    /// 하나라도 빠지면 400 `INVALID_REQUEST` 이고, 그 400 은 `PartyConfirmException` 의 어느 사유도
+    /// 아니라 **일반 문구로만** 보인다 — 가장 찾기 어려운 실패다.
+    ///
+    /// 앱은 **방의 지금 출발지를 그대로** 보낸다(채팅으로 다른 곳을 정하는 UI 는 아직 없다). 그래서
+    /// 확정은 출발지를 바꾸지 않지만, 서버 쪽에서는 그게 「출발지를 이 값으로 덮어쓴다」는 뜻이다.
+    ///
+    /// ⚠️ **좌표가 없으면 아예 보내지 않는다**(`meetingPlaceOrNull`). 0.0 으로 채우면 400
+    /// `OUT_OF_SERVICE_AREA` 이고 그건 **방을 끝낼 길이 사라지는** 실패다. 그 대신 사실을 말하고
+    /// 상세를 다시 읽어 둔다 — 상세 응답에는 좌표가 있으므로 다시 누르면 통과한다.
     ///
     /// ### 성공하면 그 자리에서 고친다
     /// 서버가 204 를 주면 **확정은 사실**이다. SSE `confirmed` 가 보통 곧 오지만 그 스트림은
     /// at-most-once 이고 망에 따라 아예 붙지 않으므로, 기다리지 않고 들고 있는 방을 고친다
-    /// (`Ride.withMeetingConfirmed`). 그러면 같은 프레임에 「약속 시간 정하기」가 사라지고 약속 시각이
-    /// 뜬다 — 그리고 **나가기가 함께 막힌다**(`canLeaveParty`): 서버가 확정된 방의 이탈을 막으므로
-    /// 화면도 같은 순간에 막아야 거짓 버튼이 남지 않는다.
+    /// (`Ride.withMeetingConfirmed`). 그러면 같은 프레임에 「약속 시간 정하기」가 사라지고 약속 시각이 뜬다.
+    ///
+    /// **나가기는 그대로 열려 있다.** 예전 이 자리의 주석은 「확정과 함께 나가기가 막힌다」고 적었는데,
+    /// 서버가 그 규칙을 버렸다(`b16551b7`) — 지금 나가기를 막는 것은 **도착을 누른 본인**뿐이다
+    /// (`canLeaveParty`).
     ///
     /// 상세를 다시 읽지 않는다 — 내가 보낸 값이 그대로 확정된 것이라 서버에 물어 더 알아낼 것이 없다.
     public func confirmMeeting(departureAt: String) {
+        // 좌표를 모르면 **요청을 만들지 않는다.** runAction 밖에서 거르는 이유: 이건 서버 실패가
+        // 아니라 앱이 보낼 값을 못 갖춘 것이고, 할 일(상세 재조회)이 액션 재시도와 다르다.
+        guard let place = heldRide.flatMap({ meetingPlaceOrNull(ride: $0) }) else {
+            actionState.errorMessage = CONFIRM_PLACE_UNKNOWN_MESSAGE
+            scope.launch { [weak self] in await self?.readDetail() }
+            return
+        }
         let repository = self.repository
         let partyId = self.partyId
         runAction(
             failureMessage: CONFIRM_FAILED_MESSAGE,
             messageOf: { ($0 as? PartyConfirmException).map { confirmFailureMessage(e: $0) } }
         ) { [weak self] in
-            try await repository.confirmMeeting(partyId: partyId, departureAt: departureAt)
+            try await repository.confirmMeeting(
+                partyId: partyId,
+                departureAt: departureAt,
+                latitude: place.latitude,
+                longitude: place.longitude,
+                placeName: place.name
+            )
             guard let self, let held = self.heldRide else { return }
-            self.publish(.success(ride: held.withMeetingConfirmed(departureAt: departureAt).ride))
+            // 보낸 장소가 곧 방의 새 출발지다(서버 `Party.confirm` 이 덮어쓴다) — SSE `confirmed` 가
+            // 같은 셋을 들고 오지만 그 프레임을 기다리지 않는다.
+            self.publish(.success(ride: held.withMeetingConfirmed(
+                departureAt: departureAt,
+                departureLat: place.latitude,
+                departureLng: place.longitude,
+                departurePlace: place.name
+            ).ride))
         }
     }
 
     /// 「출발지 도착했어요」 — 기기의 **현재 좌표**를 보낸다.
     ///
     /// ### 거리는 서버가 잰다 ★
-    /// 앱은 출발지와의 거리를 재지 않고 좌표만 보낸다. 서버가 PostGIS 로 100m 를 재고 400
-    /// `TOO_FAR_FROM_DEPARTURE` 로 답한다(`arriveFailureMessage` 가 그 사유를 그대로 보여 준다).
-    /// 앱이 같은 거리를 다시 재면 **서버는 받아 주는데 앱이 막는** 경우가 생긴다 — 근거는
-    /// `canArriveAtDeparture` 주석.
+    /// 앱은 출발지와의 거리를 재지 않고 좌표만 보낸다. 서버가 PostGIS 로 반경을 재고(실시간 100m ·
+    /// 예약 400m — `arrivalRadiusMeters`) 400 `TOO_FAR_FROM_DEPARTURE` 로 답한다
+    /// (`arriveFailureMessage` 가 그 사유를 방 종류에 맞는 숫자로 보여 준다). 앱이 같은 거리를 다시
+    /// 재면 **서버는 받아 주는데 앱이 막는** 경우가 생긴다 — 근거는 `canArriveAtDeparture` 주석.
+    ///
+    /// ### ⚠️ 누르면 **이 방에 묶인다**
+    /// 도착을 누른 멤버는 나갈 수 없다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`) — 도착한 멤버가 곧
+    /// 탑승자이고 택시비 정산 대상이라 장부에서 빠질 수 없기 때문이다. **도착 취소 API 는 없다.**
+    /// 그래서 화면이 누르기 전에 그 사실을 말한다(`ARRIVE_LOCKS_IN_NOTICE`). 예전에 사용자를 묶던
+    /// 것은 「약속 확정」이었는데 서버가 둘을 맞바꿨다(`b16551b7`).
     ///
     /// ### 멱등이다
     /// 이미 도착한 사람이 또 눌러도 서버는 204 로 받는다(도착 시각을 유지하고 version·SSE 를 올리지
@@ -796,7 +820,14 @@ public final class MatchWaitingViewModel {
         let partyId = self.partyId
         runAction(
             failureMessage: ARRIVE_FAILED_MESSAGE,
-            messageOf: { ($0 as? PartyArriveException).map { arriveFailureMessage(e: $0) } }
+            // 반경 숫자가 방 종류로 갈리므로 **들고 있는 방**을 함께 넘긴다. 방을 모르는 상태(로딩·
+            // 에러)에서 이 액션이 돌 수는 없지만, 그래도 실시간으로 떨어뜨린다 — 더 엄한 숫자(100m)를
+            // 말하는 쪽이 「더 가까이 가라」는 지시로서 안전하다.
+            messageOf: { [weak self] error in
+                (error as? PartyArriveException).map {
+                    arriveFailureMessage(e: $0, roomType: self?.heldRide?.roomType ?? .realtime)
+                }
+            }
         ) { [weak self] in
             try await repository.arriveAtDeparture(partyId: partyId, latitude: latitude, longitude: longitude)
             guard let self else { return }
@@ -810,21 +841,37 @@ public final class MatchWaitingViewModel {
         }
     }
 
-    /// 「출발」 — 방을 닫고, **그 순간 도착하지 않은 멤버를 노쇼로 기록한다.**
+    /// 「출발」 — **방을 끝내는 유일한 길**이다. 누르면 **모두의** 방이 FINISHED 가 된다.
     ///
-    /// 「합승 완료」(`finishParty`)와 **다른 점이 둘**이다.
+    /// 옛 「합승 완료」(`/finish`)가 서버에서 사라지면서 이쪽이 그 역할까지 이어 받았다. 조건은 전혀
+    /// 다르다:
     ///
-    /// | | 합승 완료 | 출발 |
+    /// | | 옛 「합승 완료」 | 지금 「출발」 |
     /// |---|---|---|
-    /// | 누를 수 있는 사람 | **방장만**(403 `NOT_PARTY_HOST`) | **도착한 멤버 누구나**(409 `NOT_ARRIVED`) |
-    /// | 남기는 것 | 없음 | **노쇼 기록** — 약속 시간부터 (노쇼 횟수 × 24시간) 동안 방 생성·참여 제한 |
-    /// | 쓰이는 방 | 확정 **전** | 확정된 방(확정 방에 완료를 누르면 409 `USE_DEPART_FOR_CONFIRMED_PARTY`) |
+    /// | 방 상태 | 정원이 찬(COMPLETED) 방 | **확정된** 방 |
+    /// | 누가 | 방장 | **도착한 방장**(403 `NOT_PARTY_HOST` · 409 `NOT_ARRIVED`) |
+    /// | 시각 | 아무 때나 | 약속 시각 **뒤**(409 `MEETING_NOT_STARTED`) |
+    /// | 남기는 것 | 없음 | **탑승 기록** — 도착을 누른 멤버만 그 방의 탑승자가 된다 |
     ///
-    /// 방장 조건을 베껴 오지 않은 것이 중요하다 — 서버가 일부러 열어 둔 것이고, 막으면 **방장이 늦는
-    /// 방이 영원히 출발하지 못한다**.
+    /// ### 방장 조건을 **베껴 온다** ★ (방향이 뒤집혔다)
+    /// 예전 이 자리의 주석은 「방장 조건을 베껴 오지 않은 것이 중요하다 — 막으면 방장이 늦는 방이
+    /// 영원히 출발하지 못한다」였다. 서버가 그 트레이드오프를 **반대로 골랐다**(`b16551b7`: 「출발은
+    /// 도착한 방장만 누른다」). 그래서 지금 방장이 오지 않는 방은 **실제로 출발할 수 없고**, 앱이 할
+    /// 수 있는 일은 그 사실을 비방장에게 말해 주는 것뿐이다(`departHostNotice`).
     ///
-    /// 제재를 만드는 행동이라 화면이 **누르기 전에** 숫자로 말해 준다(`departConfirmMessage`).
-    /// 여기서는 그 뒤처리만 한다: 서버가 방을 닫고 구독을 끊으므로 `ActionState.departed` 로 홈에 보낸다
+    /// ### 미도착자에게 생기는 일이 바뀌었다
+    /// **노쇼 제재는 없다**(서버가 기능을 통째로 지웠다). 대신 도착하지 않은 멤버는 탑승 기록·탑승
+    /// 횟수·**택시비 정산 대상**에서 빠진다 — 화면이 **누르기 전에** 그 인원을 숫자로 말해 준다
+    /// (`departConfirmMessage`).
+    ///
+    /// ### `finish_party` 를 여기서 기록한다
+    /// 그 이벤트는 「합승 완료」가 성공했을 때의 기록이었다. 그 버튼이 사라졌으니 **기록 지점도 함께
+    /// 사라질 뻔했다** — 그러면 Mixpanel 퍼널의 마지막 단계가 조용히 0 이 된다. 이벤트가 세는 사실
+    /// (「방이 끝났다」)은 그대로이고 끝내는 버튼만 바뀐 것이므로 여기로 옮긴다. `member_count` 도
+    /// 뜻을 지킨다 — **방을 끝낼 때 방에 있던 인원**이다(도착한 인원이 아니다. 그건 다른 숫자라
+    /// 같은 프로퍼티에 담으면 대시보드가 조용히 다른 값을 보게 된다).
+    ///
+    /// 뒤처리: 서버가 방을 닫고 구독을 끊으므로 `ActionState.departed` 로 홈에 보낸다
     /// (SSE `closed` 가 오면 `partyClosed` 로도 같은 길이다 — 둘 중 먼저 온 쪽이 이긴다).
     public func departParty() {
         let repository = self.repository
@@ -833,16 +880,19 @@ public final class MatchWaitingViewModel {
             failureMessage: DEPART_FAILED_MESSAGE,
             messageOf: { ($0 as? PartyDepartException).map { departFailureMessage(e: $0) } }
         ) { [weak self] in
+            // 끝내기 직전 들고 있던 방의 인원. 들고 있는 방이 없으면 0 명으로 싣는다(원본과 같다)
+            let memberCount = self?.heldRide?.members.count ?? 0
             try await repository.departParty(partyId: partyId)
             self?.actionState.departed = true
+            Analytics.track(.partyFinished(memberCount: memberCount))
         }
     }
 
     /// 액션 공통: 중복 실행 차단 → 진행 표시 → 실패 시 한국어 메시지.
     ///
     /// `messageOf` 가 실패를 **사유별 문구**로 옮긴다 — nil 이면 `failureMessage` 로 떨어진다.
-    /// 기본값이 "항상 nil" 이라 사유를 가르지 않는 액션은 예전과 똑같이 동작한다. 지금은 다섯 액션
-    /// (나가기·합승 완료·약속 확정·도착·출발) 다 사유를 가르므로 기본값을 쓰는 호출부가 없지만, 남겨 둔다 — 새 액션이
+    /// 기본값이 "항상 nil" 이라 사유를 가르지 않는 액션은 예전과 똑같이 동작한다. 지금은 네 액션
+    /// (나가기·약속 확정·도착·출발) 다 사유를 가르므로 기본값을 쓰는 호출부가 없지만, 남겨 둔다 — 새 액션이
     /// 사유를 가르기 전에도 돌아야 한다.
     ///
     /// 진행 표시는 태스크를 띄우기 **전에** 세운다. 원본은 `Dispatchers.Main.immediate` 라 `launch` 안의 첫 줄이
@@ -880,13 +930,14 @@ public final class MatchWaitingViewModel {
         trackMatchCompletionIfNeeded(state)
     }
 
-    /// 핵심 퍼널 3단계 `complete_match` — 방이 정원 충족 이상(`isMatchFull`)인 것을 **이 뷰모델이 처음 본 순간**
-    /// 한 번만 기록한다. 스냅샷·변경분·폴백 상세가 전부 `publish` 를 지나므로 어느 경로로 알게 되든 같은 자리다.
+    /// 핵심 퍼널 3단계 `complete_match` — 방이 **정원을 채운 것**(`isMatchFull`)을 이 뷰모델이
+    /// **처음 본 순간** 한 번만 기록한다. 스냅샷·변경분·폴백 상세가 전부 `publish` 를 지나므로 어느 경로로
+    /// 알게 되든 같은 자리다.
     ///
     /// 뷰모델 단위로 한 번이다. 정원이 찬 방을 두고 나갔다 돌아오면(홈 배너 → 21) 새 뷰모델이 다시 세지만,
     /// Mixpanel 퍼널은 사용자 단위로 세므로 전환율은 흔들리지 않는다 — 횟수가 아니라 「경험했는가」를 보는 지표다.
     private func trackMatchCompletionIfNeeded(_ state: UiState) {
-        guard !matchCompletionTracked, case .success(let ride) = state, isMatchFull(status: ride.status) else { return }
+        guard !matchCompletionTracked, case .success(let ride) = state, isMatchFull(ride: ride) else { return }
         matchCompletionTracked = true
         Analytics.track(.matchCompleted(
             capacity: ride.capacity,
@@ -918,25 +969,51 @@ public final class MatchWaitingViewModel {
     }
 }
 
-/// 21 대기 화면이 머무는 단계 — 아직 사람을 모으는 중(서버 ACTIVE)이거나 정원이 찬(서버 COMPLETED) 상태.
+/// 21 대기 화면이 머무는 단계 — 모집 중(서버 ACTIVE)이거나 **약속이 확정된**(서버 COMPLETED) 상태.
+///
+/// 「정원이 찬」이 아니다 — 서버가 COMPLETED 의 뜻을 「방장이 약속을 확정했다」로 바꿨다(`b16551b7`).
+/// 두 값을 함께 통과시키는 결론은 그대로다: 21 은 모집부터 출발까지를 한 화면에서 다루므로 **방이
+/// 닫히기 전까지 전부** 이 화면의 단계다.
 ///
 /// 이 밖은 **닫힌 방뿐이다**(서버 FINISHED·CANCELED) — 기사·배차를 걷어낸 뒤로 대기 단계를 벗어나는
 /// 길이 그 하나로 줄었다. 그래서 이 판정이 false 가 되면 폴백 폴링을 끝낸다: 닫힌 방을 다시 읽어도
 /// 「닫혔다」만 재확인하고, Route 가 이미 화면을 떠나게 한다.
 func isWaitingForMembers(status: RideStatus) -> Bool {
-    status == .recruiting || status == .matched
+    status == .recruiting || status == .confirmed
 }
 
-/// 정원이 찼는가 — 서버 COMPLETED(=`RideStatus.matched`). `complete_match` 의 판정이다.
+/// **정원이 찼는가** — `complete_match` 의 판정이다(Android `isMatchFull` 과 **같은 식이어야 한다**).
 ///
-/// 예전에는 그 뒤 단계(`DISPATCHING`·`ONGOING`)도 함께 셌다. 기사·배차를 걷어내면서 서버가 그 두
-/// status 를 **보낼 수 없게** 되어 남은 값이 하나뿐이다 — 「정원이 찼다」는 사실의 유일한 표현이다.
+/// ```
+/// ride.capacity > 0 && ride.members.count >= ride.capacity
+/// ```
 ///
-/// 닫힌 방(COMPLETED·CANCELED)은 아니다: 모집 중에 30분 만료로 닫힌 방을 「매칭 완료」로 세면 퍼널이
-/// 거짓을 말한다. 판정을 status 로만 하는 이유는 `hasMemberDrift` 와 같다 — 목록은 유실될 수 있는 신호를
-/// 더해 만든 값이고, status 는 서버가 그 자리에서 판정한 값이다.
-func isMatchFull(status: RideStatus) -> Bool {
-    status == .matched
+/// ### status 로 세던 것이 거짓이 됐다 ★ (2026-11-12)
+/// 오래 `status == .matched`(서버 COMPLETED) 하나였고, 그때는 그게 「정원 충족」의 유일한 표현이었다.
+/// 서버가 그 값의 **뜻을 바꿨다**(`b16551b7`): COMPLETED 는 이제 **방장이 약속을 확정한 실시간 방**이고,
+/// **정원이 차도 status 는 ACTIVE** 다(참여만 `PARTY_FULL` 로 막는다).
+///
+/// 그대로 두면 퍼널이 **양쪽으로** 거짓을 말했다:
+///
+/// | 방 | 옛 판정 | 참 |
+/// |---|---|---|
+/// | 3인 방에 2명 모인 **확정** 방 | 매칭 완료로 **센다** | 정원이 차지 않았다 |
+/// | 3인 방에 3명 모인 **미확정** 방 | 세지 **않는다** | 정원이 찼다 |
+///
+/// **정원 판정의 유일한 참은 `members.count >= capacity` 다.** 목록이 유실될 수 있는 신호로 만든 값이라
+/// 틀릴 수 있지만(그래서 예전에 status 를 골랐다) 지금 status 는 **아예 다른 사실**을 말하므로 비교
+/// 대상이 아니다. 어긋남은 SSE version 규칙이 상세 재조회로 메운다(`deltaVerdict`).
+///
+/// ### `capacity > 0` 가 조건인 이유 ★
+/// 목록·추천·더미 응답으로 만든 `Ride` 는 `capacity` 가 0 이다 — 그건 「정원이 0명」이 아니라
+/// **「정원을 모른다」**다. `0 >= 0` 이 참이므로 가드가 없으면 **방금 만든 1인 방까지 전부 매칭
+/// 완료로 센다.** 모르는 것을 「찼다」로 세면 퍼널 3단계가 1단계와 같은 숫자가 된다.
+///
+/// 방이 닫혔는지는 **보지 않는다.** 예전 판정이 그걸 겸했지만(COMPLETED·CANCELED 는 거짓이었다)
+/// 이 함수가 세는 것은 「정원이 찼다」는 사실 하나이고, 호출부가 21 대기 화면의 `publish` 하나뿐이라
+/// 닫힌 방이 여기 닿기 전에 Route 가 화면을 떠난다. 닫힘을 다시 보면 **같은 조건이 두 곳에** 생긴다.
+func isMatchFull(ride: Ride) -> Bool {
+    ride.capacity > 0 && ride.members.count >= ride.capacity
 }
 
 /// 이번 주기에 방 상세를 읽어야 하나 — **폴링 정책 그 자체**.
@@ -1132,7 +1209,7 @@ extension Ride {
 
     /// 방장 승계 반영 — 서버가 `member-left` 에 실어 준 `hostPublicId` 를 멤버 목록의 `User.isHost` 로 옮긴다.
     ///
-    /// **이게 빠지면 방장이 나가도 승계된 사람이 「합승 완료」를 못 본다.** 서버는 멤버가 나갈 때마다
+    /// **이게 빠지면 방장이 나가도 승계된 사람이 방장 전용 버튼(약속 확정·출발)을 못 본다.** 서버는 멤버가 나갈 때마다
     /// 남은 멤버 중 `min(joinedAt, memberId)` 를 방장으로 다시 정하는데(저장값이 아니라 파생값),
     /// 그 결과를 알려 주는 신호는 이 한 번뿐이다 — 다시 보내지 않으므로 여기서 버리면 다음 스냅샷
     /// (재연결)이나 폴백 상세 조회까지 승계된 사람의 화면이 낡은 채로 남는다.
@@ -1154,9 +1231,9 @@ extension Ride {
     /// 방장이다*는 거짓이다」였다), **서버 계약과 정반대다.** 깨지는 경로가 실제로 있다 — 두 멤버가
     /// 연달아 나가 프레임 순서가 역전되면(`u2` 이탈 프레임이 `u1` 이탈 프레임보다 먼저 도착) 뒤늦게 온
     /// 프레임이 **이미 나간 사람**을 방장으로 지목한다. 전원 false 로 밀면 그 순간 **진짜 방장의
-    /// `User.isHost` 가 지워져 「합승 완료」 버튼을 영구히 잃는다**: `hasMemberDrift` 는 인원수만 보므로
-    /// 못 잡고(목록 길이는 맞다), SSE 가 살아 있으면 폴백 폴링도 돌지 않아(`shouldPollFallback`) 재연결
-    /// 스냅샷이나 30분 만료 말고는 복구 수단이 없다.
+    /// `User.isHost` 가 지워져 약속 확정·출발 버튼을 영구히 잃는다**: `hasMemberDrift` 는 정원 초과만
+    /// 보므로 못 잡고(목록 길이는 맞다), SSE 가 살아 있으면 폴백 폴링도 돌지 않아(`shouldPollFallback`)
+    /// 재연결 스냅샷이나 자동 정리 말고는 복구 수단이 없다 — **방을 끝낼 길이 사라진다.**
     ///
     /// nil·빈 값도 같은 자리로 떨어진다. 서버가 새 방장의 요약을 못 찾은 경우인데
     /// (`PartyService.leave` 의 `hostSummary == null`), 모른다고 전부 false 로 밀면 역시 **진짜 방장의
@@ -1177,26 +1254,60 @@ extension Ride {
         return RideDelta(ride: result)
     }
 
-    /// `PartyEvent.confirmed` 적용 — 약속이 정해졌다는 **사실**과 그 시각만 싣는다.
+    /// `PartyEvent.confirmed` 적용 — 약속이 정해졌다는 **사실**, 그 시각, 그리고 **바뀐 출발지**를 싣는다.
     ///
     /// ### status 를 건드리지 않는 이유 ★
-    /// 서버는 확정과 함께 모집을 끝내므로(ACTIVE→COMPLETED) 「확정됐다」와 「정원 단계다」는 보통 같이
-    /// 온다. 그래도 여기서 status 를 바꾸지 않는다 — 프레임이 싣는 status 는 **서버 enum 이름 문자열**
+    /// 서버는 확정과 함께 모집을 끝내므로(ACTIVE→COMPLETED) 「확정됐다」와 「status 가 바뀌었다」는 보통
+    /// 같이 온다. 그래도 여기서 status 를 바꾸지 않는다 — 프레임이 싣는 status 는 **서버 enum 이름 문자열**
     /// (`PartyEvent.confirmed` 의 `status`)이고, 그걸 `RideStatus` 로 옮기려면 `PartyMappers` 의 매핑을
     /// 화면 쪽에 베껴 와야 한다. 사본이 생기면 서버가 값을 늘릴 때 한쪽만 따라간다.
     ///
-    /// 그래서 status 는 **`PartyEvent.recruitingClosed` 의 상세 재조회**와 다음 스냅샷·폴백에 맡긴다.
-    /// 그 사이 화면이 틀리지 않는 이유: 확정 뒤의 단계 판정은 `meetingStage` 가 **`isConfirmed` 를 먼저**
-    /// 보기 때문이다 — status 가 아직 RECRUITING 으로 남아 있어도 확정 화면이 그려진다.
+    /// 그래서 status 는 다음 스냅샷·폴백 상세에 맡긴다(예전에는 `recruiting-closed` 프레임이 그 재조회를
+    /// 걸어 주었는데 **서버가 그 이벤트를 없앴다** — `b16551b7`). 그 사이 화면이 틀리지 않는 이유: 확정
+    /// 뒤의 단계 판정은 `meetingStage` 가 **`isConfirmed` 를 먼저** 보기 때문이다 — status 가 아직
+    /// RECRUITING 으로 남아 있어도 확정 화면이 그려진다.
+    ///
+    /// ### 출발지 셋을 **덮어쓴다** ★ (2026-11-12)
+    /// 확정은 방의 출발지를 만남 장소로 옮긴다(서버 `Party.confirm`: `departureLocation = plan.departure()`).
+    /// 무시하면 두 가지가 깨진다: ① 지도가 옛 출발지를 가리킨다 ② **도착 버튼이 틀린 곳을 기준으로
+    /// 판정**돼 약속 장소에 서 있는 사람이 400 `TOO_FAR_FROM_DEPARTURE` 를 맞는다. ②가 본체다 —
+    /// 지도는 보고 넘기지만 그쪽은 **방을 끝낼 길이 막힌다**.
+    ///
+    /// | 프레임이 실어 온 것 | 하는 일 |
+    /// |---|---|
+    /// | 좌표·이름이 **셋 다** 있다 | 방의 출발지를 통째로 교체 |
+    /// | **일부만** 있다 | 손대지 않고 `RideDelta.needsDetail` — 좌표와 이름이 어긋난 출발지를 만들지 않는다 |
+    /// | 셋 다 없다 | 손대지 않는다(옛 배포) |
+    ///
+    /// 매퍼가 이미 「셋이 다 있거나 전부 nil」로 보장하지만(`PartySseEvent`) 그 보장을 **여기서 다시
+    /// 확인한다** — 타입은 셋 다 옵셔널이고, 반쪽으로 덮어쓴 출발지는 지도와 도착 판정이 서로 다른
+    /// 곳을 가리키게 만든다. 그때 틀렸다는 것을 화면에서는 알 수 없다.
     ///
     /// `departureAt` 이 nil·빈 값이면 들고 있던 값을 **지우지 않는다.** 서버가 시각을 말해 주지 못한
     /// 프레임(필드 누락)으로 이미 받아 둔 약속 시각을 날리면, 화면이 「약속 시간이 정해졌어요」로
-    /// 떨어져 **몇 시에 만나는지를 잃는다** — 지우는 쪽이 늘 더 나쁘다.
-    func withMeetingConfirmed(departureAt: String?) -> RideDelta {
+    /// 떨어져 **몇 시에 만나는지를 잃는다** — 지우는 쪽이 늘 더 나쁘다. 단 **양쪽 다 없으면** 상세를
+    /// 읽는다: 확정됐다는 사실만 알고 **언제**를 모르면 도착 창이 열렸는지 판정할 수 없어
+    /// (`meetingStage` 가 `confirmedWaiting` 에 영구히 머문다) 도착 버튼이 영영 뜨지 않는다.
+    func withMeetingConfirmed(
+        departureAt: String?,
+        departureLat: Double? = nil,
+        departureLng: Double? = nil,
+        departurePlace: String? = nil
+    ) -> RideDelta {
+        let place = departurePlace.flatMap { $0.isBlank ? nil : $0 }
+        let movedOrigin = departureLat != nil && departureLng != nil && place != nil
+        let partialOrigin = !movedOrigin && (departureLat != nil || departureLng != nil || place != nil)
+
         var result = self
         result.isConfirmed = true
         if let departureAt, !departureAt.isBlank { result.departureAt = departureAt }
-        return RideDelta(ride: result)
+        if movedOrigin, let place {
+            result.origin = place
+            result.originLat = departureLat
+            result.originLng = departureLng
+        }
+        let timeUnknown = result.departureAt.map { $0.isBlank } ?? true
+        return RideDelta(ride: result, needsDetail: partialOrigin || timeUnknown)
     }
 
     /// `PartyEvent.memberArrived` 적용 — `publicId` 로 **그 한 명만** 도착 표시한다.
@@ -1206,9 +1317,9 @@ extension Ride {
     /// 모르는 publicId 는 **내 멤버 목록이 낡았다**는 뜻이다(그 사람의 합류 신호를 놓쳤다).
     ///
     /// 낡은 목록을 그냥 두면 `notArrivedCount` 가 실제보다 적어지고, 그 수는 「출발」 확인 문구가
-    /// **노쇼로 기록될 사람 수**를 말하는 데 쓰인다. 노쇼는 24시간 × 횟수의 실제 제재다 — 적게 말하고
-    /// 누르게 하는 쪽이, 조회 1건을 더 쓰는 쪽보다 나쁘다. 그래서 여기서는 `Ride.withMemberLeft` 처럼
-    /// 「다음 스냅샷에 맡긴다」로 가지 않는다.
+    /// **탑승 기록·택시비 정산에서 빠질 사람 수**를 말하는 데 쓰인다(서버가 「도착한 멤버 = 탑승자」로
+    /// 센다). 적게 말하고 누르게 하는 쪽이, 조회 1건을 더 쓰는 쪽보다 나쁘다 — 같이 탄 사람이 정산
+    /// 장부에서 사라진다. 그래서 여기서는 `Ride.withMemberLeft` 처럼 「다음 스냅샷에 맡긴다」로 가지 않는다.
     ///
     /// 빈 publicId 로는 아무도 표시하지 않는다 — 요약이 없는 멤버들(id 가 빈 값)을 한꺼번에 도착으로
     /// 만드는 사고를 막는다. 그쪽은 데이터 계층이 프레임째 버려(version 에 구멍이 나) 다음 프레임이
@@ -1228,10 +1339,11 @@ extension Ride {
 
 /// 변경분 하나를 적용한 결과 — 새 방과, **서버가 「방 상세를 다시 받으라」고 한 프레임인가.**
 ///
-/// `needsDetail` 이 서는 자리는 지금 둘이다: `member-left` 가 지목한 방장을 내 목록에서 찾지 못한
-/// 경우(`Ride.withHostSuccession`)와 `member-arrived` 의 publicId 가 내 목록에 없는 경우
-/// (`Ride.withMemberArrived`). 그때는 목록을 손대지 않고 서버에 다시 묻는다 — 서버 Swagger
-/// 가 그렇게 적어 두었고, 이유는 **이벤트 순서 역전**(또는 놓친 합류)이다.
+/// `needsDetail` 이 서는 자리는 지금 셋이다: `member-left` 가 지목한 방장을 내 목록에서 찾지 못한
+/// 경우(`Ride.withHostSuccession`), `member-arrived` 의 publicId 가 내 목록에 없는 경우
+/// (`Ride.withMemberArrived`), 그리고 `confirmed` 의 출발지 셋이 반쪽이거나 약속 시각을 끝내 모르는
+/// 경우(`Ride.withMeetingConfirmed`). 그때는 목록을 손대지 않고 서버에 다시 묻는다 — 서버 Swagger
+/// 가 그렇게 적어 두었고, 이유는 **이벤트 순서 역전**(또는 놓친 합류·반쪽 프레임)이다.
 ///
 /// 왜 `Ride` 안에 담지 않고 따로 내보내나: 이 값은 방의 성질이 아니라 **이 프레임의 처리 지시**다.
 /// `Ride` 에 실으면 스냅샷·상세 조회 결과에도 따라붙어 「읽어 온 결과를 보고 또 읽는」 되돌이가 생긴다.
@@ -1251,8 +1363,8 @@ struct RideDelta: Equatable, Sendable {
 ///
 /// | 사유 | 뜻 |
 /// |---|---|
-/// | `RideDelta.needsDetail` | 서버가 지목한 방장이 내 목록에 없다 — **host 표시를 믿을 수 없다** |
-/// | `hasMemberDrift` | 서버가 준 status 와 내 멤버 목록이 모순이다 — **목록이 낡았다** |
+/// | `RideDelta.needsDetail` | 서버가 지목한 방장·도착자가 내 목록에 없다 · 확정 프레임이 반쪽이다 — **들고 있는 값을 믿을 수 없다** |
+/// | `hasMemberDrift` | 내 멤버 목록이 정원을 넘었다 — **목록이 부풀었다** |
 ///
 /// 둘 다 참이어도 **상세는 한 번만** 읽는다. 그리고 읽어 온 결과에는 이 판정을 다시 걸지 않는다
 /// (`readDetail` 이 화면 상태를 직접 세운다) — 그래서 **되돌이가 생기지 않는다**: 이벤트 프레임
@@ -1266,171 +1378,96 @@ private extension User {
     func isSameMemberAs(other: User) -> Bool { !id.isBlank && id == other.id }
 }
 
-/// 들고 있는 멤버 목록이 서버가 준 status 와 **모순**인가 — 변경분이 유실됐다는 신호.
+/// 들고 있는 멤버 목록이 **그 자체로 모순**인가 — 변경분이 유실됐거나 겹쳐 쌓였다는 신호.
 ///
 /// 인원 표시의 근거는 **멤버 목록 하나**다(`MatchWaitingScreen` 의 `foundCount` = `members.count`) —
 /// 별도의 인원 카운터를 들고 있지 않다(합류 응답의 `currentMembers` 도 21 로 넘기지 않는다). 그래야
-/// 「목록엔 3명인데 카운터는 4」 같은 두 번째 진실이 생기지 않는다.
+/// 「목록엔 3명인데 카운터는 4」 같은 두 번째 진실이 생기지 않는다. 대신 그 하나뿐인 근거가 틀렸을 때
+/// 알아챌 길이 필요하고, 이 함수가 그 자리다 — 모순을 보면 상세를 1회 읽어 **서버 쪽으로 맞춘다.**
 ///
-/// 그래도 어긋날 수 있는 짝이 하나 남는다: 서버가 변경분에 실어 준 status 와, 변경분을 쌓아 만든 목록.
-/// 둘이 모순이면 **틀린 쪽은 목록**이라고 본다 — status 는 서버가 그 자리에서 판정한 값이고, 목록은
-/// 유실될 수 있는 신호를 더해 만든 값이다. 그래서 모순을 보면 상세를 1회 읽어 **서버 쪽으로 맞춘다.**
+/// ### 판정 근거가 바뀌었다 ★ (2026-11-12)
+/// 예전에는 **서버가 준 status 와 목록**을 견줬다:
 ///
-/// 모순의 정의는 정원뿐이다: 정원이 찼다는 status(MATCHED)인데 목록이 모자라거나, 아직 모집 중
-/// (RECRUITING)인데 목록이 정원을 채웠거나. 배차 이후 단계는 Route 가 화면을 넘기므로 보지 않고,
-/// 정원을 모르는 방(capacity 0 — 목록·더미 응답)은 비교 기준이 없어 판단하지 않는다.
+/// ```
+/// matched     -> members.count < capacity   // 정원이 찼다는데 목록이 모자라다
+/// recruiting  -> members.count >= capacity  // 모집 중인데 목록이 정원을 채웠다
+/// ```
+///
+/// **두 줄 다 모순이 아니게 됐다.** 서버가 COMPLETED 의 뜻을 「방장이 약속을 확정했다」로 바꾸면서
+/// (`b16551b7`) ① 2/3 짜리 확정 방이 정상이고 ② **정원이 찬 방도 ACTIVE** 다. 즉 status 로 인원
+/// 어긋남을 잡을 길이 아예 없어졌다 — 그 두 줄을 남겨 두면 정상인 방을 매 프레임 어긋남으로 판정해
+/// **변경분마다 상세 1건이 덧붙는다.**
+///
+/// ### 남은 유일한 참 — 정원 **초과**
+/// 서버는 정원을 넘는 합류를 받지 않는다(`Party.join` 이 `PARTY_FULL` 로 막는다). 그러므로
+/// `members.count > capacity` 는 서버 상태로는 **있을 수 없고**, 봤다면 내 목록이 부풀었다는 뜻이다 —
+/// 같은 합류를 두 번 얹었거나 이탈 프레임을 놓쳤다. 정원 **미달**은 이제 아무것도 뜻하지 않으므로
+/// (언제든 정상이다) 보지 않는다.
+///
+/// 정원을 모르는 방(`capacity` 0 — 목록·추천·더미 응답)은 비교 기준이 없어 판단하지 않는다.
+///
+/// ### 이 함수가 그물의 **전부가 아니다** — 주 수단은 version 이다
+/// 이 판정으로 잡히는 범위가 좁아진 대신, 더 촘촘한 그물이 이미 깔려 있다:
+///
+/// | 수단 | 잡는 것 |
+/// |---|---|
+/// | `deltaVerdict` 의 `.resync` | 프레임을 놓쳤다(version +2 이상) · 스냅샷 전에 변경분이 왔다 — **인원수가 같은 멤버 교체까지** 잡는다 |
+/// | `acceptsSnapshot` | 늦게 온 낡은 스냅샷이 반영분을 되돌리는 것 |
+/// | 재연결 스냅샷 | 방 상세 **전체**를 다시 준다(가시성 복귀마다) |
+/// | 폴백 폴링 | SSE 가 죽은 동안 6초마다 상세 |
+/// | `RideDelta.needsDetail` | 서버가 지목한 방장·도착자가 내 목록에 없다 · 확정 프레임의 출발지가 반쪽이다 |
+///
+/// version 이 **nil 인 옛 배포**에서는 그 첫 줄이 작동하지 않고(`deltaVerdict` 가 전부 `.apply`),
+/// 거기서는 이 함수와 재연결 스냅샷이 유일한 그물이다 — 그래서 지우지 않고 **근거를 바꿔** 남겼다.
 func hasMemberDrift(ride: Ride) -> Bool {
-    if ride.capacity <= 0 { return false }
-    switch ride.status {
-    case .matched: return ride.members.count < ride.capacity
-    case .recruiting: return ride.members.count >= ride.capacity
-    default: return false
-    }
+    ride.capacity > 0 && ride.members.count > ride.capacity
 }
 
-/// 서버가 나가기를 허용하는가. 서버 `ensureRecruiting` = ACTIVE 또는 COMPLETED, 즉 **대기 단계 전부**다
-/// (`isWaitingForMembers` 와 같은 두 값).
+/// 서버가 나가기를 허용하는가 — **대기 단계이고, 내가 아직 도착을 누르지 않았다.**
 ///
-/// 예전에는 여기에 모드 분기가 있었다 — 기사 모드에선 COMPLETED 가 순간이라(곧 MATCHING) 사실상 ACTIVE
-/// 에서만 나갈 수 있어 정원이 찬 방의 나가기를 미리 막았다. 그 모드가 사라져 **COMPLETED 에 머무는 것이
-/// 유일한 동작**이 됐고, 거기서 나가면 서버가 방을 ACTIVE 로 되돌려 다시 모집한다. 그래서 두 값 다 참이다.
+/// ```
+/// isWaitingForMembers(status: ride.status) && !hasArrivedMyself(ride: ride)
+/// ```
 ///
-/// 그래도 함수를 남긴 이유: 닫힌 방(FINISHED·CANCELED)에서는 **거짓이어야 한다.** 서버가 방을 닫은
-/// 순간과 Route 가 그걸 알아채 화면을 떠나는 순간 사이에 한 프레임이 있고, 그 프레임에서 눌린 나가기는
-/// 409 로만 끝난다(`leaveFailureMessage`).
+/// 닫힌 방(FINISHED·CANCELED)에서 거짓인 것은 그대로다. 서버가 방을 닫은 순간과 Route 가 그걸
+/// 알아채 화면을 떠나는 순간 사이에 한 프레임이 있고, 그 프레임에서 눌린 나가기는 409
+/// `PARTY_CLOSED` 로만 끝난다(`leaveFailureMessage`).
 ///
-/// ### 확정된 방에서는 **아무도 나갈 수 없다** ★ (2026-11-06)
-/// 그래서 인자가 `RideStatus` 에서 `Ride` 로 바뀌었다. 서버는 약속 시간을 확정하면 모집을 끝내고
-/// (ACTIVE→COMPLETED) 그 뒤로 이탈을 막는다 — status 만 보면 COMPLETED 가 통과하므로
-/// (`isWaitingForMembers`) **확정 뒤에도 「방 나가기」가 열려 있는 것처럼 보인다.** 그 버튼은 서버가
-/// 거절하는 버튼이고, 나갈 수 있다고 믿은 사람이 약속 장소에 가지 않는 쪽으로 이어진다 — 그러면
-/// 그 사람이 노쇼로 기록된다. 화면이 거짓말을 한 대가가 **실제 제재**인 자리다.
+/// ### 확정은 더 이상 나가기를 막지 않는다 ★ (2026-11-12 — 이 작업의 사용자 영향 1순위)
+/// 2026-11-06 부터 이 함수는 `&& !ride.isConfirmed` 를 들고 있었고, 그 주석은 「확정된 방에서는
+/// 아무도 나갈 수 없다」를 ★ 로 못 박고 있었다. **서버가 그 규칙을 버렸다**(`b16551b7`: 「확정 방에서도
+/// 나갈 수 있고, 확정 방에서 혼자 남으면 닫는다」).
 ///
-/// 숨기지 않고 **비활성 문구로 바꾸는** 이유: 이 자리가 비면 확정된 방에서 뒤로 갈 길이 사라진 것처럼
-/// 보인다. 버튼은 남기고 「나갈 수 없다」는 사실을 적는다(헤더의 뒤로가기는 **방을 유지한 채** 화면만
-/// 벗어나는 길로 그대로 열려 있다 — `MatchWaitingRoute` 의 `onExitKeepingParty`).
+/// 그 한 줄이 가두고 있던 범위가 넓었다 — `Ride.isConfirmed` 는 **예약 방에서 늘 true** 이므로
+/// (`isReservation() || departureAt != null`) 확정 방뿐 아니라 **모든 예약 방**에서 「그만 찾기」가
+/// 비활성이었다. 들어간 사람에게 방을 벗어날 길이 없었고, 서버가 그 계정의 다른 방 합류·방 만들기·
+/// 예약까지 전부 막으므로(`ALREADY_JOINED_OTHER_PARTY`) **앱 안에서 복구할 방법이 없었다.**
 ///
-/// - Parameter ride: 방 전체를 받는다 — status 와 확정 여부가 **같은 스냅샷**이어야 한다(`canFinishParty` 와 같은 이유)
+/// 서버가 허용하는 일을 앱이 막는 실패는 늘 이렇게 비대칭이다: 반대 방향(앱이 열어 두고 서버가
+/// 거절)은 문구 한 줄로 끝나지만, 이쪽은 사용자를 가둔다.
+///
+/// ### 지금 막는 것은 **도착** 하나다
+/// 서버가 거절하는 유일한 사유가 409 `ARRIVED_MEMBER_CANNOT_LEAVE` 다 — 도착을 누른 멤버가 곧
+/// 탑승자이고 택시비 정산 대상이라 장부에서 빠질 수 없기 때문이다. 조건이 「방이 어떤 상태인가」가
+/// 아니라 **「내가 무엇을 눌렀는가」**로 바뀐 것이고, 그 판정은 `hasArrivedMyself` 가 이미 들고 있다.
+///
+/// 숨기지 않고 **비활성 문구로 바꾸는** 이유는 그대로다: 이 자리가 비면 뒤로 갈 길이 사라진 것처럼
+/// 보인다. 버튼은 남기고 「나갈 수 없다」는 사실과 **그 사유**를 적는다(헤더의 뒤로가기는 **방을
+/// 유지한 채** 화면만 벗어나는 길로 그대로 열려 있다 — `MatchWaitingRoute` 의 `onExitKeepingParty`).
+///
+/// - Parameter ride: 방 전체를 받는다 — status 와 내 도착 여부가 **같은 스냅샷**이어야 한다
 func canLeaveParty(ride: Ride) -> Bool {
-    isWaitingForMembers(status: ride.status) && !ride.isConfirmed
+    isWaitingForMembers(status: ride.status) && !hasArrivedMyself(ride: ride)
 }
 
-/// **방을 손으로 닫는 단계**인가 — 정원이 찼을 때(서버 COMPLETED = `RideStatus.matched`).
-///
-/// 기사·배차를 걷어낸 뒤로 방을 끝내는 길은 **사람이 누르는 것 하나뿐**이다. 예전에는 기사 모드에서
-/// 정원이 차면 서버가 배차를 시작해 이 단계가 아예 없었고, 그 분기를 `isMatchFull` 과 함께 지웠다.
-///
-/// `canFinishParty` 와 **일부러 갈라 두었다**: 이쪽은 「방이 어떤 단계인가」, 저쪽은 「내가 누를 수
-/// 있는가」다. 나가기 문구(「방 나가기」)처럼 방장 여부와 상관없는 표시는 **이쪽**을 봐야 한다 —
-/// 저쪽을 보면 정원이 찬 방을 보고 있는 비방장에게 「그만 찾기」라고 거짓말을 하게 된다.
-/// (예전엔 머리줄 제목 「같이 탈 사람이 모였어요」도 이 값을 봤지만, 단계를 세 번 되풀이하던 그 제목은
-/// 디자인 QA W1 에서 지웠다.)
-func isFinishStage(status: RideStatus) -> Bool {
-    status == .matched
-}
-
-/// 「합승 완료」 버튼을 **내게** 보여 줄 때 — 손으로 닫는 단계이고(`isFinishStage`) 내가 방장일 때.
-///
-/// 방장 조건은 2026-10-15 에 붙었다. 서버가 이 API 를 방장 전용으로 좁힌 뒤(Backend #237, 운영
-/// 배포 완료) 비방장이 누르면 확인 다이얼로그를 거친 끝에 403 `NOT_PARTY_HOST` 를 맞았다 —
-/// 전원에게 보여 주던 버튼이 **절반에게는 실패하는 버튼**이었다. 비활성으로 두지 않고 **숨긴다**:
-/// 누를 수 없는 버튼은 왜 못 누르는지 말해 주지 못하므로, 그 자리에는 누가 끝내는지를 말하는
-/// 안내문이 들어간다(`finishHostNotice`).
-///
-/// 판정은 `Ride.isHostedByMe` **하나로만** 한다(= 멤버 목록의 내 줄 `User.isHost`). 서버가 멤버마다
-/// `host` 를 내려 주므로 이건 **추정이 아니라 서버 값**이다 — 2026-08-30 에 걷어낸 `joinedAt`
-/// 최소값 추정과 다르다(`_workspace/33_api-integrator_no_host.md`). `Ride` 를 통째로 받는 것도
-/// 그래서다: status 와 방장 판정의 근거(members)가 **같은 스냅샷**이어야 하고, 호출부가 방장
-/// 여부를 따로 계산해 끼워 넣을 틈을 두지 않는다.
-///
-/// true 라도 **서버가 최종 판정이다.** 방장은 멤버가 들고 날 때마다 바뀌어 내 스냅샷이 낡을 수
-/// 있으므로 403 경로(`finishFailureMessage`)는 노출을 막은 뒤에도 그대로 남는다.
-///
-/// ### 확정된 방에서는 사라진다 ★ (2026-11-06)
-/// 약속 시간이 정해진 방을 끝내는 길은 **「출발」(`/depart`) 하나**다 — 거기서 노쇼가 기록되기
-/// 때문이다. 확정된 방에 「합승 완료」를 누르면 서버가 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 로
-/// 거절한다. 그래서 확정 뒤에는 이 버튼을 **숨긴다**: 남겨 두면 ① 방장에게는 실패하는 버튼이고
-/// ② 성공한다면 더 나쁘다 — 노쇼 기록 없이 방이 닫혀 약속을 어긴 사람이 제재를 면한다.
-///
-/// 확정 전 방에서는 **그대로 남는다.** 이미 만나서 같이 탄 사람들은 약속 시간을 정할 이유가 없고,
-/// 그쪽에는 이 버튼이 유일한 종료 경로다(작업 지시: 「동승 완료」는 확정 전 방에서만 남긴다).
-func canFinishParty(ride: Ride) -> Bool {
-    isFinishStage(status: ride.status) && !ride.isConfirmed && ride.isHostedByMe
-}
-
-/// 비방장이 「합승 완료」가 있던 자리에서 읽는 안내문 — **버튼을 숨긴 자리를 비워 두지 않는다.**
-///
-/// 숨기기만 하면 정원이 찬 뒤 할 일이 하나도 없는 화면이 된다. 사용자가 알아야 하는 건 둘이다:
-/// **누가 방을 끝내는가**, 그리고 **그게 방을 끝내는 행동이라는 것**. 그 둘만 한 줄로 적는다.
-///
-/// `hostNickname` 이 있으면 **이름으로 부른다.** 서버가 멤버마다 `host` 를 내려 주므로 그 사람이
-/// 누군지 알 수 있다(`hostDisplayNameOrNull`). 이름을 못 쓰는 경우는 셋이다 — 방장의 유저 요약이
-/// 없거나(식별자가 빈 값), 방장이 **탈퇴했거나**(soft delete: 식별자는 살아 있고 닉네임만 서버가
-/// 「탈퇴한 사용자」로 가린다), 아무도 방장으로 지목되지 않았거나. 그때는 지어내지 않고 **조건**을
-/// 말한다: 서버 `Party.hostId()` 가 현재 멤버 중 `min(joinedAt, memberId)` 라
-/// 「가장 먼저 참여한 분」은 사실이다(`finishFailureMessage` 의 403 문구와 같은 근거·같은 표현).
-///
-/// 탈퇴한 방장을 이름으로 부르면 **지킬 수 없는 약속**이 된다 — 그 사람은 「합승 완료」를 영원히
-/// 누를 수 없고(방은 30분 만료로만 닫힌다), 안내문이 가리킨 사람을 기다리게 만든다. 그래도
-/// **멤버 목록의 「방장」 배지는 그대로 붙는다**: 서버가 그를 방장이라고 말한 건 사실이고, 방이 왜
-/// 끝나지 않는지를 설명해 준다. 막는 것은 **이름으로 부르는 것** 하나뿐이다.
-///
-/// 「잠시 후 다시 시도」류는 넣지 않는다 — 기다려서 풀리는 일이 아니다. 방장이 누르거나, 방장이
-/// 나가 내게 승계되어야 바뀐다.
-func finishHostNotice(hostNickname: String?) -> String {
-    if let hostNickname, !hostNickname.isBlank {
-        "다 타면 방장 \(hostNickname)님이 「합승 완료」를 눌러 방을 끝내요"
-    } else {
-        "다 타면 방장(가장 먼저 참여한 분)이 「합승 완료」를 눌러 방을 끝내요"
-    }
-}
-
-/// 사유를 가릴 수 없는 「합승 완료」 실패의 일반 문구. 네트워크 실패와 **모르는 코드**가 여기로 떨어진다 —
-/// 서버가 `MatchingErrorCode` 를 늘려도 앱은 틀린 말을 하지 않는다(지어내는 것보다 모른다고 하는 게 낫다).
-private let FINISH_FAILED_MESSAGE = "합승을 완료하지 못했어요"
-
-/// 「합승 완료」 실패를 사용자 문구로 옮긴다 — 실패마다 **다음 행동이 다르다**.
-///
-/// | 사유 | 서버 코드(HTTP) | 사용자가 할 일 |
-/// |---|---|---|
-/// | 방장이 아니다 | `NOT_PARTY_HOST` (403) | 가장 먼저 참여한 사람에게 눌러 달라고 한다 |
-/// | 멤버가 아니다 | `NOT_PARTY_MEMBER` (403) | 홈에서 진행 중인 방을 확인한다 |
-/// | 정원 미달 | `PARTY_NOT_COMPLETED` (409) | 인원이 모두 모일 때까지 기다린다 |
-/// | 방 없음 | `PARTY_NOT_FOUND` (404) | 홈으로 돌아간다 |
-/// | 확정된 방이다 | `USE_DEPART_FOR_CONFIRMED_PARTY` (409) | 「출발」로 끝낸다 |
-/// | 그 밖·네트워크 | 코드 없음 | `FINISH_FAILED_MESSAGE` |
-///
-/// 「이미 기사가 배정됐다」(`DRIVER_ALREADY_ASSIGNED`)는 지웠다 — 서버에 기사를 배정하는 길이 없어
-/// **그 코드가 올 수 없다.** 올 수 없는 사유에 문구를 두면 그 자리가 영영 검증되지 않고, 그 문구를
-/// 읽은 개발자는 아직 기사가 있는 줄로 읽는다. 모르는 코드는 `FINISH_FAILED_MESSAGE` 로 떨어진다.
-///
-/// **403 이 두 가지 뜻**이라 상태 코드로는 가를 수 없다(서버 `Party.finishWithoutDriver` 의
-/// 검사 순서가 위 표 순서다). 그래서 분기 근거는 서버 코드를 도메인이 한 번 걸러 준
-/// `PartyFinishException` 의 프로퍼티다 — 20 합류의 `joinFailureMessage` 와 같은 선례다.
-///
-/// 방장 안내가 「가장 먼저 참여한 분」인 건 서버가 방장을 그렇게 정하기 때문이다 —
-/// `Party.hostId()` 는 **현재 멤버 중 `min(joinedAt, memberId)`** 이고, 저장되는 값이 아니다.
-///
-/// **이름을 쓰지 않는 근거는 「앱이 방장을 모른다」가 아니다.** 앱은 평소엔 안다 — 서버가 멤버마다
-/// `host` 를 내려 주고(`User.isHost`), 버튼을 못 보는 사람에게는 `finishHostNotice` 가 그 이름으로
-/// 안내한다. 모르는 것은 **이 403 이 온 그 순간**이다: 403 은 내 스냅샷이 가리킨 방장이 서버 기준으로
-/// 더 이상 방장이 아니라는 뜻이고(프레임 유실·순서 역전으로 승계가 반영되지 않았다), 그 스냅샷으로
-/// 새 방장을 지목하면 **틀린 사람에게 부탁하라고 말하게 된다.** 그래서 이 자리에서만 이름을 접고
-/// **조건**을 말한다 — 지어낸 이름을 띄우는 것보다 정확하다.
-///
-/// 「잠시 후 다시 시도」류는 넣지 않는다. 다시 눌러도 같은 403·409 다 — 방 사정이 바뀌어야 풀린다.
-func finishFailureMessage(e: PartyFinishException) -> String {
-    if e.isNotHost { return "방장만 합승을 완료할 수 있어요. 가장 먼저 참여한 분에게 부탁해 주세요" }
-    if e.isNotMember { return "이 방의 참여자가 아니에요. 홈에서 진행 중인 방을 확인해 주세요" }
-    if e.isNotCompleted { return "아직 정원이 다 차지 않았어요. 인원이 모두 모이면 완료할 수 있어요" }
-    if e.isPartyNotFound { return "이미 사라진 방이에요. 홈으로 돌아가 주세요" }
-    // 409 — 확정된 방이다. 그 방을 끝내는 길은 「출발」 하나다(노쇼가 거기서 기록된다).
-    // 화면이 확정된 방에서 이 버튼을 **숨기므로**(canFinishParty) 평소에는 오지 않는다. 남겨 둔
-    // 이유는 `NOT_PARTY_HOST` 와 같다 — 확정 사실은 SSE 로 오고 그 프레임을 놓치면 내 스냅샷이 낡은
-    // 채로 버튼을 보여 준다. 그 틈에 눌린 것을 받아 **다음에 눌러야 할 버튼 이름**을 말해 준다.
-    if e.isUseDepartForConfirmedParty { return "약속 시간이 정해진 방이에요. 「출발」을 눌러 끝내 주세요" }
-    return FINISH_FAILED_MESSAGE
-}
+// `isFinishStage`·`canFinishParty`·`finishHostNotice`·`finishFailureMessage` 는 **지웠다.** 앞의 둘은
+// 「정원이 찼다」를 `status == .matched` 로 세고 있었고, 그 식이 거짓이 됐다(서버 COMPLETED = 확정 —
+// `isMatchFull` 주석의 표). 가리킬 버튼(「합승 완료」)도 서버에서 사라졌으므로 근거와 쓰임이 함께 없어진 셈이다.
+//
+// 그 둘이 갈라 들던 질문(「방이 어떤 단계인가」 / 「내가 누를 수 있는가」)은 지금 각각
+// `Ride.isConfirmed` 와 `meetingStage` 가 맡는다 — 방장 여부로 갈리는 자리는 `.departByMe` 와
+// `.departByHost` 가 타입으로 가른다. 비방장 안내문은 `departHostNotice` 로, 403 `NOT_PARTY_HOST`
+// 문구는 `departFailureMessage` 로 옮겨 갔다.
 
 /// 사유를 가릴 수 없는 나가기 실패의 일반 문구 — 네트워크 실패와 **모르는 코드**가 여기로 떨어진다.
 ///
@@ -1440,36 +1477,45 @@ func finishFailureMessage(e: PartyFinishException) -> String {
 private let LEAVE_FAILED_MESSAGE = "방에서 나가지 못했어요"
 
 /// 나가기 실패를 사용자 문구로 옮긴다 — 실패마다 **다음 행동이 다르다**
-/// (`finishFailureMessage` 와 같은 자리·같은 이유).
+/// (`MeetingFlow` 의 세 액션과 같은 자리·같은 이유).
 ///
 /// | 사유 | 서버 코드(HTTP) | 사용자가 할 일 |
 /// |---|---|---|
-/// | 모집 단계가 아니다 | `PARTY_NOT_RECRUITING` (409) | 홈으로 돌아간다 — 방이 이미 닫혔다 |
+/// | **내가 도착을 눌렀다** | `ARRIVED_MEMBER_CANNOT_LEAVE` (409) | 나갈 수 없다 — 출발을 기다린다 |
+/// | 방이 닫혔다 | `PARTY_CLOSED` (409) | 홈으로 돌아간다 |
 /// | 방 없음 | `PARTY_NOT_FOUND` (404) | 홈으로 돌아간다(이미 닫힌 방이다) |
 /// | 그 밖·네트워크 | 코드 없음 | `LEAVE_FAILED_MESSAGE` |
 ///
-/// 409 문구가 「매칭이 시작돼 지금은 나갈 수 없어요」였던 것은 **기사 모드 이야기다.** 서버
-/// `ensureRecruiting` 은 ACTIVE·COMPLETED 를 통과시키므로, 기사·배차를 걷어낸 지금 이 409 가 오는
-/// 경우는 **방이 이미 닫혔을 때**(FINISHED·CANCELED) 하나뿐이다 — 기다려서 풀리는 일이 아니라서
-/// 「기다린다」로 안내하면 사용자를 끝난 방에 붙들어 둔다. 404 와 문구가 비슷한 것은 사정이 비슷하기
-/// 때문이다(방이 없거나, 있지만 닫혔다 — 어느 쪽이든 할 일은 홈으로 돌아가기다).
+/// ### 두 409 가 **정반대 행동**을 가리킨다 ★ 이 함수의 존재 이유
+/// `PARTY_CLOSED` 는 「이미 끝난 방」이라 **떠나야** 하고, `ARRIVED_MEMBER_CANNOT_LEAVE` 는
+/// 「아직 살아 있는데 내가 묶인 방」이라 **머물러야** 한다. 상태 코드로 가르면 절반이 반드시 틀린다.
+///
+/// ### 첫 줄의 사유가 바뀌었다 (2026-11-12)
+/// 예전 첫 줄은 `CANNOT_LEAVE_CONFIRMED_PARTY` 였고 문구는 「약속이 정해진 방은 나갈 수 없어요.
+/// 약속 시간에 출발지에서 만나 주세요」였다. **서버가 그 규칙과 코드를 함께 지웠다**(`b16551b7`) —
+/// 확정 방에서도 나갈 수 있다. 지금 나가기를 막는 유일한 사유는 **내가 도착을 눌렀는가**이고,
+/// 되돌릴 길이 없다(도착 취소 API 가 없다). 그래서 문구가 「만나 주세요」에서 「출발을 기다려
+/// 주세요」로 바뀐다 — 그 사람은 이미 출발지에 서 있다.
+///
+/// 둘째 줄의 코드도 `PARTY_NOT_RECRUITING` → `PARTY_CLOSED` 로 통일됐다(같은 커밋이 `Party` 의 단계
+/// 검사를 `validateOpen()` 하나로 묶었다). 사용자 문구는 그대로다 — 어느 이름이든 사실은 같다.
 ///
 /// 「이미 나갔다」(403 `NOT_PARTY_MEMBER`)는 **이 함수에 오지 않는다** — 데이터 계층이 성공으로
 /// 되돌리므로 화면은 나가기 성공과 같은 길(홈)로 간다.
 ///
-/// 「잠시 후 다시 시도」는 넣지 않는다: 다시 눌러도 같은 409 다. 화면은 닫힌 방에서 버튼을 이미
+/// 「잠시 후 다시 시도」는 넣지 않는다: 다시 눌러도 같은 409 다. 화면은 두 사유 모두에서 버튼을 이미
 /// 비활성으로 바꾸지만(`canLeaveParty`) 전이를 알아채기까지 한 프레임이 비고, 그 틈에 눌린 것이
 /// 여기로 온다.
 func leaveFailureMessage(e: PartyLeaveException) -> String {
-    // 끝난 방이 아니라 **약속에 묶인 방**이다 — 홈으로 돌아가라고 하면 안 된다. 끝내는 길은 출발뿐이고
-    // 가지 않으면 노쇼로 남으므로, 무엇을 해야 하는지까지 말해 준다.
-    if e.isCannotLeaveConfirmed { return "약속이 정해진 방은 나갈 수 없어요. 약속 시간에 출발지에서 만나 주세요" }
-    if e.isNotRecruiting { return "이미 끝난 방이에요. 홈으로 돌아가 주세요" }
+    // 끝난 방이 아니라 **내가 도착을 눌러 묶인 방**이다 — 홈으로 돌아가라고 하면 안 된다.
+    // 도착을 되돌릴 길이 없으므로(취소 API 없음) 할 수 있는 말은 「무엇을 기다리면 되는가」뿐이다.
+    if e.isArrivedMemberCannotLeave { return "도착을 알린 뒤에는 나갈 수 없어요. 방장이 출발하면 방이 끝나요" }
+    if e.isPartyClosed { return "이미 끝난 방이에요. 홈으로 돌아가 주세요" }
     if e.isPartyNotFound { return "이미 사라진 방이에요. 홈으로 돌아가 주세요" }
     return LEAVE_FAILED_MESSAGE
 }
 
-/// 21 매칭 대기 — SSE 변경분 구독(+끊김 폴백) · 나가기/합승 완료 · **약속 확정 → 출발지 도착 → 출발**
+/// 21 매칭 대기 — SSE 변경분 구독(+끊김 폴백) · 나가기 · **약속 확정 → 출발지 도착 → 출발**
 /// 진입점. partyId 없으면 오류 안내 후 되돌린다.
 ///
 /// 방 상태의 출처는 `MatchWaitingViewModel` 하나뿐이다 — 이 화면에서 SSE 를 두 번 수집하면 서버가 서로의
@@ -1492,8 +1538,8 @@ public struct MatchWaitingRoute: View {
 
     /// - Parameters:
     ///   - onExitKeepingParty: 방을 유지한 채 화면만 벗어난다(나가기가 막힌 단계의 뒤로가기)
-    ///   - onPartyClosed: 방이 닫혔다(FINISHED·CANCELED) — 내가 「합승 완료」를 눌렀거나, 다른 참여자가 눌렀거나,
-    ///     30분 스윕이 닫았다. 호출자는 진행 중 기억을 지우고 홈으로 보낸다.
+    ///   - onPartyClosed: 방이 닫혔다(FINISHED·CANCELED) — 방장이 「출발」을 눌렀거나, 모집이 만료됐거나,
+    ///     도착자 없는 방을 서버가 자동 정리했다. 호출자는 진행 중 기억을 지우고 홈으로 보낸다.
     ///   - onOpenChat: 이 방의 채팅방을 여는 길. 채팅방이 아직 없으면 nil — 화면이 버튼을 그리지 않는다
     public init(
         repository: any RideRepository,
@@ -1560,7 +1606,7 @@ private struct MatchWaitingContent: View {
     // 도착 단계가 붙은 뒤에도 자동 요청으로 바꾸지 않았다. 바꾸면 **약속과 무관하게 모든 진입에서**
     // 다이얼로그가 뜨고(모집 중에도 뜬다) 정작 필요한 순간은 그보다 한참 뒤다. 대신 그 순간에
     // 거부돼 있으면 비활성 버튼을 두지 않고 **왜 필요한지 + 허용 버튼**을 그 자리에 넣는다
-    // (17 탐색의 `LocationPermissionNotice` 와 같은 처방 — `ARRIVE_NEEDS_PERMISSION_NOTICE`).
+    // (17 탐색의 `LocationPermissionNotice` 와 같은 처방 — `arriveNeedsPermissionNotice`).
     @RememberMyLocationState(autoRequestPermission: false) private var myLocation
 
     private let onCancelSearch: () -> Void
@@ -1622,14 +1668,15 @@ private struct MatchWaitingContent: View {
                     actionInProgress: action.inProgress,
                     actionErrorMessage: action.errorMessage,
                     onCancelSearch: { viewModel.leaveParty() }, // 나가기 성공 시 14 홈
-                    onFinish: { viewModel.finishParty() }, // 합승 완료 성공 시 14 홈 (확정 전 방 전용)
                     // 화면이 **보여 준 그 시각**을 그대로 넘긴다 — 동의한 값과 보내는 값이 같아야 한다.
+                    // 만남 장소(좌표·이름)는 화면이 고르지 않는다 — 뷰모델이 방의 지금 출발지를
+                    // 그대로 싣는다(`MatchWaitingViewModel.confirmMeeting`).
                     onConfirmMeeting: { viewModel.confirmMeeting(departureAt: $0) },
                     // 좌표를 묶어서 받는다 — lat/lng 두 Double 로 받으면 전치가 컴파일을 통과한다
                     onArrive: { coordinates in
                         viewModel.arriveAtDeparture(latitude: coordinates.latitude, longitude: coordinates.longitude)
                     },
-                    onDepart: { viewModel.departParty() }, // 출발 성공 시 14 홈 (방이 모두에게 닫힌다)
+                    onDepart: { viewModel.departParty() }, // 출발 성공 시 14 홈 (방이 모두에게 닫힌다 — 유일한 종료 경로)
                     onExitKeepingParty: onExitKeepingParty,
                     onCardClick: onCardClick,
                     onOpenChat: onOpenChat
@@ -1648,16 +1695,13 @@ private struct MatchWaitingContent: View {
         .task(id: action.left) {
             if action.left { onCancelSearch() }
         }
-        .task(id: action.finished) {
-            if action.finished { onPartyClosed() }
-        }
-        // 「출발」이 성공했다 — 서버가 방을 **모두에게** 닫고 구독을 끊었다. 「합승 완료」와 같은 길로
-        // 보낸다(진행 중 기억을 지우고 홈). SSE `closed` 도 곧 오지만 서버가 연결을 끊는 중이라
-        // 도착하지 않을 수 있어, 액션 성공 자체를 전이 근거로 둔다.
+        // 「출발」이 성공했다 — 서버가 방을 **모두에게** 닫고 구독을 끊었다. 진행 중 기억을 지우고 홈으로
+        // 보낸다. SSE `closed` 도 곧 오지만 서버가 연결을 끊는 중이라 도착하지 않을 수 있어, 액션 성공
+        // 자체를 전이 근거로 둔다. (`action.finished` 로 같은 길을 타던 「합승 완료」는 지웠다.)
         .task(id: action.departed) {
             if action.departed { onPartyClosed() }
         }
-        // 서버가 방을 닫았다(SSE closed) — 다른 참여자의 「합승 완료」·30분 만료·마지막 멤버 이탈.
+        // 서버가 방을 닫았다(SSE closed) — 방장의 「출발」·모집 만료·마지막 멤버 이탈·자동 정리.
         // 예전에는 폴링이 FINISHED/CANCELED 를 읽어 와야 알았고, 지금은 신호 하나로 바로 떠난다.
         .task(id: closed) {
             if closed { onPartyClosed() }
@@ -1676,7 +1720,8 @@ private struct MatchWaitingContent: View {
         // **이 화면이 넘어가는 곳은 이제 홈뿐이다.** 예전에는 정원이 차면 서버가 기사 매칭을 시작해
         // `DISPATCHING`·`ONGOING` 으로 전이했고, 그 두 status 가 25 배차 현황으로 보내는 신호였다
         // (`onMatchingStarted`). 서버가 그 status 를 보낼 수 없게 되면서 **보낼 화면도, 신호도 사라졌다** —
-        // 정원이 차도 방은 MATCHED 에 머물고, 사용자는 여기서 채팅으로 만날 곳을 정한 뒤 「합승 완료」로 닫는다.
+        // 정원이 차도 방은 이 화면에 머물고, 사용자는 여기서 채팅으로 만날 곳을 정하고 약속을 확정한 뒤
+        // 출발지에서 「출발」로 닫는다.
         //
         // 남은 전이는 「방이 닫혔다」 하나다. SSE `closed`(`MatchWaitingViewModel.partyClosed`) 가 보통 먼저
         // 알려 주지만 그 스트림은 at-most-once 라, 끊김 폴백이 읽어 온 status 로도 같은 결론에 닿게 둔다.

@@ -27,7 +27,7 @@ import Testing
 
     @Test("보이고 진행 중 방이 있고 채팅방을 모르면 폴링한다")
     func pollsWhenVisibleWithRide() {
-        #expect(shouldPollChatRoom(visible: true, ride: ride(.matched), chatRoomId: nil))
+        #expect(shouldPollChatRoom(visible: true, ride: ride(.confirmed), chatRoomId: nil))
     }
 
     /// 모집 중(21 대기)에도 찾는다 — 서버가 채팅방을 **합류 시점에** 만든다(Backend #109).
@@ -41,13 +41,13 @@ import Testing
     /// 기존 종료 조건 — 찾으면 멈춘다(`pollTarget` 이 nil 이 되어 진행 중 패스가 취소된다).
     @Test("채팅방을 찾으면 멈춘다")
     func stopsOnceFound() {
-        #expect(!shouldPollChatRoom(visible: true, ride: ride(.matched), chatRoomId: 7))
+        #expect(!shouldPollChatRoom(visible: true, ride: ride(.confirmed), chatRoomId: 7))
     }
 
     /// 「채팅방 나가기」·403 으로 캐시를 버리면(`forgetChatRoom`) 다시 찾아야 한다.
     @Test("채팅방 캐시를 버리면 다시 찾는다")
     func pollsAfterForget() {
-        #expect(shouldPollChatRoom(visible: true, ride: ride(.matched), chatRoomId: nil))
+        #expect(shouldPollChatRoom(visible: true, ride: ride(.confirmed), chatRoomId: nil))
     }
 
     @Test("진행 중인 방이 없으면 찾을 대상이 없다")

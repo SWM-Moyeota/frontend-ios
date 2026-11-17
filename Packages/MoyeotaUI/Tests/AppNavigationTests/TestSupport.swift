@@ -52,7 +52,6 @@ final class FakeRideRepository: RideRepository, @unchecked Sendable {
     var withinRequests: Int { lock.withLock { withinCount } }
 
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { parties }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] {
         lock.withLock { withinCount += 1 }
         return parties
@@ -71,19 +70,19 @@ final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func createParty(request: NewParty) async throws -> Ride { throw FakeFailure() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw FakeFailure() }
     func leaveParty(partyId: Int64) async throws {}
-    func finishParty(partyId: Int64) async throws {}
     func previewRoute(
         departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double
     ) async throws -> RouteEstimate { throw FakeFailure() }
 
     // 약속 확정·도착·출발 — 새 화면 이동이 없어 그래프 테스트가 부르지 않는다(출발 성공은 `onPartyClosed` 길을 그대로 쓴다).
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws {}
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws {}
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws {}
     func departParty(partyId: Int64) async throws {}
 
     // 예약 방 — 그래프 테스트는 17 을 실시간 모드로만 연다. 예약 목록은 비어 있고, 16 은 예약 방을 만들지 않는다.
     func createReservation(request: NewReservation) async throws -> Ride { throw FakeFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(
         departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?
@@ -151,17 +150,16 @@ final class FakeRideRecordRepository: RideRecordRepository, @unchecked Sendable 
     }
 }
 
-final class FakeNoShowRepository: NoShowRepository, @unchecked Sendable {
-    private let lock = NSLock()
-    private var listCount = 0
-    /// 38 목록 조회 횟수 — 그래프가 이 저장소를 38 에 넘겼는지 본다.
-    var listRequests: Int { lock.withLock { listCount } }
-
-    func getMyNoShows() async throws -> [NoShowRecord] {
-        lock.withLock { listCount += 1 }
-        return []
-    }
-    func submitObjection(partyId: Int64, reason: String) async throws {}
+/// 39·40 택시비 정산 — 그래프 테스트는 정산 화면을 열지 않는다. 홈 배너가 부르는 목록만 빈 값으로 답한다
+/// (보낼 정산이 없으면 배너가 그리지 않으므로 기존 홈 배치가 그대로다).
+final class FakeFareSplitRepository: FareSplitRepository, @unchecked Sendable {
+    func startFareSplit(partyId: Int64, draft: FareSplitDraft) async throws -> FareSplitDetail { throw FakeFailure() }
+    func getFareSplit(partyId: Int64) async throws -> FareSplitDetail? { nil }
+    func editFareSplit(partyId: Int64, draft: FareSplitDraft) async throws -> FareSplitDetail { throw FakeFailure() }
+    func markSent(partyId: Int64) async throws { throw FakeFailure() }
+    func confirmReceived(partyId: Int64, senderPublicId: String) async throws { throw FakeFailure() }
+    func markNotReceived(partyId: Int64, senderPublicId: String) async throws { throw FakeFailure() }
+    func getMyFareSplits(status: TransferStatus) async throws -> [MyFareSplit] { [] }
 }
 
 func fakeRide(id: String = "7", status: RideStatus = .recruiting) -> Ride {
@@ -192,7 +190,6 @@ struct GraphHarness: View {
     let rides: FakeRideRepository
     let active: FakeActivePartyRepository
     let chat: FakeChatRepository
-    let noShows: FakeNoShowRepository
     let installedVersionCode: Int64
     let probe: MainNavGraphProbe
     @Bindable var pending: PendingBox
@@ -206,7 +203,7 @@ struct GraphHarness: View {
             chatRepository: chat,
             activePartyRepository: active,
             rideRecordRepository: FakeRideRecordRepository(),
-            noShowRepository: noShows,
+            fareSplitRepository: FakeFareSplitRepository(),
             pendingChatRoomId: pending.roomId,
             onPendingChatRoomHandled: {
                 pending.roomId = nil
@@ -228,7 +225,6 @@ final class HostedGraph {
     let rides = FakeRideRepository()
     let active = FakeActivePartyRepository()
     let chat = FakeChatRepository()
-    let noShows = FakeNoShowRepository()
     let probe = MainNavGraphProbe()
     let pending = PendingBox()
     let window: InsetWindow
@@ -248,7 +244,7 @@ final class HostedGraph {
         window = InsetWindow(frame: CGRect(x: 0, y: 0, width: 402, height: height))
         host = UIHostingController(
             rootView: GraphHarness(
-                auth: auth, config: config, rides: rides, active: active, chat: chat, noShows: noShows,
+                auth: auth, config: config, rides: rides, active: active, chat: chat,
                 installedVersionCode: installedVersionCode, probe: probe, pending: pending
             )
         )

@@ -83,75 +83,46 @@ import Testing
         #expect(dto.toDomain().imageUrl == nil)
     }
 
-    /// **제재 두 필드가 도메인까지 흐르는지.** 서버 `MyProfileResponse` 에는 2026-11-06 기준
-    /// `noShowCount`·`restrictedUntil` 이 있고, 앱 DTO 에 그 자리가 없던 동안 디코더가
-    /// **조용히 버리고 있었다** — 즉 「서버가 안 준다」가 아니라 「앱이 안 받는다」였고, 그래서 제재당한
-    /// 사용자는 방 만들기·합류가 403 으로 막히는 이유를 알 수 없었다.
+    /// ★ **서버는 두 제재 키를 아직 보내고, 앱은 그걸 받지 않는다.** 2026-11-12 에
+    /// `UserProfileResponse` 에서 `noShowCount`·`restrictedUntil` 자리를 지웠다 — 백엔드가 노쇼
+    /// 기능을 통째로 없애면서(`b16551b7`, V37 이 테이블 DROP) 두 값을 **늘 0·null 로 박았기**
+    /// 때문이다(서버 주석: 「출시 앱 호환용으로 키만 남김」).
     ///
-    /// 본문 모양은 서버 컨트롤러 테스트(`LocalUserControllerUnitTest`)가 못 박은 것과 같다 —
-    /// `restrictedUntil` 은 숫자(epoch)가 아니라 **ISO-8601 문자열**이다(레포에 Jackson
-    /// `WRITE_DATES_AS_TIMESTAMPS` 설정이 없고 `@JsonFormat` 도 없다).
-    @Test("노쇼 횟수와 제한 기한이 도메인까지 흐른다")
-    func sanctionFieldsFlow() throws {
+    /// 이 테스트가 못 박는 것은 **지운 쪽이 안전하다**는 사실이다: 서버가 계속 보내는 키를
+    /// 받는 자리 없이 맞아도 디코더가 흘려보내므로(`MoyeotaJSON`) 내 정보 조회가 터지지 않는다.
+    /// 이게 깨지면 증상은 「마이페이지가 안 열린다」가 아니라 **로그인 직후 전 화면에서 이름·사진이
+    /// 사라지는 것**이다 — 조회가 통째로 실패한다.
+    ///
+    /// 아래 본문은 실제 서버 응답 모양 그대로다(`MyProfileResponse` record 5필드).
+    ///
+    /// (이 자리에 있던 제재 테스트 다섯 — 도메인까지 흐른다·null 이면 제한 없음·키가 없으면 기본값·
+    /// 마이크로초·공백 정규화 안 함 — 은 받는 자리와 함께 지웠다.)
+    @Test("서버가 보내는 제재 두 키를 받지 않아도 파싱이 깨지지 않는다")
+    func sanctionKeysAreIgnored() throws {
         let body = """
             {"uuid":"u-1","name":"김성윤","imageUrl":"https://cdn.moyeota.co.kr/profile/presets/01.png",
-             "noShowCount":2,"restrictedUntil":"2026-11-04T08:30:00Z"}
+             "noShowCount":0,"restrictedUntil":null}
             """
 
         let info = try decodeJSON(UserProfileResponse.self, body).toDomain()
 
-        #expect(info.noShowCount == 2)
-        #expect(info.restrictedUntil == "2026-11-04T08:30:00Z")
+        #expect(info.uuid == "u-1")
+        #expect(info.name == "김성윤")
+        #expect(info.imageUrl == "https://cdn.moyeota.co.kr/profile/presets/01.png")
+        // 받는 자리가 되살아나지 않는다 — 고정값을 올리면 도메인에 「제재 없음」만 영원히 참인
+        // 분기가 생긴다(`UserProfileResponse` 주석).
+        let labels = Mirror(reflecting: info).children.compactMap(\.label)
+        #expect(!labels.contains("noShowCount"), "UserProfileInfo 에 noShowCount 가 되살아났다")
+        #expect(!labels.contains("restrictedUntil"), "UserProfileInfo 에 restrictedUntil 이 되살아났다")
     }
 
-    /// 제한이 없으면 서버가 **키는 남기고 값만 null** 로 준다(`@JsonInclude` 가 레포 전체에 없어
-    /// Jackson 기본값 `ALWAYS` 다 — 서버 테스트가 `jsonPath("$.restrictedUntil").value(nullValue())`
-    /// 로 확인한다). 논-널로 선언했다면 **제재가 없는 평범한 사용자**의 내 정보 조회가 통째로 터져
-    /// 로그인 직후 화면이 열리지 않는다 — 가장 흔한 경우에서 깨지는 쪽이다.
-    @Test("제한 기한이 null 이면 제한 없음으로 읽는다")
-    func nullRestrictedUntil() throws {
-        let body = #"{"uuid":"u-1","name":"김성윤","noShowCount":0,"restrictedUntil":null}"#
+    /// 0·null 이 아닌 값이 실려 와도(롤백된 서버, 캐시된 응답) 받는 자리가 없으니 그대로 흘러야 한다 —
+    /// 위 테스트가 0·null 만 넣으면 「값이 비어 있어서 통과한 것」과 구별되지 않는다.
+    @Test("제재 키에 값이 실려 와도 흘려보낸다")
+    func sanctionValuesAreIgnored() throws {
+        let body = #"{"uuid":"u-1","name":"김성윤","noShowCount":2,"restrictedUntil":"2026-11-04T08:30:00Z"}"#
 
-        let info = try decodeJSON(UserProfileResponse.self, body).toDomain()
-
-        #expect(info.noShowCount == 0)
-        #expect(info.restrictedUntil == nil)
-    }
-
-    /// 구버전 서버에는 두 키가 **아예 없다**. 기본값으로 떨어져야 하고, 그 기본값은
-    /// 「제재 없음」과 같은 모양이어야 한다 — 화면이 「모른다」와 「없다」를 따로 다루지 않기 때문이다
-    /// (`UserProfileInfo.noShowCount` 주석).
-    @Test("제재 키가 아예 없어도 파싱되고 기본값으로 떨어진다")
-    func missingSanctionKeys() throws {
-        let info = try decodeJSON(UserProfileResponse.self, #"{"uuid":"u-1","name":"김성윤"}"#).toDomain()
-
-        #expect(info.noShowCount == 0)
-        #expect(info.restrictedUntil == nil)
-    }
-
-    /// ⚠️ **소수점 아래가 붙어도 문자열로 그대로 흘러야 한다.** 서버 컬럼이 `timestamp(6)` 이라
-    /// 실제 값에 마이크로초가 실릴 수 있다. 이 계층이 파싱하지 않는 것이 그 대비이고
-    /// (`Date` 로 바꿨다면 고정 패턴을 쓴 코드가 여기서 깨진다), 화면은 소수 초 유무를 모두 받는 파서로 읽는다.
-    @Test("마이크로초가 붙은 제한 기한도 그대로 흐른다")
-    func microsecondRestrictedUntil() throws {
-        let body = #"{"uuid":"u-1","noShowCount":1,"restrictedUntil":"2026-11-04T08:30:00.123456Z"}"#
-
-        #expect(
-            try decodeJSON(UserProfileResponse.self, body).toDomain().restrictedUntil
-                == "2026-11-04T08:30:00.123456Z"
-        )
-    }
-
-    /// 이름·이미지와 달리 **제한 기한에는 공백 정규화를 걸지 않는다.** 두 필드의 「없음」은 뜻이 다르다:
-    /// 이름의 null 은 「표시할 이름이 없다」이고 이쪽은 **「제한이 없다」는 사실 판정**이다. 정규화를
-    /// 끼우면 서버가 뭔가 보냈는데 비어 있었던 경우가 「제한 없음」으로 조용히 접히고, 화면은 막힌
-    /// 사용자에게 아무 안내도 하지 않는다. 그래서 **빈 문자열은 빈 문자열로 올라가고**, 읽을 수 없는
-    /// 값이라는 판정은 화면이 한다(`NoShowRecordsDisplay` 가 파싱 실패를 「제한 없음」이 아니라
-    /// 「기한 미표시」로 떨어뜨린다).
-    @Test("제한 기한의 공백을 매퍼가 접지 않는다")
-    func restrictedUntilNotNormalized() {
-        #expect(UserProfileResponse(uuid: "u-1", restrictedUntil: "").toDomain().restrictedUntil == "")
-        #expect(UserProfileResponse(uuid: "u-1", restrictedUntil: "  ").toDomain().restrictedUntil == "  ")
+        #expect(try decodeJSON(UserProfileResponse.self, body).toDomain().name == "김성윤")
     }
 
     @Test("모르는 필드가 늘어나도 파싱이 깨지지 않는다")

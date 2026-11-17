@@ -79,20 +79,10 @@ private struct LoggedInSession: UserSession {
         #expect(request.queryParameter("destinationLat") == nil, "도착지가 destinationLat 으로 나갔다 — 그건 생성 본문 쪽 이름이다")
     }
 
-    /// 기간 목록은 두 파라미터가 **늘 실린다**(non-null). 호출부가 하나를 빼는 길을 만들지 않는 이유는
-    /// 그 400 의 본문이 `{code, message}` 가 아니어서(서버에 누락 파라미터 핸들러가 없다) 앱 에러
-    /// 파서가 사유를 못 읽기 때문이다 — 화면에는 일반 문구만 뜬다.
-    @Test("기간 목록은 from to 를 그대로 싣는다")
-    func rangeSendsFromTo() async throws {
-        let (repository, stub) = try makeRepository()
-
-        _ = try await repository.getReservations(from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z")
-
-        let request = try stub.requests.single()
-        #expect(request.path == "/api/v1/matching/reservations")
-        #expect(request.queryParameter("from") == "2026-11-13T00:00:00Z")
-        #expect(request.queryParameter("to") == "2026-11-14T00:00:00Z")
-    }
+    // 「기간 목록은 from·to 를 그대로 싣는다」 테스트는 **지웠다** — 서버가
+    // `GET /matching/reservations?from&to` 와 `INVALID_TIME_RANGE` 를 함께 없앴다(`2732cc75`:
+    // 「앱이 부르지 않는 … 삭제」). 앱도 부른 적이 없다. 남은 예약 조회 두 경로
+    // (「곧 출발」·검색)는 이 파일에서 그대로 못 박는다.
 
     /// 「곧 출발」은 **방 목록의 뷰포트 조회와 같은 이름·같은 순서**로 나간다. 섞이면 서버가
     /// 400 `INVALID_MAP_BOUNDS` 를 준다 — 그래서 값으로 못 박는다.
@@ -110,15 +100,6 @@ private struct LoggedInSession: UserSession {
         #expect(request.queryParameter("neLng") == "129.12")
     }
 
-    /// 노쇼 기록 조회는 **쿼리가 하나도 없다** — 서버에 커서·개수 파라미터가 없다.
-    @Test("노쇼 기록 조회는 쿼리 없이 나간다")
-    func noShowsWithoutQuery() async throws {
-        let (api, stub) = try makeApi()
-
-        _ = try await api.getMyNoShows()
-
-        let request = try stub.requests.single()
-        #expect(request.path == "/api/v1/matching/no-shows")
-        #expect(request.query == nil, "쿼리가 하나도 없어야 한다")
-    }
+    // 「노쇼 기록 조회는 쿼리 없이 나간다」 테스트는 **지웠다** — 서버가 노쇼 기록·제재·이의
+    // 신청을 전부 없앴다(`b16551b7`, 마이그레이션 V37 이 테이블까지 DROP). 그 경로는 404 다.
 }

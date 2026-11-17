@@ -63,7 +63,6 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
         throw TestFailure()
     }
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw TestFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw TestFailure() }
     func findRealtimeCandidates(
         departureLat: Double,
@@ -76,8 +75,9 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     }
     func createParty(request: NewParty) async throws -> Ride { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
-    func finishParty(partyId: Int64) async throws { throw TestFailure() }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw TestFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
     func departParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(
@@ -89,7 +89,6 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
 
     // 예약 방 — 이 테스트가 보는 동작에는 쓰이지 않는다.
     func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(
         swLat: Double,
         swLng: Double,

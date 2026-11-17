@@ -75,14 +75,6 @@ public enum Routes {
     /// 진행 중인 방은 홈·탐색 배너가 맡으므로 35 와의 순환 링크도 되살리지 않았다.
     public static let RIDE_HISTORY = "mypage/ride-history"           // 34 재도입 (지난 탑승 기록)
 
-    /// 38 노쇼 기록·이의 신청 (신규, 2026-11-06) — `GET /api/v1/matching/no-shows` +
-    /// `POST /api/v1/matching/rooms/{partyId}/no-show-objection`.
-    ///
-    /// 34 와 가르는 이유: 34 는 **탄** 방을, 38 은 **안 탄 것으로 기록된** 방을 보여 준다. 노쇼로
-    /// 찍힌 방은 탑승 기록에서 빠지므로(서버) 한 화면에 섞으면 「없는 방」과 「없어진 방」이 한 목록에
-    /// 들어간다. 38 은 그 방에 **이의를 내는 창구**이기도 해서 행마다 할 수 있는 일이 다르다.
-    public static let NO_SHOW_RECORDS = "mypage/no-shows"            // 38 신규 (노쇼 기록·이의 신청)
-
     /// 37 회원 탈퇴 (신규, 2026-10) — `DELETE /api/v1/users/me`. 앱 계정 삭제 요건.
     ///
     /// 다이얼로그가 아니라 **별 화면**인 이유는 `AccountDeleteScreen` 주석에 있다
@@ -94,6 +86,36 @@ public enum Routes {
 
     /// 로그인 수단 관리 — 아이디·비밀번호와 구글 연결(2026-11 소셜 로그인). 원본 `Routes.LOGIN_METHODS`
     public static let LOGIN_METHODS = "mypage/login-methods"
+
+    // J · 택시비 정산 39–40 (신규, 2026-11-12)
+    //
+    // **38 을 비워 두는 이유**: 그 번호는 노쇼 기록·이의 신청이 쓰다가 서버 기능이 통째로 사라져
+    // 지운 자리다. 되쓰면 옛 문서·보고서의 「38」이 두 가지를 가리키게 된다.
+    //
+    // 두 라우트가 **같은 `{partyId}` 를 경로 인자로** 받는다. 화면 바깥에 방 id 를 들고 있는
+    // 홀더(`selectedPartyId`·`createdPartyId`)를 쓰지 않는 이유는 진입점이 셋이고 서로 다른
+    // 스택 위치에서 오기 때문이다(끝난 방 상세 · 탑승 기록 카드 · 홈 배너). 홀더에 기대면
+    // 「홈 배너로 열었는데 직전에 보던 방의 정산이 뜨는」 혼동이 가능해지고, **돈이 걸린 화면에서
+    // 그 혼동의 대가가 가장 크다.**
+
+    /// 39 택시비 정산 상세 — **역할에 따라 받는 사람/보내는 사람 화면이 갈린다**
+    /// (서버가 `myRole` 로 같은 엔드포인트에서 두 모양을 준다).
+    ///
+    /// 정산이 아직 없는 방도 이 라우트로 들어온다 — 404 는 **정상 상태**이고 화면이
+    /// 「정산 시작하기」로 그린다(`FareSplitAbsentScreen`).
+    public static let FARE_SPLIT = "faresplit/{partyId}"             // 39 신규 (정산 상세)
+
+    public static func fareSplit(partyId: Int64) -> String { "faresplit/\(partyId)" }
+
+    /// 40 택시비 정산 시작·수정 — **방장 전용**. 39 위에 쌓이므로 뒤로가기가 곧 상세 복귀다.
+    ///
+    /// 시작과 수정이 **같은 라우트**인 이유: 서버가 POST·PATCH 에 같은 본문을 쓰고(`FareSplitDraft`)
+    /// 화면도 같다. 어느 쪽인지는 `start` 인자가 정한다 — 라우트를 둘로 나누면 같은 화면이 두 곳에 등록되고,
+    /// 한쪽만 고치는 날이 온다.
+    public static let FARE_SPLIT_EDIT = "faresplit/{partyId}/edit?start={start}" // 40 신규 (정산 시작·수정)
+
+    /// - Parameter start: true 면 시작(POST), false 면 수정(PATCH).
+    public static func fareSplitEdit(partyId: Int64, start: Bool) -> String { "faresplit/\(partyId)/edit?start=\(start)" }
 }
 
 /// 그래프에 **등록된** 목적지. 원본 `NavHost { composable(…) }` 의 목록이다.
@@ -109,7 +131,15 @@ public enum Route: Hashable, Sendable {
     case matchWaiting, rideDetail, partnerProfile
     case chat
     case chatRoom(roomId: Int64)
-    case mypage, profileEdit, rideHistory, noShowRecords, accountDelete, loginMethods
+    case mypage, profileEdit, rideHistory, accountDelete, loginMethods
+    /// 39 택시비 정산 상세. 방 id 는 **경로 인자**다(`Routes.FARE_SPLIT` 주석 — 진입점이 셋이라 홀더에 기대지 않는다).
+    case fareSplit(partyId: Int64)
+    /// 40 택시비 정산 시작(`start` = true)·수정(false).
+    ///
+    /// 원본은 `start` 의 기본값을 **수정**으로 둔다 — 빠뜨린 호출이 시작(POST)으로 가면 이미 있는 정산에 409
+    /// `FARE_SPLIT_ALREADY_EXISTS` 를 만들고, 수정으로 가면 404 로만 끝난다(아무것도 바꾸지 않는 실패). iOS 는
+    /// 경우가 인자를 강제해 빠뜨릴 수 없다.
+    case fareSplitEdit(partyId: Int64, start: Bool)
 
     /// 원본 `NavDestination.route` — 인자를 채우기 **전**의 패턴이다. 목적지가 같은지는 이 값으로 가른다
     /// (`popBackStack` · `launchSingleTop` · 저장된 스택의 열쇠가 모두 목적지 단위다).
@@ -138,9 +168,10 @@ public enum Route: Hashable, Sendable {
         case .mypage: Routes.MYPAGE
         case .profileEdit: Routes.PROFILE_EDIT
         case .rideHistory: Routes.RIDE_HISTORY
-        case .noShowRecords: Routes.NO_SHOW_RECORDS
         case .accountDelete: Routes.ACCOUNT_DELETE
         case .loginMethods: Routes.LOGIN_METHODS
+        case .fareSplit: Routes.FARE_SPLIT
+        case .fareSplitEdit: Routes.FARE_SPLIT_EDIT
         }
     }
 

@@ -93,7 +93,7 @@ public struct LoginFormScreen: View {
                         value: loginId,
                         onValueChange: { new in loginId = loginIdInput(raw: new) },
                         label: "아이디",
-                        placeholder: "moyeota",
+                        placeholder: "아이디를 입력해 주세요",
                         keyboardOptions: KeyboardOptions(keyboardType: .ascii, imeAction: .next),
                         enabled: !submitting
                     )

@@ -12,11 +12,15 @@ import SwiftUI
 /// - 「나가기」 → 14 홈, 탑승 이탈 (onLeave). **모집 중(`RideStatus.recruiting`)일 때만 보인다.**
 ///   그 밖의 단계에서는 버튼 대신 지금 어떤 방인지를 한 줄로 적는다(`stageNotice`).
 ///
-///   ⚠️ 서버는 정원이 찬 방(`RideStatus.matched` = 서버 COMPLETED)에서도 나가기를 **허용한다**
-///   (`ensureRecruiting()` 이 ACTIVE·COMPLETED 를 통과시킨다) — 21 매칭 대기는 거기서 「방 나가기」를
-///   보여 준다(`canLeaveParty`). 이 화면만 RECRUITING 으로 좁혀 둔 것은 기사 모드 시절의 기준이 남은
-///   것이고, 지금은 두 화면이 같은 방에 대해 다른 말을 한다. 의도된 차이가 아니므로 둘 중 하나로
-///   모아야 한다 — 다만 그건 문구 정리가 아니라 **동작 변경**이라 이 작업(택시 코드 제거)에서 하지 않았다.
+///   ⚠️ 서버는 **약속이 확정된 방에서도** 나가기를 허용한다(`b16551b7` 이 「확정 방은 나갈 수 없다」를
+///   지웠다) — 21 매칭 대기는 거기서 「방 나가기」를 보여 준다(`canLeaveParty`). 서버가 막는 유일한
+///   사유는 **내가 출발지 도착을 눌렀는가**다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`). 이 화면만
+///   RECRUITING 으로 좁혀 둔 것은 기사 모드 시절의 기준이 남은 것이고, 지금은 두 화면이 같은 방에 대해
+///   다른 말을 한다. 의도된 차이가 아니므로 둘 중 하나로 모아야 한다 — 다만 그건 문구 정리가 아니라
+///   **동작 변경**이라 이 작업에서 하지 않았다.
+/// - 「택시비 정산하기」/「내 택시비 보내기」 → 39 택시비 정산 (onFareSplit). **끝난 방에서 내가 도착을 눌렀을
+///   때만** 보인다(`fareSplitEntryLabel`). 다만 끝난 방의 이 화면은 21 이 닫히면서 닿을 길이 없어(21 의 조건 카드에서만
+///   열린다) 정산의 실제 진입점은 34 지난 탑승 기록의 「택시비 정산」이다 — 이 버튼은 그 길이 생길 때를 위한 자리다.
 /// - [미연결] 없음
 ///
 /// 도메인 변경(2026-08-30 → 현재): 백엔드에서 **수동 출발**이 사라졌다 — 「이 인원으로 출발」이라는
@@ -28,7 +32,7 @@ import SwiftUI
 /// 서버에 방장 개념이 없어 앱이 `joinedAt` 최소값으로 추정하던 것이었고, 지금은 서버가 멤버마다
 /// `host` 를 내려 준다(Backend #240). 21 매칭 대기와 **같은 배지·같은 판정**을 쓴다
 /// (`User.showsHostBadge`) — 조건 카드 한 번 탭으로 오가는 두 화면에서
-/// 같은 사람이 달라 보이면 안 된다. 이 화면은 방장 **전용 동작**은 갖지 않는다(「합승 완료」는 21 에 있다).
+/// 같은 사람이 달라 보이면 안 된다. 이 화면은 방장 **전용 동작**은 갖지 않는다(약속 확정·출발은 21 에 있다).
 ///
 /// 서버 계약(2026-09): 멤버가 publicId·nickname·rideCount 를 함께 준다. 「나」 판정은 `User.isMe`
 /// 하나로 끝난다 — 예전에는 앱이 자기 내부 Long id 를 몰라 고정값 1 과 비교하던 자리였다.
@@ -48,23 +52,27 @@ public struct RideDetailScreen: View {
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
+    private let onFareSplit: () -> Void
 
     @State private var routeMemo = Remembered<String?, [LatLng]>()
 
     /// - Parameters:
     ///   - pickupDistanceMeters: 내 위치 → 탑승 위치 거리(m). 모르면 nil 이고 그 줄을 감춘다
+    ///   - onFareSplit: 끝난 방의 **택시비 정산**으로 간다. 버튼이 뜨는 조건은 `fareSplitEntryLabel` 이 정한다
     public init(
         ride: Ride,
         pickupDistanceMeters: Double? = nil,
         onBack: @escaping () -> Void = {},
         onPartnerClick: @escaping (User) -> Void = { _ in },
-        onLeave: @escaping () -> Void = {}
+        onLeave: @escaping () -> Void = {},
+        onFareSplit: @escaping () -> Void = {}
     ) {
         self.ride = ride
         self.pickupDistanceMeters = pickupDistanceMeters
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
+        self.onFareSplit = onFareSplit
     }
 
     public var body: some View {
@@ -180,6 +188,16 @@ public struct RideDetailScreen: View {
                 //
                 // 바탕 없는 빨간 글자 알약이다(디자인 QA G5·J3, 디자인 문서 button-danger) — 예전 회색 r16 상자는
                 // 앱의 다른 버튼과 모양이 달랐고, 회색은 「방에서 빠진다」는 무게를 말하지 못했다.
+                //
+                // 끝난 방 + 내가 도착을 눌렀다 → 택시비 정산. **나가기 분기보다 앞**에 둔다:
+                // 끝난 방에서는 나가기가 없고(아래 else 로 떨어진다) 사용자가 여기서 할 수 있는 일이
+                // 정산 하나뿐이라, 그 하나를 단계 안내문 아래가 아니라 **버튼 자리**에 놓는다.
+                // 글자는 방장/동승자로 갈린다(「택시비 정산하기」/「내 택시비 보내기」).
+                if let fareSplitLabel = fareSplitEntryLabel(ride: ride) {
+                    PrimaryCtaButton(text: fareSplitLabel, onClick: onFareSplit)
+                        .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
+                    Spacer().frame(height: MoyeotaSpacing.Xs)
+                }
                 if ride.status == .recruiting {
                     DangerTextButton(text: "나가기", onClick: onLeave)
                         .padding(.horizontal, 16)
@@ -281,17 +299,27 @@ func rideDetailNotice(isFull: Bool) -> String {
 /// 기사·배차를 걷어내면서 `DISPATCHING`(「기사님을 찾는 중이라 나갈 수 없어요」)·`ONGOING`
 /// (「운행 중이에요」) 두 줄이 사라졌다 — 서버가 그 status 를 보낼 수 없다.
 ///
-/// `RideStatus.matched` 는 **「나갈 수 없다」고 말하지 않는다.** 서버는 정원이 찬 방에서도 나가기를
-/// 허용하고(`ensureRecruiting` = ACTIVE·COMPLETED), 21 매칭 대기가 실제로 그 버튼을 띄운다 — 여기서
-/// 못 나간다고 적으면 거짓이 된다. 이 화면이 그 길을 갖지 않는 것은 사실이므로, 그 사실만 적어
-/// **나갈 수 있는 곳을 가리킨다**(이 화면은 21 의 조건 카드에서 한 번 탭으로 들어온 자리라
+/// `RideStatus.confirmed` 는 **「나갈 수 없다」고 말하지 않는다.** 서버는 **약속이 확정된 방에서도**
+/// 나가기를 허용하고(`b16551b7` 이 그 금지를 지웠다), 21 매칭 대기가 실제로 그 버튼을 띄운다 —
+/// 여기서 못 나간다고 적으면 거짓이 된다. 이 화면이 그 길을 갖지 않는 것은 사실이므로, 그 사실만
+/// 적어 **나갈 수 있는 곳을 가리킨다**(이 화면은 21 의 조건 카드에서 한 번 탭으로 들어온 자리라
 /// 「매칭 대기 화면」은 뒤로 한 번이다).
+///
+/// ### 🔴 「정원이 다 찼어요」가 거짓이 됐다 (2026-11-12) ★
+/// 이 status 를 「정원 충족」으로 읽던 문구였다. 서버가 COMPLETED 의 뜻을 **「방장이 약속을
+/// 확정했다」**로 바꿨고(`b16551b7`), **정원이 차도 status 는 ACTIVE** 다 — 그러니 이 문구는
+/// 3인 방에 2명 모인 확정 방에 「정원이 다 찼어요」를 그린다. **정원 판정의 유일한 참은
+/// `members.count >= capacity` 이고 이 함수는 status 하나만 받으므로, 정원을 말할 수 없다.**
+/// 그래서 status 로 참인 것만 말한다 — 「약속이 정해졌다」다.
+///
+/// 옛 주석에 있던 `ensureRecruiting` 설명도 지웠다 — 서버가 `Party` 의 단계 검사를
+/// `validateOpen()` 하나로 묶으면서 그 이름의 메서드가 없어졌다(같은 커밋).
 ///
 /// `switch` 에 `default` 를 두지 않는다 — 단계가 늘면 여기서 컴파일이 막혀야 한다. RECRUITING 은
 /// 버튼이 보이는 경로라 호출부가 부르지 않지만, 분기를 빼면 그 보장을 잃으므로 함께 적어 둔다.
 func stageNotice(status: RideStatus) -> String {
     switch status {
-    case .matched: "정원이 다 찼어요. 나가려면 매칭 대기 화면에서 「방 나가기」를 눌러 주세요"
+    case .confirmed: "약속이 정해졌어요. 나가려면 매칭 대기 화면에서 「방 나가기」를 눌러 주세요"
     case .canceled: "취소된 탑승이에요"
     case .completed: "완료된 탑승이에요"
     // 호출부가 RECRUITING 에서는 나가기 버튼을 그리므로 여기 오지 않는다

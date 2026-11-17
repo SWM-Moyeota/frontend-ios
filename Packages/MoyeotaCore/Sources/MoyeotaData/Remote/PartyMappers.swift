@@ -13,7 +13,8 @@ import MoyeotaDomain
 public func partyStatusToRideStatus(status: String) -> RideStatus {
     switch status {
     case "ACTIVE": return .recruiting
-    case "COMPLETED": return .matched
+    // 「방장이 약속을 확정했다」(실시간 방). 정원과 무관하다 — 정원이 차도 서버는 ACTIVE 로 둔다(`b16551b7`)
+    case "COMPLETED": return .confirmed
     case "FINISHED": return .completed
     // 정상 종료(FINISHED)와 갈라 둔다 — 아무도 출발지에 오지 않아 서버가 자동 정리한 방이 여기로
     // 떨어지는데, 「탄 적 없이 닫힌 방」을 완료와 같은 값으로 접으면 둘을 구분할 수 없다.
@@ -125,6 +126,14 @@ extension PartyDetailResponse.MemberInfo {
     }
 }
 
+extension PartyConfirmedPayload {
+    /// 만남 장소 셋 — **셋이 다 있을 때만** 값이 있다. 이름은 공백이면 없는 것으로 본다.
+    var meetingPlace: (latitude: Double, longitude: Double, name: String)? {
+        guard let departureLat, let departureLng, let name = departure?.takeIfNotBlank() else { return nil }
+        return (departureLat, departureLng, name)
+    }
+}
+
 extension PartyListResponse.PartyItem {
     public func toRide() -> Ride {
         Ride(
@@ -233,20 +242,16 @@ extension PartySseEvent {
                 hostPublicId: payload.hostPublicId?.takeIfNotBlank(),
                 version: payload.version
             )
-        case .recruitingClosed(let payload):
-            return .recruitingClosed(
-                // 상태 문자열을 **그대로** 올린다 — 도메인 계약이 String 이다(RideStatus 가 아니다).
-                // 두 신호의 status 는 지금 늘 "COMPLETED" 이고, 화면은 「모집이 끝났다」·「확정됐다」는
-                // 사실로 쓴다. 단계 판정의 단일 창구는 여전히 snapshot/상세의 RideStatus 다.
-                status: payload.status,
-                version: payload.version
-            )
         case .confirmed(let payload):
             return .confirmed(
                 status: payload.status,
                 // 빈 문자열은 null 로 접는다 — 화면이 「약속 시간을 모른다」를 한 가지 모양으로만 보게 한다
                 // (member-left 의 publicId 와 같은 정책). null 이면 상세를 다시 읽어야 한다.
                 departureAt: payload.departureAt?.takeIfNotBlank(),
+                // 셋이 **다 있을 때만** 올린다 — 일부만 덮어쓰면 도착 판정이 옛 좌표로 돈다
+                departureLat: payload.meetingPlace?.latitude,
+                departureLng: payload.meetingPlace?.longitude,
+                departurePlace: payload.meetingPlace?.name,
                 version: payload.version
             )
         // publicId 가 없는 프레임은 여기까지 오지 않는다 — 수신기가 버린다(`PartySseEvent.memberArrived` 주석).
@@ -395,38 +400,11 @@ func partyJoinException(
     return PartyJoinException(code: nil, serverMessage: nil, cause: failure)
 }
 
-/// 「합승 완료」 실패 → `PartyFinishException`. 합류(`partyJoinException`)와 같은 자리·같은 이유의 경계다
-/// — presentation 이 `HttpException` 을 보지 않게 하고, 화면 문구는 도메인 프로퍼티로만 갈린다.
-///
-/// `error` 는 이미 읽어 둔 본문(`readApiError`)이다 — 여기서 다시 읽지 않는다.
-///
-/// 합류와 달리 `isNetwork` 를 두지 않는다: 이 액션은 응답을 못 받은 실패와 모르는 코드의 **대응이 같다**
-/// (일반 문구). 쓰지 않을 구분을 노출하면 나중에 네트워크 실패에 방장 안내가 붙는 식으로 어긋난다.
-func partyFinishException(
-    failure: any Error,
-    error: ApiErrorDto?
-) -> PartyFinishException {
-    if let failure = failure as? PartyFinishException { return failure }
-
-    if let http = failure as? HttpException {
-        return PartyFinishException(
-            code: error?.code,
-            serverMessage: error?.message,
-            httpStatus: http.code(),
-            cause: failure
-        )
-    }
-
-    // 응답 자체를 못 받았다(연결 거부·타임아웃·DNS) 또는 그 밖의 실패. 서버가 말해 준 사유가 없으므로
-    // code 는 null 이고, 화면은 일반 문구로 안내한다.
-    return PartyFinishException(code: nil, serverMessage: nil, cause: failure)
-}
-
 /// 약속 확정·도착·출발 실패 → 액션마다 다른 예외. **셋을 한 함수로 합치지 않는 이유**는 예외를 셋으로
 /// 나눈 이유와 같다(`PartyConfirmException` 주석의 표): 같은 서버 코드가 액션에 따라 다른 문장을
 /// 요구하므로, 「어느 버튼이었나」를 타입이 들고 있어야 한다.
 ///
-/// 세 함수의 모양은 `partyFinishException` 과 같다 — `error` 는 이미 읽어 둔 본문(`readApiError`)이고
+/// 세 함수의 모양은 `partyJoinException` 과 같다 — `error` 는 이미 읽어 둔 본문(`readApiError`)이고
 /// (**본문은 한 번만 읽는다**), 응답을 못 받은 실패(code = null)와 모르는 코드는 둘 다 어느 사유로도
 /// 읽히지 않아 화면이 일반 문구를 쓴다. `isNetwork` 같은 구분은 두지 않는다: 이 셋은 그 두 경우의 **대응이
 /// 같다**(다시 시도). 쓰지 않을 구분을 노출하면 나중에 네트워크 실패에 「더 가까이 가 주세요」가 붙는다.
@@ -492,7 +470,7 @@ func partyDepartException(
     return PartyDepartException(code: nil, serverMessage: nil, cause: failure)
 }
 
-/// 실시간 매칭 후보 조회 실패 → `RealtimeMatchException`. `partyFinishException` 과 같은 경계다.
+/// 실시간 매칭 후보 조회 실패 → `RealtimeMatchException`. `partyJoinException` 과 같은 경계다.
 func realtimeMatchException(
     failure: any Error,
     error: ApiErrorDto?

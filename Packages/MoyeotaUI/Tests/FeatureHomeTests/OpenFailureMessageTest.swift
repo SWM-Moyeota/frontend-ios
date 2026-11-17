@@ -56,7 +56,7 @@ import Testing
 
     @Test("정원이 범위를 벗어났다")
     func invalidCapacity() {
-        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 1~3명까지만 정할 수 있어요")
+        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 2~3명이어야 해요")
     }
 
     /// 경로 관련 세 코드(+본문 없는 502)는 **한 갈래**다 — 사용자가 할 수 있는 일이 같다.
