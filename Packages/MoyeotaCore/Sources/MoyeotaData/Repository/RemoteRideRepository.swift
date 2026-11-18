@@ -49,11 +49,8 @@ public final class RemoteRideRepository: RideRepository {
 
     public func getNearbyParties() -> [Ride] { local.getNearbyParties() }
 
-    public func getParties() async throws -> [Ride] {
-        try await api.getParties().list.map { $0.toRide() }
-    }
-
-    // 전체 목록과 같은 경로 + 쿼리 파라미터 4개. 매퍼가 departureLat/Lng 를 originLat/Lng 로 옮긴다.
+    // 좌표 없는 전체 목록(`getParties()`)은 서버가 지웠다(`2732cc75`) — 목록은 뷰포트 조회 하나다.
+    // 쿼리 파라미터 4개가 전부 필수다. 매퍼가 departureLat/Lng 를 originLat/Lng 로 옮긴다.
     public func getPartiesWithin(
         swLat: Double,
         swLng: Double,
@@ -85,7 +82,7 @@ public final class RemoteRideRepository: RideRepository {
     ///
     /// 에러 본문은 한 번 읽어 들고 넘긴다(`readApiError`).
     /// 복구 조회는 없다: 서버는 검사를 **먼저** 하고 방을 만들므로, 실패했으면 만들어진 방이 없다
-    /// (확인할 것이 없다 — `finishParty` 와 같은 사정이다).
+    /// (확인할 것이 없다 — `confirmMeeting` 과 같은 사정이다).
     public func createParty(request: NewParty) async throws -> Ride {
         do {
             return try await api.openParty(request: request.toRequestDto()).toRide()
@@ -160,8 +157,8 @@ public final class RemoteRideRepository: RideRepository {
     /// 않아 증거가 필요했지만, 이 403 은 그 자체로 「이 방에 내가 없다」를 말한다. 덧붙여 방 상세에는
     /// 참여자 검사가 없어(`PartyMembershipLostException` 주석) 읽어도 멤버십을 되묻지 못한다.
     ///
-    /// 나머지 실패는 `PartyLeaveException` 으로 좁힌다 — 409 `PARTY_NOT_RECRUITING` 은 「매칭이 시작돼
-    /// 나갈 수 없다」라서 재시도 안내와 **다음 행동이 다르다**.
+    /// 나머지 실패는 `PartyLeaveException` 으로 좁힌다 — 409 `ARRIVED_MEMBER_CANNOT_LEAVE`(도착을 누른 뒤)·
+    /// `PARTY_CLOSED`(이미 닫힌 방)는 재시도 안내와 **다음 행동이 다르다**.
     public func leaveParty(partyId: Int64) async throws {
         do {
             try await api.leaveParty(partyId: partyId)
@@ -177,22 +174,8 @@ public final class RemoteRideRepository: RideRepository {
         }
     }
 
-    /// 실패를 전부 `PartyFinishException` 으로 좁힌다 — **403 과 409 가 각각 두 가지 뜻**이라
-    /// 화면이 상태 코드만으로는 안내 문구를 가를 수 없다(그 예외 주석 참고).
-    ///
-    /// 에러 본문은 한 번 읽어 들고 넘긴다(`readApiError`).
-    /// 합류와 달리 멤버십 복구 조회는 없다: 완료는 서버가 **검사를 먼저** 하고 상태를 바꾸므로,
-    /// 실패했으면 방은 그대로다(확인할 것이 없다).
-    public func finishParty(partyId: Int64) async throws {
-        do {
-            try await api.finishParty(partyId: partyId)
-        } catch where isCancellation(throwable: error) {
-            // 취소는 되던져 화면 이탈이 에러로 보이지 않게 한다.
-            throw error
-        } catch {
-            throw partyFinishException(failure: error, error: error.readApiError())
-        }
-    }
+    // 「합승 완료」(`finishParty`)는 서버가 `/finish` 를 지우면서(`b16551b7`) 함께 지웠다 —
+    // 방을 끝내는 길은 `departParty` 하나다.
 
     /// 약속 시간 확정. 실패는 전부 `PartyConfirmException` 으로 좁힌다 — **403 과 409 가 각각 여러 뜻**이라
     /// 상태 코드로는 안내 문구를 가를 수 없다(그 예외 주석의 표).
@@ -201,12 +184,27 @@ public final class RemoteRideRepository: RideRepository {
     /// `PartyEvent.confirmed` 에 실려 오기 때문이다(`observePartyEvents`). 여기서 상세를 한 번 더 읽으면
     /// 21 대기 화면이 같은 내용을 두 경로로 받아, 어느 쪽이 최신인지 순번으로 다시 가려야 한다.
     ///
-    /// `departureAt` 은 **검사하지 않고 그대로 싣는다.** 모양(ISO-8601 instant)과 범위(1시간 안)의 판정은
-    /// 서버가 하고, 앱이 같은 검사를 두 벌 들면 서버가 범위를 바꿀 때 한쪽만 따라간다 — 화면은 애초에
-    /// 만들 수 없는 값을 못 만들게(프리셋) 막는 쪽으로 책임을 진다.
-    public func confirmMeeting(partyId: Int64, departureAt: String) async throws {
+    /// `departureAt` 은 **검사하지 않고 그대로 싣는다.** 모양(ISO-8601 instant)과 범위(5분 뒤 ~ 1시간)의
+    /// 판정은 서버가 하고, 앱이 같은 검사를 두 벌 들면 서버가 범위를 바꿀 때 한쪽만 따라간다 — 화면은
+    /// 애초에 만들 수 없는 값을 못 만들게(프리셋) 막는 쪽으로 책임을 진다.
+    ///
+    /// 만남 장소 셋도 그대로 싣는다 — 장소를 바꾸지 않으면 화면이 **지금 출발지**를 넘긴다
+    /// (`RideRepository.confirmMeeting` 주석: 확정이 방의 출발지를 덮어쓴다).
+    public func confirmMeeting(
+        partyId: Int64,
+        departureAt: String,
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ) async throws {
+        let request = ConfirmMeetingRequestDto(
+            departureAt: departureAt,
+            departureLat: latitude,
+            departureLng: longitude,
+            departure: placeName
+        )
         do {
-            try await api.confirmMeeting(partyId: partyId, request: ConfirmMeetingRequestDto(departureAt: departureAt))
+            try await api.confirmMeeting(partyId: partyId, request: request)
         } catch where isCancellation(throwable: error) {
             // 취소는 되던져 화면 이탈이 에러로 보이지 않게 한다.
             throw error
@@ -237,7 +235,7 @@ public final class RemoteRideRepository: RideRepository {
     /// 출발 — 방을 끝낸다. 실패는 전부 `PartyDepartException` 으로 좁힌다.
     ///
     /// **되돌림도, 복구 조회도 없다.** 서버가 검사를 먼저 하고 상태를 바꾸므로 실패했으면 방은 그대로다
-    /// (`finishParty` 와 같은 사정). 성공했을 때의 뒤처리(노쇼 기록·방 종료)는 모두 서버 쪽이고,
+    /// (`confirmMeeting` 과 같은 사정). 성공했을 때의 뒤처리(탑승자 확정·방 종료)는 모두 서버 쪽이고,
     /// 화면은 SSE `PartyEvent.closed` 로 닫는다.
     ///
     /// 409 `PARTY_CLOSED` 를 성공으로 접지 **않는** 이유는 `partyDepartException`
@@ -301,11 +299,9 @@ public final class RemoteRideRepository: RideRepository {
         }
     }
 
-    // 조회 셋은 실패를 감싸지 않는다(이 저장소의 조회 관례 — getParties·getPartyDetail 과 같다).
-    // 세 호출 모두 **재정렬하지 않는다**: 받은 순서가 서버의 정렬이다.
-    public func getReservations(from: String, to: String) async throws -> [Ride] {
-        try await api.getReservations(from: from, to: to).list.map { $0.toRide() }
-    }
+    // 예약 조회 둘은 실패를 감싸지 않는다(이 저장소의 조회 관례 — getPartyDetail 과 같다).
+    // 둘 다 **재정렬하지 않는다**: 받은 순서가 서버의 정렬이다. 기간 예약 목록(`getReservations`)은
+    // 서버가 지웠다(`2732cc75`).
 
     // 파라미터 순서가 getPartiesWithin 과 같다(남서 → 북동) — 섞이면 서버가 400 INVALID_MAP_BOUNDS 다.
     public func getReservationsSoon(
@@ -368,7 +364,7 @@ public final class RemoteRideRepository: RideRepository {
 /// 두 벌 두면 그 여섯 자리에서 한쪽만 서버 변경을 따라간다 — 예외를 하나로 둔 근거와 같다
 /// (`PartyOpenException` 주석의 「두 액션을 한 예외에 둔 이유」).
 ///
-/// `PartyMappers.swift` 의 `partyJoinException`·`partyFinishException` 과 **같은 모양**이지만 그 파일이
+/// `PartyMappers.swift` 의 `partyJoinException`·`partyConfirmException` 과 **같은 모양**이지만 그 파일이
 /// 아니라 여기 있다 — 원본의 파일 배치를 따랐다. 나중에 세 함수를 한곳에 모으는 쪽이 낫다.
 ///
 /// `error` 는 이미 읽어 둔 본문(`readApiError`)이다 — 여기서 다시 읽지 않는다. 합류의 `isNetwork` 같은

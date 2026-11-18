@@ -21,16 +21,17 @@ public struct RideRecordPage: Hashable, Sendable {
 /// 끝난 탑승 한 건. 서버 `GET /api/v1/users/me/parties` 의 한 항목.
 ///
 /// ### 상태가 없다
-/// 이 목록에는 **하차까지 끝난 탑승만** 들어온다(서버가 `dropoffTime is not null` 로 거른다).
+/// 이 목록에는 **끝난 탑승만** 들어오고, `b16551b7` 부터 **도착을 누른 멤버만** 그 방의 기록을 갖는다.
 /// 그래서 `RideStatus` 를 붙이지 마라 — 전부 같은 값이 되어 화면이 뜻 없는 칩을 그린다.
 /// 진행 중인 방은 여기 **절대** 나오지 않는다(실측 2026-11-01, 로컬 `:8080`: `status=MATCHING`
 /// 방을 가진 계정이 불러도 빈 배열). 「지금 내가 타고 있는 방」은
 /// `ActivePartyRepository` 의 몫이고 둘은 서로를 대체하지 않는다.
 ///
-/// ### 요금이 null 인 것은 결함이 아니다
-/// `totalFare`·`farePerPerson`·`pickupTime` 이 null 인 기록은 **1차 모드**다(기사 없이 방장이
-/// 합승 종료). 화면은 그때 요금 줄을 **그리지 않는다** — 0원으로 보여 주면 「공짜로 탔다」는
-/// 거짓말이 된다. 이 저장소가 거짓 문구를 들어낸 이력이 있어 더더욱 그렇다.
+/// ### 요금이 null 인 것은 결함이 아니다 — **「정산이 없다」는 뜻이다**
+/// `totalFare`·`farePerPerson` 은 그 방의 **택시비 정산**에서 온다. 정산을 시작하지 않았거나 내가
+/// 그 정산의 당사자가 아니면 **둘 다** null 이다(서버가 함께 채우거나 함께 비운다). 화면은 그때 요금
+/// 줄을 **그리지 않는다** — 0원으로 보여 주면 「공짜로 탔다」는 거짓말이 된다. 이 저장소가 거짓
+/// 문구를 들어낸 이력이 있어 더더욱 그렇다.
 ///
 /// ### 시각은 문자열이다
 /// 서버가 주는 ISO-8601 문자열을 그대로 들고 있는다 — `ChatMessage.createdAt` 과 같은 방식이다.
@@ -41,14 +42,26 @@ public struct RideRecord: Hashable, Sendable {
     /// 출발지 이름. 서버가 주지 않으면 빈 문자열(매퍼가 접는다) — 화면이 null 을 또 확인하지 않게.
     public var departure: String
     public var destination: String
-    /// 기사가 탑승 처리한 시각(ISO-8601). 1차 모드 기록은 null.
+    /// 승차 시각(ISO-8601) — **방장이 출발을 누른 시각**. 아무도 출발을 누르지 않아 서버가 자동
+    /// 정리한 방은 **약속 시각**이 들어간다. **이 응답의 유일한 시각이고 서버 정렬 기준(최신순)이다.**
+    ///
+    /// ### 🔴 `dropoffTime` 은 지웠다 — 날짜를 그걸로 그리던 화면이 있었다 ★
+    /// 서버가 하차 시각을 없애고 승차 시각 하나로 바로잡았다(`135df701`). 모델에 남겨 두면 디코더가
+    /// 없는 키를 조용히 nil 로 채워 **모든 기록 카드의 날짜가 빈칸**이 된다 — 에러가 아니라 빈칸이라
+    /// 알아채기 어렵다. 그래서 필드를 지워 **컴파일로 잡게** 했다. 날짜 라벨은 이 값으로 만든다.
     public var pickupTime: String?
-    /// 하차 시각(ISO-8601). 목록에 들어오는 조건이라 사실상 항상 있다. 서버 정렬 기준(최신순).
-    public var dropoffTime: String?
-    /// 실제로 낸 총 요금. null 이면 1차 모드 기록 — 요금을 **그리지 않는다**.
+    /// 그 방의 택시비 정산에 받는 사람이 넣은 **실제 택시비**. nil 이면 정산이 없다 —
+    /// 요금을 **그리지 않는다**(0원으로 그리면 「공짜로 탔다」는 거짓이 된다).
+    ///
+    /// 서버는 `farePerPerson` 과 **함께 채우거나 함께 비운다.** 그래도 둘을 한 타입으로 묶지 않는다 —
+    /// 한쪽만 오는 서버 결함에서 묶는 쪽은 둘 다 버리지만, 지금은 있는 쪽만 그릴 수 있다
+    /// (`RideHistoryDisplay` 가 받아 낸다).
     public var totalFare: Int?
-    /// 서버가 계산한 1인 부담(`totalFare / memberCount` 내림). **앱이 다시 나누지 않는다** —
-    /// 앱의 예상 요금 계산은 10원 단위로 맞추므로 끌어다 쓰면 실제 결제액과 어긋난다.
+    /// 내 부담 금액. **1/N 이 아니다** — 방장이 사람마다 적어 넣은 금액이고, 그래서 **같은 방을 보는
+    /// 두 사람이 다른 값을 받는다**(보내는 사람은 보낼 금액, 받는 사람은 자기가 부담한 몫).
+    ///
+    /// **앱이 다시 나누지 않는다** — `totalFare / memberCount` 로 되돌리면 방장이 손으로 조정한
+    /// 금액이 뭉개지고, 앱의 예상 요금 계산은 10원 단위로 맞추므로 실제 금액과도 어긋난다.
     public var farePerPerson: Int?
     /// 나를 포함해 함께 탄 인원. **정원이 아니다** — 서버가 정원을 주지 않아 「2/3명」은 못 만든다.
     public var memberCount: Int
@@ -59,7 +72,6 @@ public struct RideRecord: Hashable, Sendable {
         departure: String,
         destination: String,
         pickupTime: String?,
-        dropoffTime: String?,
         totalFare: Int?,
         farePerPerson: Int?,
         memberCount: Int,
@@ -69,7 +81,6 @@ public struct RideRecord: Hashable, Sendable {
         self.departure = departure
         self.destination = destination
         self.pickupTime = pickupTime
-        self.dropoffTime = dropoffTime
         self.totalFare = totalFare
         self.farePerPerson = farePerPerson
         self.memberCount = memberCount

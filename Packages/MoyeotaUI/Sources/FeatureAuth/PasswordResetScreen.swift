@@ -134,7 +134,7 @@ public struct PasswordResetScreen: View {
                 onLoginIdChange(loginId)
             },
             label: "아이디",
-            placeholder: "moyeota",
+            placeholder: "아이디를 입력해 주세요",
             keyboardOptions: KeyboardOptions(keyboardType: .ascii, imeAction: .next),
             enabled: !verify.verifying
         )
@@ -154,7 +154,7 @@ public struct PasswordResetScreen: View {
                 onPhoneDigitsChange(phoneDigits)
             },
             label: "휴대폰 번호",
-            placeholder: "010-1234-5678",
+            placeholder: "예: 010-1234-5678",
             errorText: verify.phoneMessage,
             helperText: verify.stage == .idle ? "가입할 때 쓴 번호를 입력해 주세요" : nil,
             keyboardOptions: KeyboardOptions(keyboardType: .phone),

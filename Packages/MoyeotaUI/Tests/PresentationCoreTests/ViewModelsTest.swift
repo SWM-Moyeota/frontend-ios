@@ -702,9 +702,9 @@ private func chatRoom(id: Int64, partyId: Int64, status: ChatRoomStatus = .activ
         #expect(await eventually { recorder.recorded.count == 1 })
         #expect(recorder.recorded == [.seconds(10)])
 
-        await party.setResolved(ride(status: .matched))
+        await party.setResolved(ride(status: .confirmed))
         sut.refresh()
-        #expect(await eventually { sut.ride?.status == .matched })
+        #expect(await eventually { sut.ride?.status == .confirmed })
 
         try? await Task.sleep(for: .milliseconds(30))
         #expect(recorder.recorded.count == 1)
@@ -714,8 +714,9 @@ private func chatRoom(id: Int64, partyId: Int64, status: ChatRoomStatus = .activ
     func stageLabels() {
         #expect(ride(status: .recruiting).activeStage == .waiting)
         #expect(ride(status: .recruiting).activeStageLabel == "같이 탈 사람 찾는 중")
-        #expect(ride(status: .matched).activeStage == .waiting)
-        #expect(ride(status: .matched).activeStageLabel == "같이 탈 사람이 모였어요")
+        #expect(ride(status: .confirmed).activeStage == .waiting)
+        // 서버 COMPLETED 는 「정원 충족」이 아니라 「방장이 약속을 확정했다」다(`b16551b7`) — 상태값으로 참인 것만 말한다.
+        #expect(ride(status: .confirmed).activeStageLabel == "약속이 정해졌어요")
         #expect(ride(status: .completed).activeStage == ActiveStage.none)
         #expect(ride(status: .completed).activeStageLabel == "진행 중 탑승")
         #expect(ride(status: .canceled).activeStage == ActiveStage.none)

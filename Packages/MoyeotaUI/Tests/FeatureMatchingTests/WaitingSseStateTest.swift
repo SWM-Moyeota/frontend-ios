@@ -51,6 +51,15 @@ struct WaitingSseStateTest {
         )
     }
 
+    /// 확정 프레임 테스트의 바탕 — 상세·스냅샷이 주는 모양처럼 **출발지 좌표가 채워져 있다.**
+    private func rideWithOrigin(status: RideStatus = .recruiting) -> Ride {
+        var base = ride(status: status)
+        base.origin = "부산대 정문"
+        base.originLat = 35.2314
+        base.originLng = 129.0846
+        return base
+    }
+
     // ─── 입장 ───────────────────────────────────────────────────────────────
 
     @Test("입장 - 멤버를 더하고 서버가 준 상태로 바꾼다")
@@ -72,8 +81,8 @@ struct WaitingSseStateTest {
     func joinCarriesTransition() {
         let before = ride(status: .recruiting, capacity: 2, members: [me])
 
-        let completed = before.withMemberJoined(member: user("u2"), status: .matched)
-        #expect(completed.status == .matched)
+        let completed = before.withMemberJoined(member: user("u2"), status: .confirmed)
+        #expect(completed.status == .confirmed)
         // 목록도 함께 늘어난다 — status 만 갈아 끼우는 것이 아니다
         #expect(completed.members.map(\.id) == ["me", "u2"])
     }
@@ -116,7 +125,7 @@ struct WaitingSseStateTest {
 
     @Test("도착 - publicId 로 그 한 명만 도착 표시한다")
     func arrivedMarksOne() {
-        let before = ride(status: .matched, members: [me, user("u2"), user("u3")])
+        let before = ride(status: .confirmed, members: [me, user("u2"), user("u3")])
 
         let delta = before.withMemberArrived(publicId: "u2")
 
@@ -127,12 +136,13 @@ struct WaitingSseStateTest {
     /// **모르는 publicId 는 「목록이 낡았다」는 뜻이라 상세를 다시 읽는다** — 퇴장(아래)과 처방이 다르다.
     ///
     /// 서버도 그렇게 하라고 적어 두었지만(「목록에 없으면 방 상세를 다시 받는다」) 근거가 하나 더 있다.
-    /// 도착 표시는 배지만 그리는 값이 아니라 **「출발」 확인 문구가 말하는 노쇼 인원 수**의 근거다
-    /// (`notArrivedCount`). 낡은 목록을 두면 그 수가 실제보다 적어지고, 노쇼는 24시간 × 횟수의 실제
-    /// 제재다 — 적게 말하고 누르게 하는 쪽이 조회 1건보다 나쁘다.
+    /// 도착 표시는 배지만 그리는 값이 아니라 **「출발」 확인 문구가 말하는 「빠지는 인원」**의 근거다
+    /// (`notArrivedCount` — 서버가 「도착한 멤버 = 탑승자」로 센다). 낡은 목록을 두면 그 수가
+    /// 실제보다 적어지고, 빠진 사람은 탑승 기록·택시비 정산에서 사라지는 실제
+    /// 손해다 — 적게 말하고 누르게 하는 쪽이 조회 1건보다 나쁘다.
     @Test("도착 - 모르는 publicId 면 상세를 다시 읽는다")
     func arrivedUnknownNeedsDetail() {
-        let before = ride(status: .matched, members: [me, user("u2")])
+        let before = ride(status: .confirmed, members: [me, user("u2")])
 
         let delta = before.withMemberArrived(publicId: "u9")
 
@@ -142,9 +152,9 @@ struct WaitingSseStateTest {
 
     @Test("도착 - 빈 publicId 로는 아무도 표시하지 않고 다시 읽지도 않는다")
     func arrivedBlankMarksNobody() {
-        // 요약이 없는 멤버(id 가 빈 값)들을 한꺼번에 도착으로 만들면 노쇼 인원 수가 0 으로 보인다.
+        // 요약이 없는 멤버(id 가 빈 값)들을 한꺼번에 도착으로 만들면 「빠지는 인원」이 0 으로 보인다.
         // 그 프레임은 데이터 계층이 이미 버리므로(version 구멍 → 다음 프레임이 Resync) 여기서는 조용히 넘긴다.
-        let before = ride(status: .matched, members: [me, user(""), user("")])
+        let before = ride(status: .confirmed, members: [me, user(""), user("")])
 
         let delta = before.withMemberArrived(publicId: "")
 
@@ -156,7 +166,7 @@ struct WaitingSseStateTest {
 
     @Test("퇴장 - publicId 로 그 한 명만 지우고 상태를 바꾼다")
     func leaveRemovesOne() {
-        let before = ride(status: .matched, members: [me, user("u2"), user("u3")])
+        let before = ride(status: .confirmed, members: [me, user("u2"), user("u3")])
 
         let after = before.withMemberLeft(publicId: "u2", status: .recruiting).ride
 
@@ -167,7 +177,7 @@ struct WaitingSseStateTest {
     @Test("퇴장 - 모르는 publicId 면 목록은 그대로 두고 상태만 반영한다")
     func leaveUnknownKeepsList() {
         // 그 사람의 입장 신호를 놓쳤다는 뜻이다. 없는 사람을 지우려 상세를 또 읽지는 않는다.
-        let before = ride(status: .matched, members: [me, user("u2")])
+        let before = ride(status: .confirmed, members: [me, user("u2")])
 
         let after = before.withMemberLeft(publicId: "u9", status: .recruiting).ride
 
@@ -216,14 +226,14 @@ struct WaitingSseStateTest {
 
     // ─── 방장 승계 (Backend #240) ───────────────────────────────────────────
 
-    /// **이 테스트가 깨지면 방장이 나가도 승계된 사람이 「합승 완료」를 못 본다.**
+    /// **이 테스트가 깨지면 방장이 나가도 승계된 사람이 방장 전용 버튼(약속 확정·출발)을 못 본다.**
     ///
     /// 서버는 멤버가 나갈 때마다 남은 멤버 중 `min(joinedAt, memberId)` 를 방장으로 다시 정하고,
     /// 그 결과를 `member-left` 의 `hostPublicId` 로 **한 번만** 알려 준다 — 여기서 버리면 다음
     /// 재연결 스냅샷까지 승계된 사람의 화면이 낡은 채로 남는다.
     @Test("승계 - 방장이 나가면 서버가 지목한 사람이 방장이 된다")
     func successionOnHostLeave() {
-        let before = ride(status: .matched, members: [user("u1", isHost: true), me, user("u3")])
+        let before = ride(status: .confirmed, members: [user("u1", isHost: true), me, user("u3")])
 
         let after = before.withMemberLeft(publicId: "u1", status: .recruiting, hostPublicId: "me")
 
@@ -294,7 +304,7 @@ struct WaitingSseStateTest {
         #expect(after.needsDetail, "서버에 다시 물어야 한다")
     }
 
-    /// ### 프레임 순서 역전 ★ — **이 테스트가 깨지면 진짜 방장이 「합승 완료」를 영구히 잃는다**
+    /// ### 프레임 순서 역전 ★ — **이 테스트가 깨지면 진짜 방장이 「출발」을 영구히 잃는다**
     ///
     /// 두 멤버가 연달아 나가면 서버는 프레임 둘을 따로 발행하고, 각 프레임의 `hostPublicId` 는
     /// **그 프레임을 반영한 뒤의** 방장이다. 전송 중 순서가 뒤집히면 뒤늦게 온 프레임이
@@ -305,7 +315,7 @@ struct WaitingSseStateTest {
     /// SSE 가 살아 있으면 폴백 폴링도 돌지 않는다(`shouldPollFallback`).
     @Test("승계 - 프레임 순서가 역전돼도 진짜 방장은 표시를 잃지 않는다")
     func successionSurvivesReorder() {
-        let before = ride(status: .matched, capacity: 3, members: [user("u1", isHost: true), user("u2"), me])
+        let before = ride(status: .confirmed, capacity: 3, members: [user("u1", isHost: true), user("u2"), me])
 
         // 나중 프레임(u2 이탈 → 승계 = me)이 먼저 도착했다
         let first = before.withMemberLeft(publicId: "u2", status: .recruiting, hostPublicId: "me")
@@ -354,7 +364,7 @@ struct WaitingSseStateTest {
     /// (합류자는 가장 늦게 들어온 사람 = `min(joinedAt)` 이 될 수 없다).
     @Test("승계 - 증분으로 만든 방장 표시가 스냅샷과 같다")
     func deltaMatchesSnapshot() {
-        let before = ride(status: .matched, capacity: 3, members: [user("u1", isHost: true), me, user("u3")])
+        let before = ride(status: .confirmed, capacity: 3, members: [user("u1", isHost: true), me, user("u3")])
 
         // delta: u1(방장) 이탈 → 서버가 me 를 승계로 지목
         let delta = before.withMemberLeft(publicId: "u1", status: .recruiting, hostPublicId: "me").ride
@@ -378,6 +388,102 @@ struct WaitingSseStateTest {
         #expect(after.members.filter(\.isHost).count == 1)
     }
 
+    // ─── 약속 확정 프레임 ───────────────────────────────────────────────────
+
+    /// 🔴 ★ **확정 프레임이 방의 출발지를 옮긴다** (2026-11-12 에 새로 생긴 규칙).
+    ///
+    /// 서버는 확정과 함께 방의 출발지를 만남 장소로 바꾼다(`Party.confirm`:
+    /// `departureLocation = plan.departure()`), 그래서 `confirmed` 프레임에 좌표·이름이 실려 온다.
+    /// 무시하면 둘이 깨진다:
+    ///
+    /// | 무시하면 | 결과 |
+    /// |---|---|
+    /// | 지도가 옛 출발지를 가리킨다 | 보고 넘길 수 있다 |
+    /// | **도착 판정이 옛 좌표를 기준으로 돈다** | 약속 장소에 서 있는 사람이 400 `TOO_FAR_FROM_DEPARTURE` → **방을 끝낼 길이 막힌다** |
+    ///
+    /// 둘째가 본체라 값으로 못 박는다. status 는 그대로 두는 것도 함께 고정한다 — 프레임의 status 는
+    /// 서버 enum 이름 **문자열**이라 옮기려면 매퍼를 화면 쪽에 베껴야 한다.
+    @Test("확정 - 실려 온 출발지로 덮어쓰고 status 는 건드리지 않는다")
+    func confirmedMovesOrigin() {
+        let before = rideWithOrigin(status: .recruiting)
+
+        let delta = before.withMeetingConfirmed(
+            departureAt: "2026-11-06T06:30:00Z",
+            departureLat: 35.1631,
+            departureLng: 129.1635,
+            departurePlace: "센텀시티역 3번 출구"
+        )
+
+        #expect(delta.ride.isConfirmed)
+        #expect(delta.ride.departureAt == "2026-11-06T06:30:00Z")
+        #expect(delta.ride.origin == "센텀시티역 3번 출구")
+        #expect(delta.ride.originLat == 35.1631)
+        #expect(delta.ride.originLng == 129.1635)
+        // status 는 다음 스냅샷·폴백 상세가 맞춘다 — 화면은 `isConfirmed` 를 보므로 지연이 안 보인다
+        #expect(delta.ride.status == .recruiting)
+        #expect(!delta.needsDetail, "셋이 다 왔으니 상세를 또 읽을 이유가 없다")
+    }
+
+    /// ★ **반쪽만 온 프레임으로는 덮어쓰지 않는다** — 좌표와 이름이 어긋난 출발지를 만들면
+    /// 지도와 도착 판정이 **서로 다른 곳**을 가리키고, 그 어긋남은 화면에서 알 수 없다.
+    ///
+    /// 매퍼가 「셋이 다 있거나 전부 nil」로 보장하지만(`PartySseEvent`) 타입은 셋 다 옵셔널이다 —
+    /// 그 보장을 여기서 다시 확인하고, 깨졌으면 **상세를 읽는다**(서버가 지시하는 처방이다).
+    @Test("확정 - 출발지가 반쪽만 오면 손대지 않고 상세를 읽는다")
+    func confirmedPartialOriginRereads() {
+        let before = rideWithOrigin()
+
+        let halves = [
+            before.withMeetingConfirmed(departureAt: "2026-11-06T06:30:00Z", departureLat: 35.1631),
+            before.withMeetingConfirmed(departureAt: "2026-11-06T06:30:00Z", departureLng: 129.1635),
+            before.withMeetingConfirmed(departureAt: "2026-11-06T06:30:00Z", departurePlace: "센텀시티역"),
+            before.withMeetingConfirmed(departureAt: "2026-11-06T06:30:00Z", departureLat: 35.1631, departureLng: 129.1635),
+        ]
+
+        for delta in halves {
+            #expect(delta.needsDetail, "반쪽 프레임인데 상세를 읽지 않는다")
+            #expect(delta.ride.origin == "부산대 정문")
+            #expect(delta.ride.originLat == 35.2314)
+            #expect(delta.ride.originLng == 129.0846)
+            // 확정 사실과 시각은 **그래도 반영한다** — 그 둘은 반쪽이 아니다
+            #expect(delta.ride.isConfirmed)
+            #expect(delta.ride.departureAt == "2026-11-06T06:30:00Z")
+        }
+    }
+
+    /// 출발지를 **아예 싣지 않은** 프레임(옛 배포)은 정상이다 — 손대지 않고 상세도 읽지 않는다.
+    /// 그때 방의 출발지가 곧 만남 장소이고(서버가 옮기지 않았거나 같은 값이다), 읽어도 같은 답이다.
+    @Test("확정 - 출발지를 싣지 않은 옛 프레임은 그대로 받는다")
+    func confirmedWithoutOriginKeepsOrigin() {
+        let before = rideWithOrigin()
+
+        let delta = before.withMeetingConfirmed(departureAt: "2026-11-06T06:30:00Z")
+
+        #expect(delta.ride.isConfirmed)
+        #expect(delta.ride.origin == "부산대 정문")
+        #expect(!delta.needsDetail)
+    }
+
+    /// ★ **약속 시각이 없으면 들고 있던 값을 지우지 않는다** — 지우면 「몇 시에 만나는지」를 잃는다.
+    ///
+    /// 그런데 **양쪽 다 없으면 상세를 읽는다**: 「확정됐다」는 사실만 알고 **언제**를 모르면
+    /// `meetingStage` 가 `confirmedWaiting` 에 영구히 머물러 **도착 버튼이 영영 뜨지 않는다.**
+    /// 그 상태는 화면이 「약속 시간이 정해졌어요」만 그리므로 사용자도 개발자도 알아채기 어렵다.
+    @Test("확정 - 약속 시각이 없으면 들고 있던 값을 지키고 둘 다 없으면 상세를 읽는다")
+    func confirmedMissingTime() {
+        var held = ride()
+        held.departureAt = "2026-11-06T06:30:00Z"
+        for missing in [nil, "", "   "] as [String?] {
+            let kept = held.withMeetingConfirmed(departureAt: missing)
+            #expect(kept.ride.departureAt == "2026-11-06T06:30:00Z", "들고 있던 약속 시각을 날렸다")
+            #expect(!kept.needsDetail)
+
+            let unknown = ride().withMeetingConfirmed(departureAt: missing)
+            #expect(unknown.needsDetail, "언제인지 모르는데 상세를 읽지 않는다 — 도착 버튼이 영영 안 뜬다")
+            #expect(unknown.ride.isConfirmed)
+        }
+    }
+
     // ─── 상세 재조회 판정 (되돌이 방지) ────────────────────────────────────
 
     /// 변경분 적용 뒤 상세를 읽는 사유는 둘이고 처방이 같다 — 그래서 판정도 하나다.
@@ -398,18 +504,20 @@ struct WaitingSseStateTest {
 
     @Test("재조회 - 인원이 어긋난 프레임도 상세를 읽는다")
     func rereadOnDrift() {
-        // 방장은 맞췄지만(me) 정원이 찼다는 status 에 목록이 모자란다
-        let delta = ride(status: .matched, capacity: 4, members: [me])
-            .withMemberLeft(publicId: "u9", status: .matched, hostPublicId: "me")
+        // 방장은 맞췄지만(me) 목록이 **정원을 넘었다** — 서버 상태로는 있을 수 없는 모양이다
+        // (서버가 `PARTY_FULL` 로 막는다). 즉 내 목록이 부풀었다는 뜻이다(`hasMemberDrift`).
+        let delta = ride(status: .recruiting, capacity: 2, members: [me, user("u2"), user("u3")])
+            .withMemberLeft(publicId: "u9", status: .recruiting, hostPublicId: "me")
 
         #expect(!delta.needsDetail)
+        #expect(hasMemberDrift(ride: delta.ride))
         #expect(needsDetailAfterDelta(delta: delta))
     }
 
     @Test("재조회 - 사유가 둘 다여도 판정은 하나다 (상세는 1회)")
     func rereadOnBoth() {
-        let delta = ride(status: .matched, capacity: 4, members: [me])
-            .withMemberLeft(publicId: "u9", status: .matched, hostPublicId: "u9")
+        let delta = ride(status: .recruiting, capacity: 2, members: [me, user("u2"), user("u3")])
+            .withMemberLeft(publicId: "u9", status: .recruiting, hostPublicId: "u9")
 
         #expect(delta.needsDetail)
         #expect(hasMemberDrift(ride: delta.ride))
@@ -425,45 +533,76 @@ struct WaitingSseStateTest {
     }
 
     // ─── 어긋남 감지 ────────────────────────────────────────────────────────
+    //
+    // 🔴 **판정 근거가 바뀐 구역이다** (2026-11-12). 예전에는 **서버가 준 status 와 목록**을 견줬다:
+    //
+    // ```
+    // matched     -> members.count < capacity   // 정원이 찼다는데 목록이 모자라다
+    // recruiting  -> members.count >= capacity  // 모집 중인데 목록이 정원을 채웠다
+    // ```
+    //
+    // 두 줄 다 모순이 아니게 됐다 — 서버가 COMPLETED 의 뜻을 「방장이 약속을 확정했다」로 바꾸면서
+    // (`b16551b7`) ① 2/3 짜리 확정 방이 정상이고 ② **정원이 찬 방도 ACTIVE** 다. 그 두 테스트는
+    // **지금은 정상인 방을 어긋남으로 판정하라고 요구**하므로 아래 둘로 바꿔 적었다.
+    //
+    // 남은 유일한 참은 **정원 초과**다: 서버가 `PARTY_FULL` 로 막으므로 `members.count > capacity`
+    // 는 서버 상태로는 있을 수 없고, 봤다면 내 목록이 부풀었다는 뜻이다(같은 합류를 두 번 얹었거나
+    // 이탈 프레임을 놓쳤다).
 
-    @Test("어긋남 - 정원이 찼다는데 목록이 모자라면 상세로 보정한다")
-    func driftMatchedShort() {
-        #expect(hasMemberDrift(ride: ride(status: .matched, capacity: 4, members: [me])))
+    /// 🔴 ★ **목록이 정원을 넘으면 어긋남이다** — 서버가 `PARTY_FULL` 로 막으므로 있을 수 없는 모양이다.
+    ///
+    /// 옛 두 테스트(「정원이 찼다는데 목록이 모자라면」·「모집 중인데 목록이 정원을 채웠으면」)를
+    /// 이 하나로 대체했다. 그 둘이 못 박던 사실(「status 와 목록이 모순이면 목록이 틀렸다」)은
+    /// **status 가 아예 다른 사실을 말하게 되어** 성립하지 않는다.
+    @Test("어긋남 - 목록이 정원을 넘으면 상세로 보정한다")
+    func driftOverCapacity() {
+        var inflated = ride(status: .recruiting, capacity: 2, members: [me, user("u2"), user("u3")])
+        #expect(hasMemberDrift(ride: inflated))
+        // status 와 무관하다 — 어느 단계에서도 정원 초과는 있을 수 없다
+        inflated.status = .confirmed
+        #expect(hasMemberDrift(ride: inflated))
     }
 
-    @Test("어긋남 - 정원이 찼고 목록도 찼으면 아무것도 안 한다")
-    func noDriftMatchedFull() {
-        let full = ride(status: .matched, capacity: 2, members: [me, user("u2")])
-        #expect(!hasMemberDrift(ride: full))
-    }
-
-    @Test("어긋남 - 모집 중인데 목록이 정원을 채웠으면 상세로 보정한다")
-    func driftRecruitingFull() {
-        // 내 목록엔 다 찬 것처럼 보이는데 서버는 아직 모집 중이다 = 퇴장 신호를 놓쳤다.
-        let stale = ride(status: .recruiting, capacity: 2, members: [me, user("u2")])
-        #expect(hasMemberDrift(ride: stale))
-    }
-
-    @Test("어긋남 - 모집 중이고 자리가 남았으면 정상이다")
-    func noDriftRecruiting() {
+    /// 🔴 ★ **정원이 안 찬 것은 더 이상 모순이 아니다** — 두 status 에서 모두 정상이다.
+    ///
+    /// 이 테스트가 뒤집힌 쪽을 못 박는다. 옛 식을 되돌리면 **2/3 짜리 확정 방**과 **정원이 찬 미확정
+    /// 방**이 매 프레임 어긋남으로 판정되어 상세를 계속 다시 읽는다 — SSE 가 살아 있어 폴백은 돌지
+    /// 않는데(`shouldPollFallback`) 변경분마다 상세 1건이 덧붙는 모양이 된다.
+    @Test("어긋남 - 정원이 안 찬 것도 꽉 찬 것도 모순이 아니다")
+    func noDriftUnderOrAtCapacity() {
+        // 2/3 확정 방 — 서버 COMPLETED 는 「정원 충족」이 아니라 「확정」이다
+        #expect(!hasMemberDrift(ride: ride(status: .confirmed, capacity: 3, members: [me, user("u2")])))
+        // 정원이 꽉 찬 모집 중 방 — 서버는 정원이 차도 ACTIVE 로 둔다
+        #expect(!hasMemberDrift(ride: ride(status: .recruiting, capacity: 2, members: [me, user("u2")])))
         #expect(!hasMemberDrift(ride: ride(status: .recruiting, capacity: 4, members: [me])))
     }
 
-    /// 대기 단계 밖에서는 어긋남을 보지 않는다 — Route 가 이미 화면을 떠나게 한다.
-    /// 열거형 전체에서 그 둘만 빼고 훑으므로, 단계가 늘어도 「새 단계는 보지 않는다」가 유지된다.
-    @Test("어긋남 - 종료 단계는 보지 않는다 (화면이 이미 넘어간다)")
-    func noDriftOutsideWaiting() {
-        for status in RideStatus.allCases where status != .recruiting && status != .matched {
+    /// **status 를 아예 보지 않는다** — 열거형 전체에서 정원 초과가 참이고 정상 목록이 거짓이다.
+    ///
+    /// 예전에는 「종료 단계에서는 어긋남을 보지 않는다」였다(Route 가 이미 화면을 떠나므로). 지금
+    /// 판정은 status 와 무관하므로 그 가지가 없다 — 대신 **어느 단계에서도 같은 답**이라는 것을
+    /// 열거형 전체로 못 박는다. 단계가 늘어도 판정이 조용히 갈리지 않는다.
+    @Test("어긋남 - status 를 보지 않는다")
+    func driftIgnoresStatus() {
+        for status in RideStatus.allCases {
+            #expect(
+                hasMemberDrift(ride: ride(status: status, capacity: 1, members: [me, user("u2")])),
+                "\(status) 에서 정원 초과를 놓쳤다"
+            )
             #expect(
                 !hasMemberDrift(ride: ride(status: status, capacity: 4, members: [me])),
-                "\(status) 에서 어긋남을 판정했다"
+                "\(status) 에서 멀쩡한 목록을 어긋남으로 봤다"
             )
         }
     }
 
+    /// ★ **정원을 모르는 방(`capacity` 0)은 판단하지 않는다.** 목록·추천 응답으로 만든 `Ride` 가
+    /// 그렇고, 0 은 「정원이 0명」이 아니라 「정원을 모른다」다 — 가드가 없으면 **멤버가 한 명이라도
+    /// 있는 모든 방**이 정원 초과로 읽혀 매 프레임 상세를 다시 읽는다.
     @Test("어긋남 - 정원을 모르는 방은 판단하지 않는다")
     func noDriftUnknownCapacity() {
         #expect(!hasMemberDrift(ride: ride(status: .recruiting, capacity: 0, members: [])))
+        #expect(!hasMemberDrift(ride: ride(status: .recruiting, capacity: 0, members: [me])))
     }
 
     // ─── 폴링 정책 ──────────────────────────────────────────────────────────
@@ -485,13 +624,15 @@ struct WaitingSseStateTest {
         #expect(shouldPollFallback(realtimeAlive: false, hasRide: false))
     }
 
-    @Test("대기 단계는 모집 중과 정원 찬 상태뿐 - 그 밖이면 폴백을 끝낸다")
+    /// 대기 단계는 **모집 중과 확정됨** 둘이다 — 「정원 찬 상태」가 아니다(서버 COMPLETED 의 뜻이
+    /// 바뀌었다). 통과시키는 값은 그대로고, 이름이 가리키던 사실만 달라졌다.
+    @Test("대기 단계는 모집 중과 확정된 상태뿐 - 그 밖이면 폴백을 끝낸다")
     func waitingStages() {
         #expect(isWaitingForMembers(status: .recruiting))
-        #expect(isWaitingForMembers(status: .matched))
+        #expect(isWaitingForMembers(status: .confirmed))
         // 그 밖은 지금 닫힌 방 둘뿐이지만, 열거형 전체를 훑어 단계가 늘어도 폴백이 영원히
         // 돌지 않게 못 박는다 — 끝나지 않는 6초 루프가 이 판정이 막는 것이다.
-        for status in RideStatus.allCases where status != .recruiting && status != .matched {
+        for status in RideStatus.allCases where status != .recruiting && status != .confirmed {
             #expect(!isWaitingForMembers(status: status), "\(status) 가 대기 단계로 읽힌다")
         }
     }

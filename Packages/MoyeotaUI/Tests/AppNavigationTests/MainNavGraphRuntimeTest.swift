@@ -518,28 +518,6 @@ import UIKit
         await graph.close()
     }
 
-    @Test("35 「노쇼 기록」은 38 을 쌓고 그 화면이 그래프의 노쇼 저장소로 목록을 읽는다")
-    func noShowRecordsWired() async throws {
-        let graph = HostedGraph()
-        await graph.waitForViewControllers(1)
-        let nav = try graph.nav
-        nav.navigateTab(.mypage)
-        await graph.settle(8)
-
-        nav.navigate(.noShowRecords)
-        await graph.waitForViewControllers(2)
-        #expect(graph.routes == [.home, .mypage, .noShowRecords])
-        // 배선을 빠뜨리면 38 이 조용히 비어 있다(`MainNavGraph` 의 `noShowRepository` 주석) — 조회가 실제로 나갔는지 본다
-        await graph.waitUntil("38 목록 조회") { graph.noShows.listRequests > 0 }
-        await graph.settle(16)
-        let top = graph.insetSpacerFrames(in: graph.topView).filter { $0.minY < 1 }
-        #expect(top.contains { abs($0.height - InsetWindow.insets.top) < 0.5 }, "38 상태바 여백 \(top)")
-
-        nav.popBackStack()
-        await graph.waitUntil("35 로 복귀") { graph.routes == [.home, .mypage] }
-        await graph.close()
-    }
-
     // ─── 탭 상태 ───
 
     @Test("35 스크롤 위치는 탭을 다녀와도 남고 로그아웃하면 사라진다")

@@ -1,5 +1,5 @@
 /// 방의 진행 단계. 서버 `PartyStatus` 의 네 값과 하나씩 짝이다 —
-/// `ACTIVE`→`recruiting` · `COMPLETED`→`matched` · `FINISHED`→`completed` · `CANCELED`→`canceled`.
+/// `ACTIVE`→`recruiting` · `COMPLETED`→`confirmed` · `FINISHED`→`completed` · `CANCELED`→`canceled`.
 ///
 /// `canceled` 를 `completed` 와 갈라 두는 이유: 서버는 아무도 출발지에 도착하지 않은 방을 자동
 /// 정리할 때 CANCELED 로 닫는다. 그걸 「완료」와 같은 값으로 접으면 **탄 적 없이 닫힌 방**을
@@ -10,7 +10,15 @@
 /// 모르는 문자열은 매퍼가 `recruiting` 으로 떨어뜨리므로 옛 값이 와도 파싱은 깨지지 않는다.
 public enum RideStatus: String, CaseIterable, Sendable {
     case recruiting = "RECRUITING"
-    case matched = "MATCHED"
+    /// 서버 `COMPLETED` — **실시간 방의 방장이 약속을 확정했다**. 옛 이름은 `matched` 였다.
+    ///
+    /// 이 값은 `Ride.isConfirmed` 보다 **좁다**: 예약 방은 확정이지만 `recruiting` 이다.
+    /// 그래서 「확정됐나」를 묻는 자리는 이 값이 아니라 `Ride.isConfirmed` 를 봐야 한다 —
+    /// 이 값으로 물으면 예약 방이 전부 빠진다.
+    ///
+    /// ⚠️ **「정원이 찼다」를 뜻하는 상태값은 없다.** 오래 이 자리(`matched`)가 그 뜻이었지만 서버가
+    /// 바꿨다(`b16551b7`) — 정원이 차도 방은 ACTIVE 다. 정원 판정은 `members.count >= capacity` 하나다.
+    case confirmed = "CONFIRMED"
     case completed = "COMPLETED"
     case canceled = "CANCELED"
 
@@ -76,12 +84,13 @@ public struct Ride: Hashable, Sendable {
     /// 약속 시간 — 서버 `PartyDetailResult.departureAt` 을 **ISO-8601 문자열 그대로** 들고 온다.
     /// 실시간 방은 방장이 확정하기 전까지 nil 이고, 예약 방은 만들 때 정한 출발 시각이 처음부터 들어 있다.
     ///
-    /// **파싱해서 보관하지 않는다** — `RideRecord.dropoffTime`·`ChatMessage.createdAt` 과 같은 관례다. 도메인에서
+    /// **파싱해서 보관하지 않는다** — `RideRecord.pickupTime`·`ChatMessage.createdAt` 과 같은 관례다. 도메인에서
     /// `Date` 로 바꾸면 ① data 와 domain 이 같은 파싱을 각자 들고 어긋날 수 있고 ② 「바뀌었나」를
     /// `Ride` 끼리의 `==` 로 보는 주기 조회가 파싱 결과의 동등성에 묶인다. 사람이 읽을 모양
     /// (「오후 6:30」)으로 바꾸는 일은 화면이 한다.
     ///
-    /// 장소는 싣지 않는다 — 약속 장소는 **늘 방의 출발지**다(서버가 따로 담지 않는다).
+    /// 약속 장소는 **방의 출발지**다 — 확정이 출발지를 만남 장소로 **옮긴다**(서버 `Party.confirm`,
+    /// `2732cc75`). 그래서 확정 뒤의 `origin`·`originLat`·`originLng` 가 곧 만남 장소다.
     public var departureAt: String?
     /// 약속이 확정된 방인가(서버 `PartyDetailResult.confirmed`).
     ///
@@ -90,9 +99,15 @@ public struct Ride: Hashable, Sendable {
     /// 그 식이 **서버 것**이기 때문이다: 확정 취소 같은 게 생겨 서버가 판정을 바꾸면 앱이 베낀 식만 뒤처진다.
     /// (서버가 말해 주지 않은 옛 배포에서만 매퍼가 같은 식으로 셈해 채운다 — `PartyMappers.toRide`.)
     ///
-    /// 확정되면 방이 **닫히는 방식이 바뀐다**: 모집이 끝나고(ACTIVE→COMPLETED) 아무도 나갈 수 없으며
-    /// (409 `CANNOT_LEAVE_CONFIRMED_PARTY`), 「합승 완료」도 막힌다(409 `USE_DEPART_FOR_CONFIRMED_PARTY`).
-    /// 끝내는 길은 「출발」 하나뿐이다(`RideRepository.departParty`).
+    /// ### 「확정됐나」를 묻는 **단일 창구**가 이 값이다 — `RideStatus` 로 묻지 말 것 ★
+    /// 실시간 방이 확정되면 상태가 `RideStatus.confirmed` 로 가지만 **예약 방은 확정인데도
+    /// `RideStatus.recruiting`** 이다(서버가 출발 시각까지 ACTIVE 로 둔다). 상태값으로 물으면
+    /// 예약 방이 통째로 빠져, 예약 방 사용자에게 도착·출발 버튼이 영원히 안 뜬다.
+    ///
+    /// 확정되면 바뀌는 것: 모집이 끝나 **참여가 막히고**(실시간 방은 ACTIVE→COMPLETED), 도착·출발이
+    /// 열린다. **나가기는 여전히 된다** — 확정을 이유로 막던 규칙은 서버에서 사라졌고(`b16551b7`),
+    /// 지금 나가기를 막는 건 **도착을 누른 사람**뿐이다(409 `ARRIVED_MEMBER_CANNOT_LEAVE`).
+    /// 끝내는 길은 **도착한 방장의 「출발」** 하나뿐이다(`RideRepository.departParty`).
     public var isConfirmed: Bool
     /// 실시간 방인가 예약 방인가. 「약속 시간 정하기」는 **실시간 방에서만** 되고
     /// (`RideRepository.confirmMeeting`), 예약 방은 처음부터 확정이다.
@@ -145,7 +160,7 @@ public struct Ride: Hashable, Sendable {
 }
 
 extension Ride {
-    /// 내가 이 방의 방장인가 — 화면이 방장 전용 동작(「합승 완료」)을 가릴 때 보는 **단일 창구**다.
+    /// 내가 이 방의 방장인가 — 화면이 방장 전용 동작(**약속 확정 · 출발**)을 가릴 때 보는 **단일 창구**다.
     ///
     /// 멤버 목록에서 나를 찾아 그 한 명의 `User.isHost` 만 본다. 목록 첫째 원소나 입장 순서로 흉내 내지
     /// 말 것 — 서버의 방장은 현재 멤버 중 `min(joinedAt, memberId)` 라는 **파생값**이라(`User.isHost`)
@@ -183,7 +198,17 @@ extension Ride {
 /// 쓰임은 **합류 응답 하나뿐**이다. 예전에는 폴링용 상태 조회(`/status`)도 같은 모양이었지만
 /// 그 엔드포인트는 사라졌다(Backend `04f6be7`). 그래서 지문 필드도, 상세와 비교하던 `isSameAs` 도 없다.
 public struct PartyStatus: Hashable, Sendable {
-    /// 합류 **직후**의 상태. 내가 마지막 자리를 채웠으면 `RideStatus.matched` 로 온다.
+    /// 합류 **직후**의 방 상태.
+    ///
+    /// ### ⚠️ 이 값으로 「내가 마지막 자리를 채웠는지」를 알 수 없다 ★
+    /// 오래 알 수 있었다. 마지막 자리를 채우면 서버가 그 자리에서 `COMPLETED` 로 넘겼고, 이 주석도
+    /// 「내가 마지막 자리를 채웠으면 matched 로 온다」고 적혀 있었다. `b16551b7` 이 그걸 바꿨다 —
+    /// **정원이 차도 ACTIVE** 이고(참여만 `PARTY_FULL` 로 막는다) `COMPLETED` 는 「방장이 약속을
+    /// 확정한 실시간 방」만 뜻한다. 그래서 합류 응답에 `COMPLETED` 가 올 일이 **없다**(실측:
+    /// 2/2 를 채운 합류도 `{"status":"ACTIVE","currentMembers":2}` 였다).
+    ///
+    /// 정원이 찼는지가 필요하면 `currentMembers` 와 **그 방의 정원을 직접 비교**해야 한다.
+    /// 이 응답에는 정원이 없으므로, 호출부가 들고 있던 값(목록·추천 카드의 capacity)을 써야 한다.
     public var status: RideStatus
     public var currentMembers: Int
 

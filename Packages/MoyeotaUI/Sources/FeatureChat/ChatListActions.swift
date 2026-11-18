@@ -48,7 +48,7 @@ func chatLeavePlan(chatRoomId: Int64, ride: Ride?) -> ChatLeavePlan {
         partyId: partyId,
         isHost: ride.isHostedByMe,
         alone: ride.members.count == 1,
-        cancelsMeeting: ride.status == .matched && ride.members.count == 2,
+        cancelsMeeting: ride.status == .confirmed && ride.members.count == 2,
         capacity: ride.capacity,
         memberCount: ride.members.count
     ))

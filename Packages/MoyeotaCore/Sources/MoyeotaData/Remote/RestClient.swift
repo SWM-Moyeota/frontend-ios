@@ -77,7 +77,7 @@ struct RestClient: Sendable {
 
     func newRequest(
         _ route: ApiRoute,
-        path: KeyValuePairs<String, Int64> = [:],
+        path: KeyValuePairs<String, any ApiPathValue> = [:],
         query: KeyValuePairs<String, String?> = [:],
         body: (any Encodable)? = nil
     ) throws -> URLRequest {
@@ -91,9 +91,16 @@ struct RestClient: Sendable {
             throw IllegalArgumentException("쿼리 인자가 선언과 다르다: \(route.path)")
         }
 
-        var urlString = baseUrl + path.reduce(route.path) { partial, parameter in
-            partial.replacingOccurrences(of: "{\(parameter.key)}", with: String(parameter.value))
+        var relativePath = route.path
+        for parameter in path {
+            let segment = parameter.value.pathSegment
+            // Retrofit 처럼 `.`·`..` 를 경로에 끼우지 않는다 — 다른 엔드포인트로 거슬러 올라간다.
+            if segment == "." || segment == ".." {
+                throw IllegalArgumentException("@Path parameters shouldn't perform path traversal ('.' or '..'): \(segment)")
+            }
+            relativePath = relativePath.replacingOccurrences(of: "{\(parameter.key)}", with: segment)
         }
+        var urlString = baseUrl + relativePath
         // Retrofit 은 `@Query` 의 null 을 **아예 싣지 않는다**(`cursor=` 도 아니다).
         let items = query.compactMap { item in
             item.value.map { "\(encodeQueryComponent(item.key))=\(encodeQueryComponent($0))" }
@@ -121,7 +128,7 @@ struct RestClient: Sendable {
     /// `suspend fun x(): T`. 2xx 가 아니면 `HttpException`, 204/205 면 Retrofit 처럼 예외다.
     func call<T: Decodable>(
         _ route: ApiRoute,
-        path: KeyValuePairs<String, Int64> = [:],
+        path: KeyValuePairs<String, any ApiPathValue> = [:],
         query: KeyValuePairs<String, String?> = [:],
         body: (any Encodable)? = nil
     ) async throws -> T {
@@ -141,7 +148,7 @@ struct RestClient: Sendable {
     /// `suspend fun x()`(반환형 Unit). 2xx 면 본문을 보지 않고 끝난다.
     func callUnit(
         _ route: ApiRoute,
-        path: KeyValuePairs<String, Int64> = [:],
+        path: KeyValuePairs<String, any ApiPathValue> = [:],
         query: KeyValuePairs<String, String?> = [:],
         body: (any Encodable)? = nil
     ) async throws {
@@ -156,7 +163,7 @@ struct RestClient: Sendable {
     /// 전송 실패와 2xx 본문의 파싱 실패만 던진다. 204/205 면 `body()` 가 null 이다.
     func response<T: Decodable>(
         _ route: ApiRoute,
-        path: KeyValuePairs<String, Int64> = [:],
+        path: KeyValuePairs<String, any ApiPathValue> = [:],
         query: KeyValuePairs<String, String?> = [:],
         body: (any Encodable)? = nil
     ) async throws -> Response<T> {
@@ -188,6 +195,41 @@ func encodeQueryComponent(_ value: String) -> String {
             encoded.unicodeScalars.append(Unicode.Scalar(byte))
         default:
             encoded += String(format: "%%%02X", byte)
+        }
+    }
+    return encoded
+}
+
+/// Retrofit `@Path` 에 실을 수 있는 값 — 원본은 `toString()` 한 값을 경로 조각으로 인코딩해 끼운다.
+///
+/// 오래 `Int64` 하나뿐이었다(방·채팅방·메시지·장소 id). 택시비 정산의 「받았어요」·「못 받았어요」가
+/// 처음으로 **문자열**(보내는 사람 publicId)을 경로에 싣는다(`FareSplitApi.confirmReceived`).
+protocol ApiPathValue: Sendable {
+    /// URL 에 그대로 끼울, 이미 인코딩된 경로 조각.
+    var pathSegment: String { get }
+}
+
+extension Int64: ApiPathValue {
+    var pathSegment: String { String(self) }
+}
+
+extension String: ApiPathValue {
+    var pathSegment: String { encodePathSegment(self) }
+}
+
+/// Retrofit `@Path`(`encoded = false`) 와 같은 인코딩 — 제어 문자·비ASCII·`` "<>^`{}|\?# `` 와 `/`·`%` 만 `%XX` 로 바꾼다.
+///
+/// 쿼리 인코딩(`encodeQueryComponent`)을 빌려 쓰지 않는다 — 그쪽은 `~`·`+`·`:`·`@` 같은 경로에서 허용되는
+/// 문자까지 바꿔 원본과 다른 URL 을 만든다. 반대로 인코딩을 아예 하지 않으면 `/` 하나가 값을 세그먼트
+/// 여럿으로 쪼개 **다른 엔드포인트**로 간다(`received` 대신 엉뚱한 매핑에 닿는다).
+func encodePathSegment(_ value: String) -> String {
+    let alwaysEncoded: Set<UInt8> = Set(" \"<>^`{}|\\?#/%".utf8)
+    var encoded = ""
+    for byte in value.utf8 {
+        if byte < 0x20 || byte >= 0x7F || alwaysEncoded.contains(byte) {
+            encoded += String(format: "%%%02X", byte)
+        } else {
+            encoded.unicodeScalars.append(Unicode.Scalar(byte))
         }
     }
     return encoded

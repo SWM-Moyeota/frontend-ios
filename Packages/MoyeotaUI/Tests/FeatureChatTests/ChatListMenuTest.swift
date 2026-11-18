@@ -50,7 +50,7 @@ private func other(_ id: String = "b") -> User { member(id, isHost: id == "b") }
 private func ride(_ status: RideStatus, _ members: User...) -> Ride {
     Ride(
         id: "42", origin: "강남역", destination: "서울시청", departureLabel: "지금 출발", capacity: 3,
-        members: members, farePerPerson: 0, totalFare: 0, status: status, isConfirmed: status == .matched
+        members: members, farePerPerson: 0, totalFare: 0, status: status, isConfirmed: status == .confirmed
     )
 }
 
@@ -126,18 +126,17 @@ final class FakeChatListRideRepository: RideRepository, @unchecked Sendable {
 
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw TestFailure() }
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw TestFailure() }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw TestFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw TestFailure() }
     func findRealtimeCandidates(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> [MatchCandidate] { throw TestFailure() }
     func createParty(request: NewParty) async throws -> Ride { throw TestFailure() }
-    func finishParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw TestFailure() }
     func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?) async throws -> [ReservationSearchResult] { [] }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw TestFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
     func departParty(partyId: Int64) async throws { throw TestFailure() }
 }
@@ -230,7 +229,7 @@ final class ChatListMenuTest {
 
     @Test("진행 중인 방은 동승에서 나가고 목록에서 빠진다")
     func openRideLeavesParty() async {
-        rides.detail = { ride(.matched, me(), other(), other("c")) }
+        rides.detail = { ride(.confirmed, me(), other(), other("c")) }
         let viewModel = await loaded()
         var left: [ChatLeavePlan] = []
         viewModel.onLeft = { left.append($0) }
@@ -287,7 +286,7 @@ final class ChatListMenuTest {
 
     @Test("도착한 뒤에는 확인창이 이유만 알리고 아무 요청도 보내지 않는다")
     func arrivedSendsNothing() async {
-        rides.detail = { ride(.matched, me(arrived: true), other()) }
+        rides.detail = { ride(.confirmed, me(arrived: true), other()) }
         let viewModel = await loaded()
 
         await leave(viewModel, item(7))
@@ -327,7 +326,7 @@ final class ChatListMenuTest {
 
     @Test("그사이 도착을 눌렀으면 막힌 이유를 확인창으로 보여 준다")
     func arrivedMeanwhileShowsBlocked() async {
-        rides.detail = { ride(.matched, me(), other(), other("c")) }
+        rides.detail = { ride(.confirmed, me(), other(), other("c")) }
         rides.leaveError = PartyLeaveException(code: "ARRIVED_MEMBER_CANNOT_LEAVE", serverMessage: nil, httpStatus: 409)
         let viewModel = await loaded()
 

@@ -118,7 +118,8 @@ public final class RideHistoryViewModel {
                 self.loadInFlight = false
                 var next = self.uiState
                 let known = Set(next.records.map(\.partyId))
-                // 서버 정렬이 `dropoffTime desc, matchId desc` 라 뒤에 붙이면 된다.
+                // 서버 정렬이 **승차 시각 내림차순** + matchId 내림차순이라 뒤에 붙이면 된다
+                // (`dropoffTime` 이었다 — 서버가 그 필드를 지웠다, 백엔드 `135df701`).
                 // 같은 방이 두 번 들어오는 것만 막는다 — 목록의 `ForEach` id 가 partyId 라
                 // 중복 id 가 들어오면 어느 카드가 그려질지 정해지지 않는다.
                 next.records += page.records.filter { !known.contains($0.partyId) }
@@ -148,14 +149,18 @@ public final class RideHistoryViewModel {
 /// 진행 중인 방은 14 홈·17 탐색의 배너가 보여 준다.
 public struct RideHistoryRoute: View {
     private let onBack: () -> Void
+    private let onFareSplit: (Int64) -> Void
 
     @HostedViewModel private var viewModel: RideHistoryViewModel
 
+    /// - Parameter onFareSplit: 그 방의 택시비 정산으로. 함께 탄 사람이 2명 이상인 카드에 길이 열린다(`RideHistoryScreen` 주석).
     public init(
         repository: any RideRecordRepository,
-        onBack: @escaping () -> Void = {}
+        onBack: @escaping () -> Void = {},
+        onFareSplit: @escaping (Int64) -> Void = { _ in }
     ) {
         self.onBack = onBack
+        self.onFareSplit = onFareSplit
         _viewModel = HostedViewModel(wrappedValue: RideHistoryViewModel(repository: repository))
     }
 
@@ -169,7 +174,8 @@ public struct RideHistoryRoute: View {
             failed: state.failed,
             onLoadMore: { viewModel.loadMore() },
             onRetry: { viewModel.refresh() },
-            onBack: onBack
+            onBack: onBack,
+            onFareSplit: onFareSplit
         )
     }
 }

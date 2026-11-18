@@ -27,7 +27,7 @@ let ALREADY_IN_PARTY_MESSAGE = "이미 참여 중인 방이 있어요. 홈에서
 /// | 이미 참여 중인 방 | `ALREADY_JOINED_OTHER_PARTY` (409) | 홈 배너로 그 방에 들어가 정리한다 |
 /// | 출발지 = 도착지 | `SAME_DEPARTURE_DESTINATION` (400) | **핀을 옮긴다** |
 /// | 서비스 지역 밖 | `OUT_OF_SERVICE_AREA` (400) | 다른 장소를 고른다 |
-/// | 정원이 1~3 아님 | `INVALID_CAPACITY` (400) | 인원을 다시 고른다(사실상 앱 버그다) |
+/// | 정원이 2~3 아님 | `INVALID_CAPACITY` (400) | 인원을 다시 고른다(사실상 앱 버그다) |
 /// | 경로를 못 받음 | `ROUTE_SEARCH_FAILED` (502) · `INVALID_ROUTE_ESTIMATE`·`ROUTE_NOT_FOUND` (400) | 잠시 뒤 다시, 또는 핀을 조금 옮긴다 |
 /// | 그 밖·네트워크 | 코드 없음 | `OPEN_FAILED_MESSAGE` |
 ///
@@ -42,7 +42,7 @@ func openFailureMessage(e: PartyOpenException) -> String {
     if e.isAlreadyInAnotherParty { return ALREADY_IN_PARTY_MESSAGE }
     if e.isSameDepartureDestination { return "출발지와 도착지가 같아요. 핀을 옮겨 조금 떨어뜨려 주세요" }
     if e.isOutOfServiceArea { return "서비스 지역을 벗어난 위치예요. 출발지와 도착지를 다시 골라 주세요" }
-    if e.isInvalidCapacity { return "인원은 1~3명까지만 정할 수 있어요" }
+    if e.isInvalidCapacity { return "인원은 2~3명이어야 해요" }
     if e.isRouteUnavailable { return "경로를 찾지 못했어요. 잠시 후 다시 시도하거나 출발·도착지를 조금 옮겨 주세요" }
     return OPEN_FAILED_MESSAGE
 }
@@ -92,12 +92,11 @@ public final class CreatePartyViewModel {
         }
     }
 
-    /// 백엔드 검증 상한(서버 `Capacity` record = 1~3). 넘기면 400 `INVALID_CAPACITY` 가 오고
+    /// 백엔드 검증 상한(서버 `Capacity` = 2~3 — 실시간 하한 2 는 백엔드 `80957504`). 넘기면 400 `INVALID_CAPACITY` 가 오고
     /// 화면은 사유별 문구로 안내한다(`openFailureMessage`) — 예전에는 모든 실패가 한 문구라
     /// 「에러 바디 없는 500」과 구별되지 않았다.
     ///
-    /// 접는 일은 `capacityFor` 가 한다 — **하한이 모드에 따라 다르기 때문**이다(실시간 1,
-    /// 예약 2). 상한은 둘 다 3 이라 이 상수가 그 함수의 선택지 표와 같은 값을 가리킨다
+    /// 접는 일은 `capacityFor` 가 한다 — 예전에는 하한이 모드에 따라 달랐고(실시간 1, 예약 2) 지금은 둘 다 2 다. 상한은 둘 다 3 이라 이 상수가 그 함수의 선택지 표와 같은 값을 가리킨다
     /// (`capacityChoices`); 둘이 어긋나면 예약에서 4 가 전송될 수 있으니 한쪽을 고칠 때
     /// 다른 쪽을 함께 본다.
     public static let MAX_PARTY_CAPACITY = 3
@@ -125,7 +124,7 @@ public final class CreatePartyViewModel {
         if uiState.creating { return nil } // 중복 제출 차단
         // **이 한 값이 엔드포인트를 가른다**(`MatchConditions.departureAt`) — nil 이면 실시간 방
         // (`POST /matching/rooms`), 값이 있으면 예약 방(`POST /matching/reservations`).
-        // 정원 범위·실패 문구도 함께 갈린다(예약은 2~3, 실시간은 1~3).
+        // 실패 문구도 함께 갈린다(정원 범위는 2026-11-17 부터 둘 다 2~3).
         let departureAt = conditions.departureAt
         let mode: DepartureMode = departureAt == nil ? .now : .scheduled
         // 모달이 이미 접어서 보내지만 계약을 여기서 한 번 더 못박는다 — 벗어나면 400
@@ -198,11 +197,11 @@ public final class CreatePartyViewModel {
                 // 살아 있는 태스크의 `URLError(.cancelled)` 는 원본 `IOException` 이라 아래 일반 문구로 간다.
                 if Task.isCancelled { return }
                 if let e = error as? PartyOpenException {
-                    // **같은 예외, 다른 표.** 실시간 표에 갈래가 없는 세 코드(403 `NO_SHOW_RESTRICTED` ·
-                    // 409 `PARTY_TIME_CONFLICT` — 둘 다 실시간 생성에도 온다 — 와 예약 전용 400
-                    // `INVALID_DEPARTURE_TIME`)가 있어서, 한 함수로 뭉개면 예약에서도 그 셋이 전부
-                    // 「잠시 후 다시 시도해 주세요」가 된다 — 세 가지 모두 「잠시」로는 풀리지 않는다
-                    // (`reservationOpenFailureMessage`).
+                    // **같은 예외, 다른 표.** 실시간 표에 갈래가 없는 두 코드(409 `PARTY_TIME_CONFLICT`
+                    // — 실시간 생성에도 온다 — 와 예약 전용 400 `INVALID_DEPARTURE_TIME`)가 있어서,
+                    // 한 함수로 뭉개면 예약에서도 둘이 전부 「잠시 후 다시 시도해 주세요」가 된다 —
+                    // 둘 다 「잠시」로는 풀리지 않고 다른 시간을 골라야 풀린다(`reservationOpenFailureMessage`).
+                    // (셋째였던 403 `NO_SHOW_RESTRICTED` 는 서버가 노쇼 기능을 지워 사라졌다 — `b16551b7`.)
                     self.uiState.errorMessage = departureAt != nil
                         ? reservationOpenFailureMessage(e: e)
                         : openFailureMessage(e: e)

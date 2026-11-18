@@ -1029,7 +1029,6 @@ private final class CountingRepository: RideRepository, @unchecked Sendable {
     }
 
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw TestFailure() }
     func getPartyDetail(partyId: Int64) async throws -> Ride { throw TestFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw TestFailure() }
     func findRealtimeCandidates(
@@ -1044,8 +1043,9 @@ private final class CountingRepository: RideRepository, @unchecked Sendable {
     func createParty(request: NewParty) async throws -> Ride { throw TestFailure() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
-    func finishParty(partyId: Int64) async throws { throw TestFailure() }
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw TestFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
     func departParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(
@@ -1055,7 +1055,6 @@ private final class CountingRepository: RideRepository, @unchecked Sendable {
         destinationLng: Double
     ) async throws -> RouteEstimate { throw TestFailure() }
     func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
 }
 
 /// 조건이 설 때까지 기다린다 — 카운트다운은 조회를 기다리지 않고 다음 칸에 들어가므로, 시계를 민 뒤 나간 조회가

@@ -26,8 +26,8 @@ extension ReservationItemDto {
     /// (`departureAt != nil`)과 같은 답을 내지만 **그 식을 쓰지 않는다**: 서버가 `departureAt` 을
     /// 빠뜨린 응답에서 식은 false 가 되는데, 예약 방이 미확정이 되는 그 결과는 어느 경우에도 틀리다.
     ///
-    /// ⚠️ 확정의 대가를 화면이 알아야 한다: 확정된 방은 **나갈 수 없다**(409
-    /// `CANNOT_LEAVE_CONFIRMED_PARTY`). 예약 카드·상세에 「그만 찾기」를 띄우면 누를 수 없는 버튼이 된다.
+    /// 확정의 대가는 **시간을 바꿀 수 없다**는 것이다(`confirmMeeting` 이 409 `NOT_REALTIME_PARTY`).
+    /// **나가기는 된다** — 확정을 이유로 막던 `CANNOT_LEAVE_CONFIRMED_PARTY` 는 서버에서 사라졌다(`b16551b7`).
     ///
     /// ### 나머지는 방 목록 매퍼와 같은 규약
     /// 인원은 자리 표시용 멤버로 채우고 **모르면(nil) 빈 목록으로 남긴다** — 0 으로 접으면 카드가

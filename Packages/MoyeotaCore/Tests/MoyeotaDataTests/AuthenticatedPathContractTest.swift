@@ -196,9 +196,8 @@ import Testing
         )
     }
 
-    /// **방을 끝내는 정식 경로 셋**(2026-11-06 신규). 서버 Swagger 가 `/finish` 를 「구버전 앱용 이전
-    /// 경로」로 적어 두었고, 확정된 방에 그걸 부르면 409 `USE_DEPART_FOR_CONFIRMED_PARTY` 다 —
-    /// 즉 이 셋이 틀리면 **확정된 방을 끝낼 길이 앱에 없다**.
+    /// **방을 끝내는 정식 경로 셋**(2026-11-06 신규). 옛 「합승 완료」(`/finish`)는 서버가 지웠다
+    /// (`b16551b7`) — 즉 이 셋이 틀리면 **방을 끝낼 길이 앱에 없다**.
     ///
     /// 셋 다 `/matching/rooms/{partyId}/…` 아래의 POST 이고 세그먼트만 다르다. 그래서 오타가
     /// 404 가 아니라 **401** 로 떨어진다(Security 가 미매핑 경로도 보호한다) — 세션 만료로 오인하기
@@ -222,22 +221,20 @@ import Testing
             )
         }
 
-        // 출발은 **합승 완료와 다른 엔드포인트**다. 같은 POST 라 경로만 베끼면 조용히 옛 경로로 가고,
-        // 확정된 방에서는 409 USE_DEPART_FOR_CONFIRMED_PARTY 로 거절당한다.
-        #expect(
-            MatchingApiRoute.finishParty.route.path != MatchingApiRoute.departParty.route.path,
-            "출발이 합승 완료와 같은 경로를 탄다 — 확정된 방을 끝낼 수 없다"
-        )
+        // 옛 「합승 완료」(`/finish`)와 경로가 겹치는지 보던 단정은 **지웠다** — 서버가 그
+        // 엔드포인트를 없앴다(`b16551b7`). 지금 방을 끝내는 경로는 `departParty` 하나이고,
+        // 위에서 그 값을 그대로 못 박는다. 옛 경로가 되살아나는 것은 `removedMatchingRoutes` 가 본다.
     }
 
     /// **본문의 유무와 타입까지 못박는다.** 경로 검사만으로는 셋이 전부 통과하는데, 본문이 어긋나면
     /// 실패 모양이 `MatchingErrorCode` 밖의 400 `INVALID_REQUEST` 라 **화면에 일반 문구로만** 보인다
     /// (어느 사유 프로퍼티도 참이 아니다) — 원인을 찾기 가장 어려운 실패다.
     ///
-    /// - 확정: `{"departureAt": "<ISO-8601 instant>"}`. 서버 record 가 `Instant` + `@NotNull` 이다.
+    /// - 확정: `{"departureAt", "departureLat", "departureLng", "departure"}` — **넷 다 필수다.**
+    ///   `2732cc75` 가 만남 장소를 필수로 만들기 전에는 `departureAt` 하나였다.
     /// - 도착: `{"latitude": …, "longitude": …}`. 둘 다 `@NotNull` 이라 하나만 보내도 400 이다.
     /// - 출발: **본문 없음.** 본문을 실으면 서버가 읽지 않는 값을 보내는 것이고, 이 호출은
-    ///   되돌릴 수 없는 액션이라(노쇼 기록) "뭘 보냈는지"가 늘 명확해야 한다.
+    ///   되돌릴 수 없는 액션이라(도착하지 않은 멤버가 탑승자에서 빠진다) "뭘 보냈는지"가 늘 명확해야 한다.
     ///
     /// 원본은 `@Body` 파라미터 타입을 리플렉션으로 봤다. 여기는 그 수단이 없어 타입은 서명 대입으로
     /// 컴파일이 못 박고, 실제로 나간 본문의 키를 스텁에서 읽는다.
@@ -252,7 +249,15 @@ import Testing
         // 출발은 partyId 하나만 받는다 — 본문을 실을 자리가 서명에 없다.
         let depart: (Int64) async throws -> Void = api.departParty(partyId:)
 
-        try await confirm(7, ConfirmMeetingRequestDto(departureAt: "2026-11-03T08:30:00Z"))
+        try await confirm(
+            7,
+            ConfirmMeetingRequestDto(
+                departureAt: "2026-11-03T08:30:00Z",
+                departureLat: 37.4985,
+                departureLng: 127.0290,
+                departure: "강남역 2번 출구"
+            )
+        )
         try await arrive(7, ArriveRequestDto(latitude: 37.4979, longitude: 127.0276))
         try await depart(7)
 
@@ -261,57 +266,66 @@ import Testing
         let confirmKeys = Set(try parseJSONObject(try #require(requests[0].bodyString, "확정 본문이 없다")).keys)
         let arriveKeys = Set(try parseJSONObject(try #require(requests[1].bodyString, "도착 본문이 없다")).keys)
 
-        #expect(confirmKeys == ["departureAt"], "확정 본문이 ConfirmMeetingRequestDto 가 아니다")
+        #expect(
+            confirmKeys == ["departureAt", "departureLat", "departureLng", "departure"],
+            "확정 본문이 ConfirmMeetingRequestDto 가 아니다"
+        )
         #expect(arriveKeys == ["latitude", "longitude"], "도착 본문이 ArriveRequestDto 가 아니다")
         #expect(requests[2].body == nil, "출발은 본문이 없는 POST 다")
         #expect(requests[2].method == "POST")
     }
 
-    /// **노쇼 두 개**(2026-11-06 신규). 서버 컨트롤러가 `PartyController` 가 **아니다**
-    /// (`matching/noshow/NoShowController`, `@RequestMapping("/api/v1/matching")`) — 그런데 프리픽스
-    /// 합산 결과가 같아 앱에서는 `MatchingApi` 에 함께 둔다. 즉 **경로만이 유일한 구분**이다.
+    /// 못 박는 것: **확정 본문의 키 네 개가 서버가 요구하는 그 이름·그 값으로 실린다.**
     ///
-    /// 이의 신청 경로가 `/rooms/{partyId}/…` 라 확정·도착·출발과 **같은 가지에 있다.** 오타는 404 가
-    /// 아니라 **401** 로 떨어져 세션 만료로 오인하기 가장 쉬운 자리다(Security 가 미매핑 경로도
-    /// 보호한다). 기록 조회 쪽은 `/rooms` 가 **없는** 것이 핵심이다 —
-    /// `api/v1/matching/rooms/no-shows` 로 적으면 `{partyId}` 템플릿에 걸려 엉뚱한 404/400 이 된다.
+    /// 키 집합만 보는 위 테스트로는 모자라다 — 이름이 맞아도 값이 엇갈려 실리면(좌표를 뒤바꾸거나
+    /// 장소 이름 자리에 다른 문자열을 넣거나) 통과한다. 그 어긋남의 증상이 특히 나쁘다: 서버는 받은
+    /// 장소로 **방의 출발지를 덮어쓰므로**(`Party.confirm`) 도착 판정이 엉뚱한 곳을 기준으로 돈다.
     ///
-    /// 본문 타입은 `meetingActionBodies` 와 같은 수법으로 본다 — 서명 대입이 컴파일로 못 박고,
-    /// 실제로 나간 본문의 키를 스텁에서 읽는다.
-    @Test("노쇼 기록은 rooms 없는 경로이고 이의 신청은 rooms partyId 아래다")
-    func noShowPaths() async throws {
-        #expect(MatchingApiRoute.getMyNoShows.route.path == "api/v1/matching/no-shows")
-        #expect(
-            MatchingApiRoute.submitNoShowObjection.route.path
-                == "api/v1/matching/rooms/{partyId}/no-show-objection"
-        )
-
-        let records = MatchingApiRoute.getMyNoShows.route
-        let objection = MatchingApiRoute.submitNoShowObjection.route
-
-        #expect(records.method == .GET, "노쇼 기록 조회가 GET 이 아니다")
-        #expect(objection.method == .POST, "이의 신청이 POST 가 아니다")
-
-        // 기록 조회에는 **쿼리가 하나도 없다.** 커서·개수를 붙이는 실수가 특히 위험하다 — 서버에
-        // 그 파라미터가 없는데 400 이 아니라 200 + 조용히 무시라서(탑승 기록의 `status` 와 같은
-        // 함정) 「더 보기가 동작한다」고 착각하고 지나간다. 서버가 20건에서 자르는 게 전부다.
-        #expect(
-            records.queryNames.isEmpty,
-            "노쇼 기록 조회에 쿼리 파라미터가 생겼다 — 서버에 없는 값이고 조용히 무시된다"
-        )
-
-        // 이의 신청은 경로에 partyId 하나 + 본문 하나다. 주체는 Bearer 토큰이 정한다.
-        #expect(objection.pathParameterNames == ["partyId"], "이의 신청 경로에 담기는 건 partyId 하나여야 한다")
-
-        let stub = StubServer(status: 201)
+    /// 이름을 틀리기 쉬운 자리이기도 하다. 서버는 장소 이름 키를 **`departure`** 라 부르는데
+    /// (`departureName`·`departurePlace` 가 아니다) 도메인 쪽은 `placeName` 이고,
+    /// 좌표는 `departureLat`/`departureLng` 로 **줄여 쓰지 않는다**(예약 검색만 `depLat` 이다 —
+    /// 아래 표 참고).
+    @Test("확정 본문은 약속 시간과 만남 장소 네 키로 직렬화된다")
+    func confirmBodyCarriesMeetingPlace() async throws {
+        let stub = StubServer(status: 204)
         let api = RestMatchingApi(rest: try stub.rest())
-        // 본문 타입은 컴파일이 못 박는다: 이 대입은 서명이 정확히 이 DTO 를 받을 때만 통과한다.
-        let submit: (Int64, NoShowObjectionRequestDto) async throws -> Void = api.submitNoShowObjection(partyId:request:)
-        try await submit(7, NoShowObjectionRequestDto(reason: "병원에 있었어요"))
+
+        try await api.confirmMeeting(
+            partyId: 7,
+            request: ConfirmMeetingRequestDto(
+                departureAt: "2026-11-03T08:30:00Z",
+                departureLat: 37.4985,
+                departureLng: 127.0290,
+                departure: "강남역 2번 출구"
+            )
+        )
 
         let request = try #require(stub.requests.first)
-        let keys = Set(try parseJSONObject(try #require(request.bodyString, "이의 신청 본문이 없다")).keys)
-        #expect(keys == ["reason"], "이의 신청 본문이 NoShowObjectionRequestDto 가 아니다")
+        let body = try parseJSONObject(try #require(request.bodyString, "확정 본문이 없다"))
+        #expect(body["departureAt"] as? String == "2026-11-03T08:30:00Z")
+        #expect(body["departureLat"] as? Double == 37.4985)
+        #expect(body["departureLng"] as? Double == 127.0290)
+        #expect(body["departure"] as? String == "강남역 2번 출구", "장소 이름이 departure 키로 실리지 않았다")
+    }
+
+    /// **서버가 지운 매칭 경로가 `MatchingApi` 에 되살아나지 않는다**(`getPartyStatus` 를 보는
+    /// `partyDetailPath` 와 같은 수법이다).
+    ///
+    /// | 경로 | 지운 커밋 | 대신 쓰는 것 |
+    /// |---|---|---|
+    /// | `GET /matching/rooms`(좌표 없는 전체 목록) | `2732cc75` | `getPartiesWithin` — 네 쿼리가 필수다 |
+    /// | `POST /matching/rooms/{partyId}/finish` | `b16551b7` | `departParty` — 방을 끝내는 길은 출발 하나다 |
+    /// | `GET /matching/no-shows` · `POST …/no-show-objection` | `b16551b7`(V37 이 테이블 DROP) | 없다 |
+    /// | `GET /matching/reservations?from&to` | `2732cc75` | `getReservationsSoon` · `searchReservations` |
+    ///
+    /// 이 자리에 있던 「노쇼 기록은 rooms 없는 경로이고 이의 신청은 rooms partyId 아래다」는 엔드포인트와
+    /// 함께 지웠다. 그 테스트가 못 박던 「`/rooms/{partyId}/…` 가지의 오타는 404 가 아니라 401 로
+    /// 떨어진다」는 사실은 같은 가지의 확정·도착·출발에 그대로 남아 있다(`meetingActionPaths`).
+    @Test("서버가 지운 매칭 경로는 되살아나지 않는다")
+    func removedMatchingRoutes() {
+        for name in ["getParties", "finishParty", "getMyNoShows", "submitNoShowObjection", "getReservations"] {
+            #expect(MatchingApiRoute(rawValue: name) == nil, "MatchingApi 에 \(name) 이 되살아났다 — 서버에 없는 경로다")
+        }
     }
 
     /// **예약 네 개**(2026-11-06 신규). 넷 다 `PartyController`(`@RequestMapping("/api/v1")`) 아래의
@@ -319,12 +333,11 @@ import Testing
     /// 메서드로 가르고, 나머지 둘은 `/soon`·`/search` 가 붙는다. 그래서 이 넷은 서로를 베끼다
     /// 어긋나기 쉽고, 틀리면 404 가 아니라 **401** 로 떨어진다.
     ///
-    /// 특히 **생성과 기간 목록이 같은 문자열**인 것을 값으로 못 박는다: 둘 중 하나에 `/soon` 같은
-    /// 세그먼트가 붙으면 다른 하나는 멀쩡해 보이므로 증상이 한쪽에만 나타난다.
-    @Test("예약 네 경로는 matching reservations 아래이고 생성만 POST 다")
+    /// 기간 목록(`GET /matching/reservations`, 생성과 **같은 문자열**이던 넷째 경로)은 서버가
+    /// 없앴다(`2732cc75`) — 그래서 지금은 생성만 그 문자열을 쓴다.
+    @Test("예약 세 경로는 matching reservations 아래이고 생성만 POST 다")
     func reservationPaths() async throws {
         #expect(MatchingApiRoute.createReservation.route.path == "api/v1/matching/reservations")
-        #expect(MatchingApiRoute.getReservations.route.path == "api/v1/matching/reservations")
         #expect(MatchingApiRoute.getReservationsSoon.route.path == "api/v1/matching/reservations/soon")
         #expect(MatchingApiRoute.searchReservations.route.path == "api/v1/matching/reservations/search")
 
@@ -333,7 +346,7 @@ import Testing
         // 경로에 담기는 건 아무것도 없다 — 생성자는 Bearer 토큰이 정한다.
         #expect(create.pathParameterNames.isEmpty, "예약 생성 경로에 세그먼트 파라미터가 생겼다")
 
-        for route in [MatchingApiRoute.getReservations, .getReservationsSoon, .searchReservations] {
+        for route in [MatchingApiRoute.getReservationsSoon, .searchReservations] {
             #expect(route.route.method == .GET, "\(route.rawValue) 이 GET 이 아니다")
             #expect(!route.route.hasBody, "\(route.rawValue) 은 조회라 본문이 없다")
         }
@@ -366,7 +379,7 @@ import Testing
         )
     }
 
-    /// **예약 세 조회의 쿼리 파라미터 이름**. 이 PR 에서 가장 틀리기 쉬운 자리라 이름을 값으로 고정한다.
+    /// **예약 두 조회의 쿼리 파라미터 이름**. 이 PR 에서 가장 틀리기 쉬운 자리라 이름을 값으로 고정한다.
     ///
     /// | 자리 | 출발지 | 도착지 |
     /// |---|---|---|
@@ -382,7 +395,6 @@ import Testing
     /// 순서가 섞이면 서버가 400 `INVALID_MAP_BOUNDS` 를 준다(두 조회 모두 같은 엄격 비교로 검사한다).
     @Test("예약 검색만 출발지 이름이 depLat depLng 로 줄어 있다")
     func reservationQueryNames() {
-        #expect(MatchingApiRoute.getReservations.route.queryNames == ["from", "to"])
         #expect(MatchingApiRoute.getReservationsSoon.route.queryNames == ["swLat", "swLng", "neLat", "neLng"])
         // 뷰포트 이름·순서는 방 목록과 같아야 한다.
         #expect(MatchingApiRoute.getReservationsSoon.route.queryNames == MatchingApiRoute.getPartiesWithin.route.queryNames)

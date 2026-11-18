@@ -67,19 +67,23 @@ public struct RideDetailRoute: View {
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
+    private let onFareSplit: () -> Void
 
+    /// - Parameter onFareSplit: 끝난 방의 택시비 정산으로 — 화면이 버튼을 띄울지는 `fareSplitEntryLabel` 이 정한다.
     public init(
         repository: any RideRepository,
         partyId: Int64?,
         onBack: @escaping () -> Void = {},
         onPartnerClick: @escaping (User) -> Void = { _ in },
-        onLeave: @escaping () -> Void = {}
+        onLeave: @escaping () -> Void = {},
+        onFareSplit: @escaping () -> Void = {}
     ) {
         self.repository = repository
         self.partyId = partyId
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
+        self.onFareSplit = onFareSplit
     }
 
     public var body: some View {
@@ -91,7 +95,8 @@ public struct RideDetailRoute: View {
                 partyId: partyId,
                 onBack: onBack,
                 onPartnerClick: onPartnerClick,
-                onLeave: onLeave
+                onLeave: onLeave,
+                onFareSplit: onFareSplit
             )
             .id(partyId)
         } else {
@@ -112,18 +117,21 @@ private struct RideDetailContent: View {
     private let onBack: () -> Void
     private let onPartnerClick: (User) -> Void
     private let onLeave: () -> Void
+    private let onFareSplit: () -> Void
 
     init(
         repository: any RideRepository,
         partyId: Int64,
         onBack: @escaping () -> Void,
         onPartnerClick: @escaping (User) -> Void,
-        onLeave: @escaping () -> Void
+        onLeave: @escaping () -> Void,
+        onFareSplit: @escaping () -> Void
     ) {
         _viewModel = HostedViewModel(wrappedValue: RideDetailViewModel(repository: repository, partyId: partyId))
         self.onBack = onBack
         self.onPartnerClick = onPartnerClick
         self.onLeave = onLeave
+        self.onFareSplit = onFareSplit
     }
 
     var body: some View {
@@ -149,7 +157,8 @@ private struct RideDetailContent: View {
                     pickupDistanceMeters: pickupDistanceMeters(ride: ride, myLocation: myLocation.coordinates),
                     onBack: onBack,
                     onPartnerClick: onPartnerClick,
-                    onLeave: { viewModel.leave() } // 나가기 성공 후 onLeave 로 화면 전환
+                    onLeave: { viewModel.leave() }, // 나가기 성공 후 onLeave 로 화면 전환
+                    onFareSplit: onFareSplit
                 )
             }
         }

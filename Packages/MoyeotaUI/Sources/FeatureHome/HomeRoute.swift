@@ -237,6 +237,9 @@ func favoritePlaceQuery(_ place: FavoritePlace) -> String {
 public struct HomeRoute: View {
     /// 지금 진행 중인 내 방(ActivePartyViewModel.resolve 결과). 있으면 지도 위에 복귀 배너를 띄운다
     private let activeRide: Ride?
+    /// 「아직 보내지 않은 택시비」 배너. **nil 이면 꽂지 않는다** — 자리값 구현을 두지 않는 이유는
+    /// `HomeScreen.fareSplitBanner` 와 같다(보낼 정산이 없을 때도 nil 로 온다).
+    private let fareSplitBanner: AnyView?
     private let onSearchClick: () -> Void
     private let onActiveRideClick: () -> Void
     private let onPlaceQuery: (String) -> Void
@@ -251,12 +254,14 @@ public struct HomeRoute: View {
     public init(
         repository: any PlaceRepository,
         activeRide: Ride? = nil,
+        fareSplitBanner: AnyView? = nil,
         onSearchClick: @escaping () -> Void = {},
         onActiveRideClick: @escaping () -> Void = {},
         onPlaceQuery: @escaping (String) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         self.activeRide = activeRide
+        self.fareSplitBanner = fareSplitBanner
         self.onSearchClick = onSearchClick
         self.onActiveRideClick = onActiveRideClick
         self.onPlaceQuery = onPlaceQuery
@@ -276,12 +281,14 @@ public struct HomeRoute: View {
     public init(
         viewModel: HomeViewModel,
         activeRide: Ride? = nil,
+        fareSplitBanner: AnyView? = nil,
         onSearchClick: @escaping () -> Void = {},
         onActiveRideClick: @escaping () -> Void = {},
         onPlaceQuery: @escaping (String) -> Void = { _ in },
         onTabSelect: @escaping (MoyeotaTab) -> Void = { _ in }
     ) {
         self.activeRide = activeRide
+        self.fareSplitBanner = fareSplitBanner
         self.onSearchClick = onSearchClick
         self.onActiveRideClick = onActiveRideClick
         self.onPlaceQuery = onPlaceQuery
@@ -294,6 +301,7 @@ public struct HomeRoute: View {
         let editState = viewModel.editState
         HomeScreen(
             activeRide: activeRide,
+            fareSplitBanner: fareSplitBanner,
             myLocation: myLocation.coordinates,
             favoritePlaces: viewModel.favorites,
             editingFavorites: editState.editing,

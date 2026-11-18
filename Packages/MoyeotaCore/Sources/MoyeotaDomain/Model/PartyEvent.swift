@@ -8,15 +8,19 @@
 /// - 구독 직후 `snapshot` 이 방 상세 **전체**를 준다. 끊겨 다시 붙을 때마다 또 온다 — 그 사이
 ///   놓친 변화를 스냅샷이 통째로 보정하므로 **catch-up 조회도, 평상시 폴링도 필요 없다**.
 /// - 그 뒤로는 변경분만 온다. `memberJoined`·`memberLeft` 는 한 명씩 들고 나는 것이고, 둘 다 **변경 후
-///   방 상태**를 함께 실어 주므로 정원이 차서 생기는 전이(모집 중 → 정원 충족)도 이 신호로 알 수 있다.
-/// - 방을 끝내는 길에서 셋이 더 온다: `recruitingClosed`(모집 시간이 끝나 지금 인원으로 마감)·
-///   `confirmed`(방장이 약속 시간을 확정)·`memberArrived`(누가 출발지에 도착). 이 셋도 같은 version
-///   규칙을 탄다.
+///   방 상태**를 함께 실어 준다. ⚠️ 다만 그 status 로 **정원이 찼는지는 알 수 없다** — 서버가 정원이
+///   찬 방도 ACTIVE 로 두기 때문이다(`b16551b7`). 정원 판정은 멤버 수와 정원을 직접 비교할 일이다.
+/// - 방을 끝내는 길에서 둘이 더 온다: `confirmed`(방장이 약속 시간·만남 장소를 확정)·
+///   `memberArrived`(누가 출발지에 도착). 둘도 같은 version 규칙을 탄다.
 ///
-/// 서버의 발행처는 `PartyService` 의 참여·퇴장·종료(join/leave/finish/expire)와 **방을 끝내는 정식
-/// 경로**(confirm/arrive/depart)·모집 마감 스윕이다. 예전에 이 자리에
-/// 적혀 있던 배차·운행 전이(`MATCHING→DRIVER_ASSIGNED→IN_RIDE`)는 **서버에서 사라졌다** — 그 status
-/// 자체가 없어졌으므로 기다릴 신호도, 폴링으로 메울 단계도 없다.
+/// `recruiting-closed`(모집 마감)는 **서버가 없앴다**(`b16551b7`). 「정원이 차서 모집이 끝난다」는
+/// 전이 자체가 사라졌고, 15분 모집 만료는 **혼자인 방만** 닫으므로 그때는 `closed` 가 온다.
+/// 모집을 끝내는 신호는 `confirmed` 하나다.
+///
+/// 서버의 발행처는 `PartyService` 의 참여·퇴장과 **방을 끝내는 정식 경로**(confirm/arrive/depart)·
+/// 자동 정리 스윕이다. 예전에 이 자리에 적혀 있던 배차·운행 전이
+/// (`MATCHING→DRIVER_ASSIGNED→IN_RIDE`)는 **서버에서 사라졌다** — 그 status 자체가 없어졌으므로
+/// 기다릴 신호도, 폴링으로 메울 단계도 없다.
 ///
 /// **`snapshot` 이 먼저 온다는 보장은 없다.** 서버는 구독을 레지스트리에 **먼저 등록한 뒤** DB 를 읽어
 /// `connected` 를 보내므로, 그 사이에 커밋된 변경분이 `connected` 보다 **먼저** 도착할 수 있다
@@ -37,9 +41,9 @@
 /// `memberJoined`, 없는 publicId 의 `memberLeft` 는 목록을 그대로 두고 상태만 반영한다.
 ///
 /// version 을 버리면 어떻게 되는지가 중요하다: 늦게 온 낡은 `snapshot` 이 이미 반영한 합류를 덮어
-/// 지우고, 그 합류가 **정원을 채운 사람**이었다면 화면은 정원이 찬 방을 모집 중으로 보여 준다
-/// — 방장에게 「합승 완료」 버튼이 뜨지 않는다. 스트림이 살아 있으니 재연결 스냅샷도 없어
-/// 30분 만료까지 그대로다.
+/// 지우고, 화면은 이미 들어온 사람을 빠진 채로 보여 준다 — 인원·정원 판정(`members.count >= capacity`)과
+/// 방장의 「약속 시간 정하기」(멤버 2명 이상)가 그 틀린 목록으로 돈다. 스트림이 살아 있으니 재연결
+/// 스냅샷도 없어 그대로 남는다.
 public enum PartyEvent: Hashable, Sendable {
     /// 구독 직후 서버가 준 방 상세 전체(`connected` 이벤트의 data = `PartyDetailResult`).
     ///
@@ -85,33 +89,39 @@ public enum PartyEvent: Hashable, Sendable {
         version: Int64? = nil
     )
 
-    /// 모집이 마감됐다(`recruiting-closed`). 서버의 모집 정리 스윕이 **시간이 다 된 방**을 지금 인원
-    /// (2명 이상)으로 닫을 때 보낸다 — 정원이 차서 마감되는 경우는 이게 아니라 `memberJoined` 의
-    /// `status` 에 실려 온다(그쪽이 마지막 자리를 채운 당사자의 신호다).
-    ///
-    /// `status` 가 **서버 enum 이름 그대로인 문자열**인 것은 `confirmed` 와 함께 리더가 고정한 계약이다
-    /// — `memberJoined`·`memberLeft` 의 `RideStatus` 와 모양이 다르다. 지금 이 자리에 오는 값은
-    /// `"COMPLETED"` 하나뿐이고(모집이 끝났다는 신호다) 화면은 그걸 읽기보다 **모집이 끝났다는 사실**만
-    /// 쓴다. 상태 전이의 근거가 필요하면 `snapshot` 이나 상세 재조회가 단일 창구다.
-    case recruitingClosed(
-        status: String,
-        /// 반영 **뒤**의 방 순번. 순서 판정 규칙은 이 파일 맨 위 표. null 이면 옛 서버다.
-        version: Int64? = nil
-    )
-
-    /// 방장이 **약속 시간을 확정했다**(`confirmed`). 이 신호 뒤로 방은 성질이 바뀐다 — 모집이 끝나고
-    /// (status 는 `COMPLETED`) **아무도 나갈 수 없으며**(409 `CANNOT_LEAVE_CONFIRMED_PARTY`),
-    /// 「합승 완료」도 막힌다(409 `USE_DEPART_FOR_CONFIRMED_PARTY`). 끝내는 길은 「출발」 하나다.
+    /// 방장이 **약속 시간과 만남 장소를 확정했다**(`confirmed`). 이 신호 뒤로 방은 성질이 바뀐다 —
+    /// 모집이 끝나(status 는 `COMPLETED`) **참여가 막힌다**. **나가기는 된다** — 확정을 이유로 막던
+    /// 규칙은 서버에서 사라졌고(`b16551b7`), 지금 나가기를 막는 건 **도착을 누른 사람**뿐이다
+    /// (409 `ARRIVED_MEMBER_CANNOT_LEAVE`). 방을 끝내는 길은 **도착한 방장의 「출발」** 하나다.
     ///
     /// `departureAt` 은 **ISO-8601 문자열 그대로**다(`Ride.departureAt` 과 같은 관례 — 파싱은 화면이 한다).
     /// **null 이면 서버가 약속 시간을 말하지 않은 것**이고(옛 배포·필드 누락), 그때는 이 프레임만으로
     /// 화면을 그릴 수 없으므로 상세를 다시 읽어야 한다 — 「확정됐다」는 사실만 알고 **언제**를 모르면
     /// 21 대기 화면이 「약속 시간 ?」을 그리게 된다.
     ///
-    /// `status` 가 문자열인 이유는 `recruitingClosed` 와 같다.
+    /// ### 출발지 셋이 함께 온다 — 받아서 **덮어써야** 한다 ★
+    /// 확정은 방의 출발지를 만남 장소로 옮긴다(서버 `Party.confirm`). 그래서 이 프레임에
+    /// `departureLat`·`departureLng`·`departurePlace` 가 실려 오고, 화면은 그걸 방의 출발지로
+    /// 교체해야 한다. 안 하면 지도가 옛 출발지를 가리키고, 무엇보다 **도착 버튼이 틀린 곳을 기준으로
+    /// 판정**돼 약속 장소에 서 있는 사람이 「출발지에서 너무 멀어요」를 맞는다.
+    ///
+    /// 셋은 **다 있을 때만** 쓴다 — 매퍼가 「셋이 다 있거나 전부 nil」로 접어 올린다
+    /// (`PartyConfirmedPayload.meetingPlace`). 일부만 온 프레임으로 덮어쓰면 좌표와 이름이 어긋난
+    /// 출발지가 만들어지므로, 그때는 손대지 않고 다음 스냅샷·상세에 맡긴다.
+    ///
+    /// `status` 가 **서버 enum 이름 그대로인 문자열**인 것은 리더가 고정한 계약이다 —
+    /// `memberJoined`·`memberLeft` 의 `RideStatus` 와 모양이 다르다. 지금 이 자리에 오는 값은
+    /// `"COMPLETED"` 하나뿐이고 화면은 그걸 읽기보다 **확정됐다는 사실**을 쓴다.
+    /// 상태 전이의 근거가 필요하면 `snapshot` 이나 상세 재조회가 단일 창구다.
     case confirmed(
         status: String,
         departureAt: String?,
+        /// 바뀐 출발지(= 만남 장소) 위도. `departureLng`·`departurePlace` 와 **함께**만 쓴다.
+        departureLat: Double? = nil,
+        /// 바뀐 출발지(= 만남 장소) 경도.
+        departureLng: Double? = nil,
+        /// 바뀐 출발지(= 만남 장소) 이름. 서버 필드명은 `departure` 다.
+        departurePlace: String? = nil,
         /// 반영 **뒤**의 방 순번. 순서 판정 규칙은 이 파일 맨 위 표. null 이면 옛 서버다.
         version: Int64? = nil
     )
@@ -138,7 +148,7 @@ public enum PartyEvent: Hashable, Sendable {
         version: Int64? = nil
     )
 
-    /// 방이 닫혔다(`closed` — 합승 완료·출발·만료·마지막 멤버 이탈). 서버가 이 뒤에 그 방의 모든 구독을 끊는다.
+    /// 방이 닫혔다(`closed` — 출발·자동 정리·모집 만료·마지막 멤버 이탈·확정 방에서 혼자 남음). 서버가 이 뒤에 그 방의 모든 구독을 끊는다.
     ///
     /// data 는 `{status}` JSON 이지만 앱은 읽지 않는다 — 종결 신호로만 쓴다.
     /// (옛 서버는 partyId 숫자 문자열을, 그 사이 배포는 `{partyId, status, version}` 을 보냈다.

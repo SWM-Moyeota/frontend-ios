@@ -33,24 +33,23 @@ private final class FakeRideRepository: RideRepository, @unchecked Sendable {
     func getPartyDetail(partyId: Int64) async throws -> Ride { room() }
     func joinParty(partyId: Int64) async throws -> PartyStatus { try await joinResult() }
     func getNearbyParties() -> [Ride] { [] }
-    func getParties() async throws -> [Ride] { throw TestFailure() }
     func getPartiesWithin(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { throw TestFailure() }
     func getPartyDetailWithVersion(partyId: Int64) async throws -> PartyDetail { throw TestFailure() }
     func findRealtimeCandidates(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> [MatchCandidate] { throw TestFailure() }
     func createParty(request: NewParty) async throws -> Ride { throw TestFailure() }
     func leaveParty(partyId: Int64) async throws { throw TestFailure() }
-    func finishParty(partyId: Int64) async throws { throw TestFailure() }
     func previewRoute(departureLat: Double, departureLng: Double, destinationLat: Double, destinationLng: Double) async throws -> RouteEstimate { throw TestFailure() }
 
     // 예약 방 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다.
     func createReservation(request: NewReservation) async throws -> Ride { throw TestFailure() }
-    func getReservations(from: String, to: String) async throws -> [Ride] { [] }
     func getReservationsSoon(swLat: Double, swLng: Double, neLat: Double, neLng: Double) async throws -> [Ride] { [] }
     func searchReservations(departureLat: Double, departureLng: Double, date: String, destination: ReservationDestination?) async throws -> [ReservationSearchResult] { [] }
 
     // 약속 확정·도착·출발 — 이 지원 클래스가 보는 분석 이벤트는 아직 없다. 기록 지점이 생기면
     // leave/finish 처럼 람다로 바꿔 호출을 세면 된다.
-    func confirmMeeting(partyId: Int64, departureAt: String) async throws { throw TestFailure() }
+    func confirmMeeting(
+        partyId: Int64, departureAt: String, latitude: Double, longitude: Double, placeName: String
+    ) async throws { throw TestFailure() }
     func arriveAtDeparture(partyId: Int64, latitude: Double, longitude: Double) async throws { throw TestFailure() }
     func departParty(partyId: Int64) async throws { throw TestFailure() }
 }
@@ -121,8 +120,8 @@ final class JoinAnalyticsTest {
     ///
     /// 이게 빠지면 분기는 멀쩡한데 늘 nil 이 넘어가 **영원히 「홈에서 확인해 주세요」**만 나온다 —
     /// 테스트가 다 통과하면서 고친 게 사라지는 모양이다.
-    @Test("다른 방에 막혔을 때 그 방이 확정된 방이면 출발로 끝내라고 안내한다")
-    func confirmedBlockingPartySaysDepart() async {
+    @Test("다른 방에 막혔을 때 그 방이 확정된 방이면 되돌릴 수 없다고 안내한다")
+    func confirmedBlockingPartySaysIrreversible() async {
         var blockingRide = room()
         blockingRide.isConfirmed = true
         let viewModel = await loaded(activeParty: FakeActivePartyRepository(active: blockingRide))
@@ -133,7 +132,9 @@ final class JoinAnalyticsTest {
         #expect(await eventually { viewModel.joinState.errorMessage != nil })
         #expect(
             viewModel.joinState.errorMessage
-                == "약속이 정해진 방에 참여 중이에요. 출발지에서 「출발」을 눌러 그 방을 끝낸 뒤에 합류할 수 있어요"
+                // 문구가 바뀐 근거는 `JoinFailureMessageTest` 의 같은 가지에 적어 두었다 —
+                // 서버가 「확정 방은 나갈 수 없다」를 버렸다(`b16551b7`).
+                == "약속이 정해진 방에 참여 중이에요. 그 방에서 나오면 다시 들어갈 수 없어요"
         )
         #expect(viewModel.joinState.joinedPartyId == nil)
     }

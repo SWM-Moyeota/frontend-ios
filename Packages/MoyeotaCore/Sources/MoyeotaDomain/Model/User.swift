@@ -43,8 +43,9 @@ public struct User: Hashable, Sendable {
     /// 이 멤버가 **출발지에 도착했다고 눌렀는가**. 서버 `PartyDetailResult.MemberInfo.arrived` 가 출처다.
     ///
     /// 약속이 정해지기 전에는 서버가 **늘 false** 를 준다(도착을 받지 않는 방이다). 약속이 확정된 뒤에는
-    /// 이 값이 곧 **노쇼 판정의 근거**다 — 누군가 「출발」을 누르는 그 순간 false 인 멤버가 전부 노쇼로
-    /// 기록되고(노쇼 횟수 × 24시간 이용 제한), 그 기록은 앱이 되돌릴 수 없다.
+    /// 이 값이 곧 **탑승자 판정의 근거**다 — 방장이 「출발」을 누르는 그 순간 false 인 멤버는 탑승 기록·
+    /// 택시비 정산에서 빠지고, 앱은 그걸 되돌릴 수 없다. 그리고 true 가 된 사람은 **방을 나갈 수 없다**
+    /// (409 `ARRIVED_MEMBER_CANNOT_LEAVE`).
     ///
     /// 서버가 말해 주지 않은 경우(옛 배포·필드 누락)의 기본값은 false 이고, `isHost` 와 달리 **`isMe` 로
     /// 폴백하지 않는다.** 대가가 반대 방향으로 기울어 있기 때문이다:
@@ -83,7 +84,7 @@ public struct User: Hashable, Sendable {
 /// 멤버의 이름 자리에 **사람 이름이 아닌 것**이 들어오는 두 경우의 문자열 — 한 곳에 모아 둔다.
 ///
 /// 흩어 놓으면 둘 중 하나를 못 걸러 안내문이 **지킬 수 없는 약속**을 한다(「다 타면 방장 탈퇴한
-/// 사용자님이 「합승 완료」를 눌러…」 — 그 사람은 영원히 누를 수 없다). 그래서 넣는 쪽(데이터 매퍼)과
+/// 사용자님이 약속 시간을 정하면…」 — 그 사람은 영원히 누를 수 없다). 그래서 넣는 쪽(데이터 매퍼)과
 /// 거르는 쪽(화면)이 **같은 상수**를 본다.
 ///
 /// | 상수 | 넣는 쪽 | 서버 쪽 사실 |
@@ -116,14 +117,16 @@ public enum WithdrawnMemberNames {
 /// **화면은 null 을 반드시 처리해야 한다** — "이름 없음" 폴백 문구든, 이름 영역 숨김이든.
 ///
 /// `uuid` 는 `AuthState.authenticated.userUuid` 와 같은 값이다(액세스 토큰 `sub`). 즉 uuid 만 필요하면
-/// 이 호출은 필요 없다 — 이 엔드포인트를 부르는 이유는 `name`·`imageUrl`, 그리고 **제재**
-/// (`noShowCount`·`restrictedUntil`)다.
+/// 이 호출은 필요 없다 — 이 엔드포인트를 부르는 이유는 `name`·`imageUrl`·`loginId` 다.
 ///
-/// ### 제재는 이 호출로만 알 수 있다 ★
-/// 노쇼 제한에 걸린 사용자는 방 만들기·합류·예약 생성이 **403 `NO_SHOW_RESTRICTED` 로 막힌다.**
-/// 그 403 은 「막혔다」까지만 말하고 **언제까지인지는 말하지 않는다** — 그 답이 `restrictedUntil`
-/// 하나뿐이다. 그래서 화면은 그 403 을 받았을 때(그리고 제재를 안내해야 할 때) 이 조회를 함께
-/// 해야 한다. 둘을 짝지어 쓰는 법은 `PartyOpenException.isNoShowRestricted` 에 적어 두었다.
+/// ### 제재 두 값이 여기 없는 이유 (2026-11-12) ★
+/// 서버가 노쇼 기능을 통째로 지웠다(백엔드 `b16551b7`, 마이그레이션 V37 이 기록·제재·이의 테이블을
+/// DROP). `MyProfileResponse` 에는 `noShowCount`·`restrictedUntil` 키가 **아직 내려오지만 값이
+/// 영원히 0·null 로 고정**이다 — 서버 주석이 「출시 앱 호환용으로 키만 남김」이라고 적어 두었다.
+///
+/// 그래서 이 모델에 그 두 값을 **되살리지 마라.** 값이 고정이면 그것으로 세운 판정은 전부
+/// 「제재 없음」 한 갈래로만 흘러, 분기가 있는 척하는 죽은 코드가 된다. 서버가 제재를 다시 만들면
+/// 그때 엔드포인트도 응답도 새로 생길 것이고, 그 모양을 보고 다시 받는다.
 public struct UserProfileInfo: Hashable, Sendable {
     public var uuid: String
     public var name: String?
@@ -138,36 +141,6 @@ public struct UserProfileInfo: Hashable, Sendable {
     /// `GET /api/v1/users/profile-images` 목록(16장)에 들어 있지 않기 때문이다
     /// (`ProfileImage` 주석). 「기본 이미지로 되돌리기」를 켤지 끌지가 이 구분에 달려 있다.
     public var imageUrl: String?
-    /// 지금 내 노쇼 횟수. **지금까지의 총합이 아니다** — 서버가 건마다 그 방 **약속 시간부터 30일**이
-    /// 지나면 세기를 멈추고, 이의가 인정돼 무효가 된 건(`NoShowRecord.isVoided`)은 애초에 세지 않는다.
-    /// 즉 가만히 있어도 줄어드는 값이고, 화면이 「누적 N회」라고 쓰면 거짓이 된다.
-    ///
-    /// **이 값으로 제한을 셈하지 말 것.** 0 보다 크다고 제한 중인 것도 아니고(30일 창 안이지만
-    /// 24시간은 지났다), 0 이라고 자유인 것도 아니다(겹친 제재의 끝이 아직 안 왔을 수 있다) —
-    /// 그 판정은 `restrictedUntil` 하나로만 한다.
-    ///
-    /// 기본값 0 은 구버전 서버 대비용이다(이 필드가 없던 배포). 「노쇼가 없다」와 「서버가 말해 주지
-    /// 않았다」를 가르지 않는 건 **화면이 할 일이 같기** 때문이다 — 둘 다 횟수를 내세우지 않는다.
-    public var noShowCount: Int
-    /// **이 시각까지 방 만들기·합류·예약 생성이 막힌다**(ISO-8601 instant 문자열). 제한이 없으면 null.
-    ///
-    /// **「걸어서 가까운 방」 추천은 막히지 않는다** — 서버 `PartyService.realtimeMatch` 에는
-    /// 제재 검사(`ensureNotRestricted`)가 **없다**(호출처는 `open`·`reserve`·`join` 셋뿐). 즉 제재당한
-    /// 사용자도 후보를 둘러볼 수 있고, 합류를 누르는 순간에만 403 이다. 그래서 그 섹션을 이 값으로
-    /// 숨기지 말 것 — 숨기면 서버가 허용하는 탐색을 앱이 임의로 막는다.
-    ///
-    /// 화면이 「왜 막혔는지」와 「언제 풀리는지」를 말할 수 있는 **유일한 근거**다. 403
-    /// `NO_SHOW_RESTRICTED` 는 사유만 주고 기한을 주지 않으므로, 그 403 을 안내할 때 이 값이 함께
-    /// 있어야 문장이 완성된다(`PartyOpenException.isNoShowRestricted`).
-    ///
-    /// **앱이 계산하지 않는다.** 노쇼 1건당 24시간이고 약속 시간부터 세지만, 여러 건이 겹칠 때의
-    /// 합산과 무효 처리 반영은 서버 규칙이다 — `NoShowRecord` 를 훑어 같은 식을 다시 세우면 서버가
-    /// 규칙을 바꿀 때 앱만 뒤처진다. 그리고 그 목록은 **최대 20건**이라 재료 자체가 부족하다.
-    ///
-    /// **문자열을 파싱해 「지났는지」를 판정할 때는 기기 시계를 믿는다는 점을 기억할 것.** 앞당겨진
-    /// 시계는 풀리지 않은 제한을 풀린 것으로 보여 주고, 그 상태에서 누른 버튼은 다시 403 이다 —
-    /// 그래서 화면은 이 값으로 **안내만** 하고, 버튼을 열 근거로는 서버 응답을 쓴다.
-    public var restrictedUntil: String?
     /// 로그인 아이디(Backend PR #330). **로컬 로그인(아이디·비밀번호)이 없는 계정이면 nil** 이다
     /// — 그때 36 프로필 수정은 「아이디」 행을 통째로 숨긴다.
     ///
@@ -180,15 +153,11 @@ public struct UserProfileInfo: Hashable, Sendable {
         uuid: String,
         name: String?,
         imageUrl: String? = nil,
-        noShowCount: Int = 0,
-        restrictedUntil: String? = nil,
         loginId: String? = nil
     ) {
         self.uuid = uuid
         self.name = name
         self.imageUrl = imageUrl
-        self.noShowCount = noShowCount
-        self.restrictedUntil = restrictedUntil
         self.loginId = loginId
     }
 }
