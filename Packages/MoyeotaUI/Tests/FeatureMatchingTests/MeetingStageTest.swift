@@ -477,7 +477,7 @@ private func instant(_ text: String) -> Date {
     (try? Date(text, strategy: .iso8601)) ?? .distantPast
 }
 
-/// 원본 `Instant.toString()` 자리 — 화면이 서버로 보내는 값과 같은 형식(`meetingPresetIso`)으로 적는다.
+/// 원본 `Instant.toString()` 자리 — 화면이 서버로 보내는 값과 같은 형식(`meetingTimeIso`)으로 적는다.
 private func iso(_ date: Date) -> String {
     date.formatted(.iso8601)
 }

@@ -47,83 +47,73 @@ struct MeetingCopyTest {
         )
     }
 
-    // ─────────────────────── 프리셋 ───────────────────────
+    // ─────────────────────── 약속 시간 휠 ───────────────────────
 
-    /// 리더가 정한 다섯 개. 늘리거나 줄이면 서버 한도·문구와 함께 다시 봐야 한다.
-    @Test("프리셋은 10 20 30 45 60분이다")
-    func presetMinutes() {
-        #expect(MEETING_PRESET_MINUTES == [10, 20, 30, 45, 60])
-    }
+    /// 휠에는 **서버가 받는 시각만** 있다 — 지금부터 10분 뒤(올림) ~ 1시간 뒤(내림), 5분 정각.
+    /// 06:13:47 이면 06:23:47 을 올린 **06:25** 부터 07:13:47 을 내린 **07:10** 까지 열 칸이다.
+    @Test("휠은 10분 뒤부터 1시간 뒤까지 5분 정각만 담는다")
+    func timeOptionsRange() {
+        let options = meetingTimeOptions(now: now)
 
-    /// **어느 프리셋도 서버의 「1시간 안」을 넘지 않는다.** 60분 프리셋이 경계에 걸려 있어
-    /// 분 단위 내림이 돌려주는 여유(최대 59초)가 실제로 필요하다 — 기기 시계가 서버보다 앞서 있으면
-    /// 그 여유가 400 을 막아 준다.
-    @Test("모든 프리셋은 지금부터 1시간 안이다")
-    func presetsWithinOneHour() {
-        let limit = now.addingTimeInterval(3600)
-        for minutes in MEETING_PRESET_MINUTES {
-            let at = meetingPresetAt(now: now, minutes: minutes)
-            #expect(at > now, "\(minutes)분 프리셋이 지금보다 과거다")
-            #expect(at <= limit, "\(minutes)분 프리셋이 1시간을 넘는다: \(at)")
+        #expect(options.first == instant("2026-11-06T06:25:00Z"))
+        #expect(options.last == instant("2026-11-06T07:10:00Z"))
+        #expect(options.count == 10)
+        for at in options {
+            #expect(Int(at.timeIntervalSince1970) % 300 == 0, "5분 정각이 아니다: \(at)")
+            #expect(at >= now.addingTimeInterval(600), "10분이 안 된다: \(at)")
+            #expect(at <= now.addingTimeInterval(3600), "1시간을 넘는다: \(at)")
         }
+        #expect(options == options.sorted())
     }
 
-    /// **분 단위로 내림한다** — 표시(「오후 3:23」)와 실제 경계가 어긋나지 않게. 06:13:47 + 10분은
-    /// 06:23:47 이지만 보내는 값은 06:23:00 이다.
-    ///
-    /// 내림해도 지난 시각이 될 수 없다(최소 프리셋이 10분이다) — 위 테스트가 그것도 함께 본다.
-    @Test("프리셋은 분 단위로 내림한다")
-    func presetFloorsToMinute() {
-        #expect(meetingPresetAt(now: now, minutes: 10) == instant("2026-11-06T06:23:00Z"))
-        #expect(meetingPresetAt(now: now, minutes: 60) == instant("2026-11-06T07:13:00Z"))
+    /// 10분 뒤가 마침 5분 정각이면 그 칸부터다 — 올림이 한 칸을 더 건너뛰지 않는다.
+    @Test("정각에 맞으면 그 칸부터 시작한다")
+    func timeOptionsExactBoundary() {
+        let options = meetingTimeOptions(now: instant("2026-11-06T06:15:00Z"))
+
+        #expect(options.first == instant("2026-11-06T06:25:00Z"))
+        #expect(options.last == instant("2026-11-06T07:15:00Z"))
     }
 
-    /// **보여 준 시각이 그대로 보내진다** — 칩을 누르는 순간 한 번 만들어 `ConfirmingPreset` 에 담고,
-    /// 다이얼로그 제목도 서버 요청도 그 값을 쓴다.
-    ///
-    /// 왜 테스트가 필요한가: 예전에는 제목과 요청이 시계를 **따로** 읽었다. 분으로 내림하는 값이라
-    /// 「찰나뿐」이라고 적혀 있었지만, 다이얼로그를 몇 초 들여다보면 분은 쉽게 넘어간다 —
-    /// 실측(2026-11-06)에서 「오전 10:59에 만날까요?」로 묻고 **11:00 으로 확정됐다.** 확정은
-    /// **한 번만** 할 수 있고(409 `ALREADY_CONFIRMED`) 그 시각에 사람들이 모이므로,
-    /// 동의한 값과 보내는 값이 갈리면 안 된다.
-    ///
-    /// 아래 첫 단언이 그 갈림이 **실재함**을 고정하고(13초 뒤에 다시 만들면 값이 다르다),
-    /// 둘째가 캡처하면 그 갈림이 **사라짐**을 고정한다.
-    @Test("약속 시각은 칩을 누른 순간 한 번 만들어 제목과 요청이 함께 쓴다")
-    func presetCapturedOnce() {
-        // 06:13:47 + 10분 = 06:23:xx → 내림 06:23. 13초 뒤에 다시 만들면 06:24 다 — 옛 버그의 씨앗.
-        let later = now.addingTimeInterval(13)
-        #expect(meetingPresetAt(now: later, minutes: 10) == instant("2026-11-06T06:24:00Z"))
+    /// 자정을 넘는 범위도 시각 순서 그대로다 — 시·분 휠이었다면 고를 수 없는 조합이 생기는 자리다.
+    @Test("자정을 넘어도 이른 순서로 이어진다")
+    func timeOptionsAcrossMidnight() {
+        // KST 23:40
+        let labels = meetingTimeOptions(now: instant("2026-11-06T14:40:00Z"))
+            .map { meetingTimeLabel(departureAt: meetingTimeIso($0), zone: kst) }
 
-        // 캡처하면 제출이 언제든 값은 하나다.
-        let picked = ConfirmingPreset(minutes: 10, departureAt: meetingPresetIso(now: now, minutes: 10))
-
-        #expect(picked.departureAt == meetingPresetIso(now: now, minutes: 10))
-        #expect(
-            meetingTimeLabel(departureAt: picked.departureAt)
-                == meetingTimeLabel(departureAt: meetingPresetIso(now: now, minutes: 10)),
-            "제목이 읽는 값과 서버로 가는 값은 같아야 한다"
-        )
-        // 분이 넘어간 뒤에도 들고 있던 값은 그대로다.
-        #expect(picked.departureAt == meetingPresetIso(now: now, minutes: 10))
+        #expect(labels.first == "오후 11:50")
+        #expect(labels.last == "오전 12:40")
+        #expect(labels.contains("오전 12:00"))
     }
 
-    /// 서버에 나가는 값은 ISO-8601 UTC 다. 초가 0 이어도 `:00` 을 적는다.
-    @Test("프리셋은 ISO-8601 문자열로 나간다")
-    func presetIsoString() {
-        #expect(meetingPresetIso(now: now, minutes: 10) == "2026-11-06T06:23:00Z")
-        // 왕복: 보낸 문자열을 그대로 다시 읽어도 같은 시각이다(화면이 이 값을 되읽어 표기한다)
-        #expect(meetingPresetAt(now: now, minutes: 30) == instant(meetingPresetIso(now: now, minutes: 30)))
+    /// 시간이 흘러 고른 시각이 목록에서 빠지면 가장 이른 시각을 가리킨다 — 빠진 값으로 확정하지 않는다.
+    @Test("고른 시각이 목록에서 빠지면 가장 이른 시각으로 옮긴다")
+    func selectedTimeFallsBack() {
+        let options = meetingTimeOptions(now: now)
+
+        #expect(meetingSelectedTime(options: options, picked: nil) == options.first)
+        #expect(meetingSelectedTime(options: options, picked: options[3]) == options[3])
+        #expect(meetingSelectedTime(options: options, picked: instant("2026-11-06T06:20:00Z")) == options.first)
     }
 
-    /// **보낸 값과 보여 준 값이 같다.** 다이얼로그 제목이 말하는 시각은 실제로 확정되는 시각이어야
-    /// 한다 — 이 왕복이 깨지면 「오후 3:23 로 정할까요?」가 거짓이 된다.
-    @Test("다이얼로그가 말하는 시각이 실제로 보내는 시각이다")
-    func dialogTitleMatchesSentValue() {
-        let iso = meetingPresetIso(now: now, minutes: 10)
+    /// **버튼이 말하는 시각이 그대로 보내진다** — 휠이 가리키는 값 하나를 버튼 글자와 요청이 함께 쓴다
+    /// (실측 2026-11-06: 제목과 요청이 시계를 따로 읽어 「오전 10:59에 만날까요?」로 묻고 11:00 으로 확정됐다).
+    @Test("버튼이 말하는 시각이 실제로 보내는 시각이다")
+    func buttonReadsBackSentTime() throws {
+        let picked = try #require(meetingTimeOptions(now: now).first)
+        let iso = meetingTimeIso(picked)
 
-        #expect(meetingTimeLabel(departureAt: iso, zone: kst) == "오후 3:23")
-        #expect(meetingConfirmTitle(timeLabel: meetingTimeLabel(departureAt: iso, zone: kst)) == "오후 3:23에 만날까요?")
+        #expect(iso == "2026-11-06T06:25:00Z")
+        #expect(meetingTimeLabel(departureAt: iso, zone: kst) == "오후 3:25")
+        #expect(meetingConfirmButtonText(timeLabel: meetingTimeLabel(departureAt: iso, zone: kst)) == "오후 3:25에 만나기")
+    }
+
+    /// 휠 아래 되읽기는 남은 분을 **올림**한다 — 11분 13초 남았으면 「12분 뒤」.
+    @Test("휠 아래에 지금부터 몇 분 뒤인지 적는다")
+    func minutesFromNowLabel() {
+        #expect(meetingMinutesFromNowLabel(now: now, at: instant("2026-11-06T06:25:00Z")) == "지금부터 12분 뒤")
+        #expect(meetingMinutesFromNowLabel(now: now, at: instant("2026-11-06T07:10:00Z")) == "지금부터 57분 뒤")
     }
 
     // ─────────────────────── 시각 표기 ───────────────────────
@@ -159,9 +149,9 @@ struct MeetingCopyTest {
         #expect(meetingHeadline(departureAt: "오후 3시", zone: kst) == "약속 시간이 정해졌어요")
     }
 
-    @Test("프리셋 확인 제목은 시각을 못 읽으면 숫자를 빼고 묻는다")
-    func confirmTitleFallback() {
-        #expect(meetingConfirmTitle(timeLabel: nil) == "약속 시간을 정할까요?")
+    @Test("확정 버튼은 시각을 못 읽으면 숫자를 빼고 적는다")
+    func confirmButtonFallback() {
+        #expect(meetingConfirmButtonText(timeLabel: nil) == "이 시간으로 정하기")
     }
 
     // ─────────────────────── 방장 안내 ───────────────────────

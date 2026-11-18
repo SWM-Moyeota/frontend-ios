@@ -76,13 +76,15 @@ struct MeetingFailureMessageTest {
         #expect(!message.contains("더 가까운"), "한 방향만 권한다: \(message)")
     }
 
-    /// 프리셋 안내와 거절 문구가 **같은 범위**를 말해야 한다 — 한쪽만 고치면 앱이 서버와 다른
+    /// 휠 안내와 거절 문구가 **같은 범위**를 말해야 한다 — 한쪽만 고치면 앱이 서버와 다른
     /// 약속을 하고, 사용자는 「10분부터라더니 왜 거절되지」를 묻게 된다.
-    @Test("프리셋 안내와 거절 문구가 같은 범위를 말한다")
-    func presetNoteMatchesRejection() {
-        #expect(MEETING_PRESET_LIMIT_NOTE.contains("10분"), "\(MEETING_PRESET_LIMIT_NOTE)")
-        #expect(MEETING_PRESET_LIMIT_NOTE.contains("1시간"), "\(MEETING_PRESET_LIMIT_NOTE)")
-        #expect(MEETING_PRESET_MINUTES == [10, 20, 30, 45, 60])
+    @Test("휠 안내와 거절 문구가 같은 범위를 말한다")
+    func timeNoteMatchesRejection() {
+        #expect(MEETING_TIME_LIMIT_NOTE.contains("10분"), "\(MEETING_TIME_LIMIT_NOTE)")
+        #expect(MEETING_TIME_LIMIT_NOTE.contains("1시간"), "\(MEETING_TIME_LIMIT_NOTE)")
+        #expect(MEETING_TIME_LIMIT_NOTE.contains("5분 단위"), "\(MEETING_TIME_LIMIT_NOTE)")
+        #expect(MEETING_EARLIEST_MINUTES == 10)
+        #expect(MEETING_LATEST_MINUTES == 60)
     }
 
     /// 「방장만」으로 끝내면 사용자가 할 수 있는 일이 없다 — **누가 눌러야 하는지**가 핵심이다.
@@ -458,7 +460,7 @@ struct MeetingFailureMessageTest {
                 departHostNotice(hostNickname: nil),
                 MEETING_CONFIRM_HELP,
                 MEETING_CONFIRM_DIALOG_BODY,
-                MEETING_PRESET_LIMIT_NOTE,
+                MEETING_TIME_LIMIT_NOTE,
                 departConfirmMessage(notArrivedCount: 2),
                 departConfirmMessage(notArrivedCount: 0),
                 CONFIRM_PLACE_UNKNOWN_MESSAGE,
