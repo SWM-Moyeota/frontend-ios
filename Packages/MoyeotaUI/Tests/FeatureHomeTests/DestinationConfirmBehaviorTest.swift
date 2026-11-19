@@ -172,7 +172,7 @@ private let c = LatLng(35.10, 129.03)
         #expect(viewModel.uiState == CreatePartyViewModel.UiState(createdParty: ride()))
     }
 
-    @Test("정원은 서버 범위 2~3 으로 고정해 보낸다")
+    @Test("정원은 서버 범위 2~4 로 고정해 보낸다")
     func capacityClamped() async {
         let repository = FakeRideRepository()
         let viewModel = CreatePartyViewModel(repository: repository)
@@ -180,11 +180,11 @@ private let c = LatLng(35.10, 129.03)
         await viewModel.createParty(origin: origin, destination: destination, conditions: MatchConditions(capacity: 9))?.value
         await viewModel.createParty(origin: origin, destination: destination, conditions: MatchConditions(capacity: 0))?.value
 
-        #expect(repository.requests.map(\.capacity) == [3, 2])
+        #expect(repository.requests.map(\.capacity) == [4, 2])
     }
 
     /// 출발 시각 하나가 엔드포인트를 고른다(`MatchConditions.departureAt`). 예약은 정원 하한이 2 라 1 은 2 로 접힌다.
-    @Test("출발 시각이 있으면 예약 방으로 보내고 정원은 2~3 으로 접는다")
+    @Test("출발 시각이 있으면 예약 방으로 보내고 정원은 2~4 로 접는다")
     func reservationBranch() async {
         let repository = FakeRideRepository()
         let viewModel = CreatePartyViewModel(repository: repository)

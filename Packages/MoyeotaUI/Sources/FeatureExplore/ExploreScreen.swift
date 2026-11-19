@@ -1310,7 +1310,7 @@ private struct ReservationCard: View {
                         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                         .clipped()
                 }
-                // 제목이 시각이라 장소는 부제 모양(24 채팅 목록과 같은 조각, emphasizePlace = false)
+                // 제목이 시각이라 장소는 부제 모양(emphasizePlace = false)
                 RoutePlaceLine(place: RoutePlace(label: "출발지", place: ride.origin))
                 RoutePlaceLine(place: RoutePlace(label: "목적지", place: ride.destination))
                 if !headcount.isEmpty || nearby != nil {
@@ -1353,7 +1353,7 @@ private struct PartyCard: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 // 출발지·목적지를 라벨 붙여 두 줄로 — 「A → B」 한 줄은 주소가 길면 어디서 갈리는지 읽기 어렵다.
-                // 이 줄에는 다른 제목이 없어 장소가 제목이다(emphasizePlace) — 24 채팅 목록과 같은 조각이다
+                // 이 줄에는 다른 제목이 없어 장소가 제목이다(emphasizePlace) — 날짜 목록과 같은 조각이다
                 RoutePlaceLine(place: RoutePlace(label: "출발지", place: ride.origin), emphasizePlace: true)
                 RoutePlaceLine(place: RoutePlace(label: "목적지", place: ride.destination), emphasizePlace: true)
                 // 서버 목록 매핑(`PartyMappers`)은 이 값을 늘 빈 문자열로 둔다 — 그대로 그리면 모든 줄에 빈 줄이

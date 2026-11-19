@@ -4,6 +4,8 @@ import MoyeotaDomain
 public func chatRoomStatusOf(raw: String) -> ChatRoomStatus {
     switch raw {
     case "ACTIVE": return .active
+    case "FINISHED": return .finished
+    case "CANCELED": return .canceled
     case "CLOSED": return .closed
     case "ARCHIVED": return .archived
     default: return .active

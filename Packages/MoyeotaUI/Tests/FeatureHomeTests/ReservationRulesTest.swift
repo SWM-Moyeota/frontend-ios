@@ -23,12 +23,12 @@ import Testing
 
     // ─────────────────────────── 정원 ───────────────────────────
 
-    /// 서버 계약: 실시간·예약 모두 **2~3**(실시간 최소 2 는 백엔드 `80957504`). 1 을 보내면 400 이고, 앱은 그
+    /// 서버 계약: 실시간·예약 모두 **2~4**(실시간 최소 2 는 백엔드 `80957504`, 상한 4 는 `Capacity`). 1 을 보내면 400 이고, 앱은 그
     /// 400 을 「잠시 후 다시 시도」로 보여 줬다 — 영원히 실패하는 선택지를 띄우지 않는다.
-    @Test("정원 선택지는 두 모드 모두 2~3명이다")
+    @Test("정원 선택지는 두 모드 모두 2~4명이다")
     func capacityChoicesPerMode() {
-        #expect(capacityChoices(mode: .now) == [2, 3])
-        #expect(capacityChoices(mode: .scheduled) == [2, 3])
+        #expect(capacityChoices(mode: .now) == [2, 3, 4])
+        #expect(capacityChoices(mode: .scheduled) == [2, 3, 4])
     }
 
     /// 저장된 옛 상태의 1(예전 「혼자 출발」)이 남아 있어도 보내는 값은 2 다.
@@ -38,13 +38,15 @@ import Testing
         #expect(capacityFor(mode: .now, selected: 1) == 2)
         #expect(capacityFor(mode: .now, selected: 2) == 2)
         #expect(capacityFor(mode: .scheduled, selected: 3) == 3)
+        #expect(capacityFor(mode: .now, selected: 4) == 4)
+        #expect(capacityFor(mode: .scheduled, selected: 4) == 4)
     }
 
     /// 화면에 없는 값이 들어와도 **가장 가까운 유효값**이다 — 서버가 막아 주는 것과 앱이 보내지 않는 것은 다른 보호막이다.
     @Test("범위 밖 정원은 가장 가까운 유효값이 된다")
     func outOfRangeCapacityClamps() {
-        #expect(capacityFor(mode: .now, selected: 9) == 3)
-        #expect(capacityFor(mode: .scheduled, selected: 9) == 3)
+        #expect(capacityFor(mode: .now, selected: 9) == 4)
+        #expect(capacityFor(mode: .scheduled, selected: 9) == 4)
         #expect(capacityFor(mode: .now, selected: 0) == 2)
         #expect(capacityFor(mode: .scheduled, selected: 0) == 2)
     }
@@ -401,14 +403,14 @@ import Testing
     /// `INVALID_REQUEST` 가 되고, 그건 `PartyOpenException.isInvalidCapacity` 에 걸리지 않아
     /// 일반 문구로 떨어진다(아래 테스트). 그래서 **진짜 방어는 칩에서 1 을 지우는 것**이고
     /// (`capacityChoices`·`capacityFor`) 이 문구는 상한을 어긴 요청 같은 나머지를 받는다.
-    @Test("예약 정원 실패는 2에서 3이라고 말한다")
+    @Test("예약 정원 실패는 2에서 4라고 말한다")
     func reservationCapacityCopy() {
         let message = reservationOpenFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY))
 
-        #expect(message == "예약 방 인원은 2~3명이어야 해요")
+        #expect(message == "예약 방 인원은 2~4명이어야 해요")
         #expect(!message.contains("1~3"), "실시간 범위를 말하면 고를 수 없는 값을 고르라고 하게 된다")
         // 실시간 쪽은 그대로다 — 두 문구가 서로를 덮지 않는다
-        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 2~3명이어야 해요")
+        #expect(openFailureMessage(e: failure(PartyOpenException.INVALID_CAPACITY)) == "인원은 2~4명이어야 해요")
     }
 
     /// 겹치는 사유는 **같은 문장**을 쓴다 — 같은 사실을 두 가지로 말하지 않는다.
