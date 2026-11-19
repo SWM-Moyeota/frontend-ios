@@ -1,3 +1,4 @@
+import CoreGraphics
 import MoyeotaDomain
 import Testing
 @testable import FeatureChat
@@ -47,65 +48,131 @@ import Testing
         )
     }
 
-    @Test("목록 행의 얼굴은 제목이 맨 앞에 부르는 사람의 것이다")
-    func listFaceIsFirstNamed() {
+    @Test("목록 행의 얼굴은 제목이 부르는 순서 그대로다")
+    func listFacesFollowTitle() {
         let members = [
             member("스모크일", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/01.png"),
             member("스모크삼", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/03.png"),
             member("나", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/09.png", isMe: true),
         ]
-        #expect(chatRoomPeerTitle(members: members) == "스모크일 · 스모크삼")
-        #expect(chatRoomPeerImageUrl(members: members) == "https://cdn.moyeota.co.kr/profile/presets/01.png")
+        #expect(chatRoomPeerTitle(members: members) == "스모크일, 스모크삼")
+        #expect(chatRoomPeerImageUrls(members: members) == ["https://cdn.moyeota.co.kr/profile/presets/01.png", "https://cdn.moyeota.co.kr/profile/presets/03.png"])
     }
 
-    /// 얼굴 자리는 하나뿐이다 — 「스모크일 외 2명」이면 스모크일의 얼굴이어야 한다.
-    @Test("셋 이상인 방도 제목의 첫 사람 얼굴을 쓴다")
-    func threeOrMoreUseFirstFace() {
+    /// 셋 이상인 방은 얼굴을 모두 모은다 — 사람 수가 얼굴로 보인다.
+    @Test("셋 이상인 방은 얼굴을 모두 모은다")
+    func threePeersAllFaces() {
         let members = [
             member("스모크일", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/01.png"),
             member("스모크삼", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/03.png"),
             member("스모크사", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/04.png"),
             member("나", isMe: true),
         ]
-        #expect(chatRoomPeerTitle(members: members) == "스모크일 외 2명")
-        #expect(chatRoomPeerImageUrl(members: members) == "https://cdn.moyeota.co.kr/profile/presets/01.png")
+        #expect(chatRoomPeerTitle(members: members) == "스모크일, 스모크삼, 스모크사")
+        #expect(chatRoomPeerImageUrls(members: members) == ["https://cdn.moyeota.co.kr/profile/presets/01.png", "https://cdn.moyeota.co.kr/profile/presets/03.png", "https://cdn.moyeota.co.kr/profile/presets/04.png"])
+    }
+
+    @Test("얼굴은 넷까지만 모은다")
+    func facesCapAtFour() {
+        let members = (1...6).map { member("동승\($0)") } + [member("나", isMe: true)]
+        #expect(chatRoomPeerImageUrls(members: members).count == MAX_PEER_FACES)
     }
 
     @Test("방을 나간 사람은 제목과 얼굴에서 함께 빠진다")
-    func leftMemberDropsFromBoth() {
+    func leftMembersDropFromBoth() {
         let members = [
             member("나간사람", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/02.png", active: false),
             member("남은사람", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/05.png"),
             member("나", isMe: true),
         ]
         #expect(chatRoomPeerTitle(members: members) == "남은사람")
-        #expect(chatRoomPeerImageUrl(members: members) == "https://cdn.moyeota.co.kr/profile/presets/05.png")
+        #expect(chatRoomPeerImageUrls(members: members) == ["https://cdn.moyeota.co.kr/profile/presets/05.png"])
     }
 
     /// 제목이 나간 사람을 되살려 쓰는 경우에는 얼굴도 같이 되살아나야 한다(둘의 근거가 하나라서).
     @Test("남은 사람이 없으면 나간 사람의 얼굴이라도 쓴다")
-    func fallsBackToLeftMemberFace() {
+    func leftMemberFallback() {
         let members = [
             member("나간사람", imageUrl: "https://cdn.moyeota.co.kr/profile/presets/02.png", active: false),
             member("나", isMe: true),
         ]
         #expect(chatRoomPeerTitle(members: members) == "나간사람")
-        #expect(chatRoomPeerImageUrl(members: members) == "https://cdn.moyeota.co.kr/profile/presets/02.png")
+        #expect(chatRoomPeerImageUrls(members: members) == ["https://cdn.moyeota.co.kr/profile/presets/02.png"])
     }
 
     /// 참여자를 못 받은 방(구버전 서버 응답은 멤버가 빈 목록이다)과 나 혼자인 방은 그릴 얼굴이 없다 —
-    /// nil 이면 `AvatarCircle` 이 회색 원으로 떨어진다.
+    /// 빈 목록이면 `AvatarCircle` 하나가 회색 원으로 떨어진다.
     @Test("나 혼자인 방과 참여자를 못 받은 방은 얼굴이 없다")
-    func aloneOrUnknownHasNoFace() {
-        #expect(chatRoomPeerImageUrl(members: [member("나", isMe: true)]) == nil)
-        #expect(chatRoomPeerImageUrl(members: []) == nil)
+    func noFaces() {
+        #expect(chatRoomPeerImageUrls(members: [member("나", isMe: true)]).isEmpty)
+        #expect(chatRoomPeerImageUrls(members: []).isEmpty)
     }
 
-    /// 서버는 사진을 고른 적 없는 사람에게도 기본 이미지 URL 을 준다 — 빈 문자열이 오면 응답이 깨진 것이다.
-    @Test("사진이 빈 문자열이면 없는 것으로 본다")
-    func blankImageIsNone() {
-        #expect(chatRoomPeerImageUrl(members: [member("스모크일", imageUrl: ""), member("나", isMe: true)]) == nil)
-        #expect(chatRoomPeerImageUrl(members: [member("스모크일", imageUrl: nil), member("나", isMe: true)]) == nil)
+    /// 사진이 빈 문자열이면 없는 것으로 보되 **자리는 남긴다** — 얼굴 수가 곧 사람 수라 회색 원으로라도 그린다.
+    @Test("사진이 없는 사람도 자리는 남긴다")
+    func blankImageKeepsSlot() {
+        let members = [member("스모크일", imageUrl: ""), member("스모크삼", imageUrl: nil), member("나", isMe: true)]
+        #expect(chatRoomPeerImageUrls(members: members) == [nil, nil])
+    }
+
+    /// 인원은 나 포함, 지금 방에 있는 사람만 센다 — 이름만으로는 몇 명이 탄 방인지 모른다.
+    @Test("인원은 나를 포함해 남아 있는 사람만 센다")
+    func memberCountActiveOnly() {
+        let members = [member("스모크일"), member("나간사람", active: false), member("스모크삼"), member("나", isMe: true)]
+        #expect(chatRoomMemberCount(members: members) == 3)
+    }
+
+    /// 제목은 나간 사람이라도 부르지만 수는 그러지 않는다 — 아무도 없는 방에 둘이 있다고 말하지 않는다.
+    @Test("모두 나간 방은 나만 센다")
+    func memberCountOnlyMe() {
+        #expect(chatRoomMemberCount(members: [member("나간사람", active: false), member("나", isMe: true)]) == 1)
+    }
+
+    /// 얼굴은 상대만 그려 1:1 방에 「2명」을 붙이면 얼굴 하나 옆에 2 가 선다 — 카카오톡처럼 셋부터 적는다.
+    @Test("인원 표기는 셋 이상인 방에만 붙는다")
+    func memberCountLabelFromThree() {
+        #expect(chatRoomMemberCountLabel(count: 2) == nil)
+        #expect(chatRoomMemberCountLabel(count: 1) == nil)
+        #expect(chatRoomMemberCountLabel(count: nil) == nil)
+        #expect(chatRoomMemberCountLabel(count: 3) == "3명")
+        #expect(chatRoomMemberCountLabel(count: 4) == "4명")
+    }
+
+    @Test("참여자를 모르면 인원도 모른다")
+    func memberCountUnknown() {
+        #expect(chatRoomMemberCount(members: []) == nil)
+        #expect(chatRoomMemberCount(members: [member("나간사람", active: false)]) == nil)
+    }
+
+    @Test("얼굴 수만큼 자리를 만들고 하나뿐이면 상자를 꽉 채운다")
+    func slotCounts() {
+        #expect(peerFaceSlots(count: 1) == [FaceSlot(x: 0, y: 0, size: 1)])
+        #expect(peerFaceSlots(count: 0) == [FaceSlot(x: 0, y: 0, size: 1)])
+        for count in 2...4 { #expect(peerFaceSlots(count: count).count == count) }
+        #expect(peerFaceSlots(count: 9).count == 4)
+    }
+
+    /// 모든 얼굴이 상자 안에 들어간다 — 넘치면 옆 행이나 제목을 덮는다.
+    @Test("얼굴은 상자 밖으로 나가지 않는다")
+    func slotsStayInside() {
+        for count in 1...4 {
+            for slot in peerFaceSlots(count: count) {
+                #expect(slot.x >= 0 && slot.y >= 0 && slot.x + slot.size <= 1 + 1e-6 && slot.y + slot.size <= 1 + 1e-6)
+            }
+        }
+    }
+
+    /// 둘은 왼쪽 위·오른쪽 아래, 셋은 위 가운데 하나와 아래 둘 — 뒤에 오는 얼굴이 아래쪽에서 위에 그려진다.
+    @Test("둘은 비껴 겹치고 셋은 삼각형이다")
+    func pairAndTrioShapes() {
+        let pair = peerFaceSlots(count: 2)
+        #expect(pair[0].x == 0 && pair[0].y == 0)
+        #expect(abs(pair[1].x + pair[1].size - 1) < 1e-6 && abs(pair[1].y + pair[1].size - 1) < 1e-6)
+
+        let trio = peerFaceSlots(count: 3)
+        #expect(abs(trio[0].x + trio[0].size / 2 - 0.5) < 1e-6 && trio[0].y == 0)
+        #expect(trio[1].y == trio[2].y && trio[1].x == 0)
+        #expect(abs(trio[2].x + trio[2].size - 1) < 1e-6)
     }
 
     @Test("사전은 참여자의 publicId 에 사진을 잇는다")

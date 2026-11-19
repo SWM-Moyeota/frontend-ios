@@ -40,6 +40,13 @@ private let UUID_OTHER = "uuid-other"
         #expect(room.createdAt == "2026-08-24T09:00:00Z")
     }
 
+    /// 합승이 끝난 방(Backend #360) — 예전엔 모르는 값으로 흡수돼 ACTIVE 가 됐고, 목록에 「종료」가 붙지 않았다.
+    @Test("합승이 끝난 방 상태를 그대로 읽는다")
+    func endedRoomStatuses() {
+        #expect(chatRoomStatusOf(raw: "FINISHED") == .finished)
+        #expect(chatRoomStatusOf(raw: "CANCELED") == .canceled)
+    }
+
     @Test("알 수 없는 방 상태와 메시지 타입은 기본값으로 흡수한다")
     func unknownEnumsFallBack() {
         #expect(chatRoomStatusOf(raw: "SOMETHING_NEW") == .active)
