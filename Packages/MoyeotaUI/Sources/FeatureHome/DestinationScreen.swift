@@ -83,6 +83,9 @@ func originBadgeLabel(origin: String?, originIsDefault: Bool) -> String? {
     return "변경"
 }
 
+/// 스크롤 영역 바닥을 흐리는 높이 — 목록 끝 여백과 같은 값이라 끝까지 내리면 마지막 행이 흐림 위에 선다
+private let ScrollBottomFade: CGFloat = 24
+
 /// 15 · 목적지 · 매칭 조건 [S10]
 ///
 /// 이동(디스크립션):
@@ -212,7 +215,7 @@ public struct DestinationScreen: View {
                     favoritesSection
                     Spacer().frame(height: MoyeotaSpacing.SectionGap)
                     searchSection
-                    Spacer().frame(height: 24)
+                    Spacer().frame(height: ScrollBottomFade)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, MoyeotaSpacing.ScreenGutter)
@@ -220,9 +223,21 @@ public struct DestinationScreen: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // 검색 결과가 아래 안내 줄에 칼로 자른 듯 붙어 끊기지 않게 스크롤 영역 바닥을 흰색으로 흐린다 —
+            // 「아래에 더 있다」가 보인다. 끝까지 내리면 마지막 행은 바닥 여백(`ScrollBottomFade`) 위에 서서 흐림에 가리지 않는다.
+            .overlay(alignment: .bottom) {
+                LinearGradient(
+                    colors: [MoyeotaColor.SurfaceCanvas.opacity(0), MoyeotaColor.SurfaceCanvas],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: ScrollBottomFade)
+                .allowsHitTesting(false)
+            }
 
-            // 하단 — 안내 · 오류 · CTA
+            // 하단 — 안내 · 오류 · CTA. 위 8 은 흐려지는 목록과 안내 줄 사이의 숨 쉴 틈이다
             VStack(alignment: .leading, spacing: 0) {
+                Spacer().frame(height: 8)
                 // 「같은 방향 사람만 보여드려요」는 지웠다 — 17 탐색 목록은 **지도 영역**으로만 거른다
                 // (`getPartiesWithin`, 서버도 "출발지가 영역 안인 ACTIVE 방"). 도착지로 거르는 길이 없다.
                 // 이 CTA 가 실제로 하는 일은 16 에서 경로·예상 요금을 보여주는 것이다(2026-10-13).
