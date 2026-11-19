@@ -16,7 +16,7 @@
 /// 400 `OUT_OF_SERVICE_AREA` 로 보였는데(그 DTO 주석), 이쪽은 박스 타입 + `@NotNull` 이라
 /// **다른 400** 으로 떨어진다 — 사유가 다르니 증상으로 원인을 추측하지 말고 이 표를 볼 것.
 ///
-/// `capacity` 는 **2~3** 이다(실시간은 1~3). 하한을 어기면 `INVALID_CAPACITY` 가 아니라
+/// `capacity` 는 **2~4** 다(실시간도 같다). 하한을 어기면 `INVALID_CAPACITY` 가 아니라
 /// **400 `INVALID_REQUEST`** 인데, 그 사정은
 /// `PartyOpenException.isInvalidCapacity` 에 적어 두었다.
 ///
@@ -34,7 +34,7 @@ public struct OpenReservationRequestDto: Codable, Equatable, Sendable {
     public var destinationLng: Double
     public var departure: String
     public var destination: String
-    /// 정원(생성자 포함) **2~3**. 실시간 방의 1~3 과 다르다.
+    /// 정원(생성자 포함) **2~4**.
     public var capacity: Int
     /// 출발 시각(ISO-8601 instant). 지금 뒤 ~ 7일 안, 양쪽 모두 엄격하다.
     public var departureAt: String
