@@ -12,8 +12,8 @@ let ChatListScrollKey = "chat.list"
 /// - 방 행 길게 누르기 → 알림 끄기/켜기 · 나가기 (onToggleMuted · onLeave)
 /// - 하단탭 → 14/17/35 (onTabSelect)
 ///
-/// 제목은 **참여자 닉네임**(`ChatRoomListItem.peerTitle` · `chatRoomPeerTitle`), 부제는 **마지막 메시지**
-/// (없으면 「출발지:」·「도착지:」 두 줄 — `chatRoomSubtitle`), 우측에 마지막 메시지 시각과 안읽음 점.
+/// 제목은 **참여자 닉네임**(`ChatRoomListItem.peerTitle` · `chatRoomPeerTitle`), 그 아래에 **경로 한 줄**과
+/// **마지막 메시지** 한 줄(`chatRoomSubtitle`), 우측에 마지막 메시지 시각과 안읽음 점.
 /// 정렬은 Route 가 이미 마친 상태로 넘어온다(`chatRoomSortKey` — 마지막 활동 시각 내림차순).
 /// 알림을 끈 방은 제목 옆에 사선 그은 종이 붙는다(`MutedMark`) — 켜진 방은 아무것도 붙지 않는다.
 ///
@@ -119,46 +119,137 @@ private let ChatRowAvatarSize: CGFloat = 48
 /// 행 글 묶음이 시작하는 x — 구분선도 여기서 시작한다
 private let ChatRowTextStart: CGFloat = MoyeotaSpacing.ScreenGutter + ChatRowAvatarSize + MoyeotaSpacing.Sm
 
-/// 목록 부제 — 한 줄 글(`line`) 또는 경로 두 줄(`route`).
+/// 목록 행에서 제목 아래 오는 두 줄 — 경로와 마지막 메시지.
 ///
-/// 경로를 「강남역 → 판교역」 한 줄로 쓰지 않고 「출발지: 강남역」·「도착지: 판교역」 **두 줄**로 쓴다
-/// (2026-11, 오너 UX 피드백) — 장소 이름이 길면(역지오코딩 실주소) 한 줄의 화살표 뒤가 잘려 도착지가
-/// 통째로 사라졌다(`RoutePlace`). 24 채팅방 **헤더**는 그대로 한 줄 경로다(그쪽은 폭이 넉넉하다).
-enum ChatRoomSubtitle: Equatable, Sendable {
-    /// 한 줄 — 마지막 메시지 미리보기, 또는 제목이 이미 경로일 때의 방 상태.
-    case line(String)
-
-    /// 경로 두 줄. 닫힌 방이면 첫 줄 이름표 앞에 「종료 · 」가 붙는다.
-    case route([RoutePlace])
+/// ### 경로는 메시지가 있어도 늘 보인다 (2026-11, 오너 피드백)
+/// 예전엔 마지막 메시지가 있으면 미리보기가 경로 자리를 차지해, 대화가 오간 방은 **어디서 어디로 가는
+/// 방인지** 목록에서 알 수 없었다(경로는 메시지가 없는 방에서만 보였다).
+///
+/// - `route`: 경로 한 줄(`RouteLine`). 참여자를 못 받은 방은 **제목이 이미 경로**라 nil 이다
+///   (`chatRoomListTitle`) — 같은 말을 두 번 쓰지 않는다
+/// - `preview`: 마지막 메시지 미리보기. 메시지가 없으면 nil — 다만 제목이 경로인 방은 방 상태
+///   (「진행 중」·「종료된 방」)를 대신 쓴다. 그 방은 경로 줄이 없어 제목 아래가 비기 때문이다
+struct ChatRoomSubtitle: Equatable, Sendable {
+    var route: RouteLine?
+    var preview: String?
 }
 
-/// 목록 부제 — **마지막 메시지 미리보기**가 있으면 그것, 없으면 경로(+종료 여부).
+/// 「강남역 → 판교역」 한 줄. `closed` 면 앞에 「종료 · 」가 붙는다 — 닫힌 방의 표시는 이 줄이 맡는다.
+struct RouteLine: Equatable, Sendable {
+    var departure: String
+    var destination: String
+    var closed: Bool = false
+}
+
+/// 목록 부제 — 경로 한 줄 + 마지막 메시지 미리보기.
 /// 위치 공유 메시지는 본문이 좌표라 사람 말로 바꾼다. 삭제된 메시지는 서버가 이미 「삭제된 메시지입니다」로 준다.
 ///
-/// **제목이 이미 경로면 경로를 또 쓰지 않는다** — 참여자를 못 받은 방은 제목이 「출발 → 도착」으로
-/// 떨어지는데(`chatRoomListTitle`), 그 아래에 출발지·도착지 두 줄이 또 오면 같은 말이 세 줄이다.
-/// 그때 부제는 방 상태(「진행 중」·「종료된 방」) 한 줄이다.
+/// 닫힌 방의 「종료 · 」는 **한 번만** 붙인다 — 경로 줄이 있으면 그 줄에, 제목이 경로인 방이면 미리보기 줄에.
 func chatRoomSubtitle(item: ChatRoomListItem) -> ChatRoomSubtitle {
     let room = item.room.room
     let active = room.status == .active
-    if let last = item.room.membership.lastMessage {
-        let preview: String
+    let preview: String? = item.room.membership.lastMessage.map { last in
         switch last.type {
         // 이모지를 앞에 붙이지 않는다 — 글꼴마다 모양이 달라지고 문장만으로 뜻이 선다(디자인 QA C2)
-        case .location: preview = "위치를 공유했어요"
-        case .text: preview = last.content
+        case .location: "위치를 공유했어요"
+        case .text: last.content
         }
-        return .line(active ? preview : "종료 · \(preview)")
     }
-    if item.peerTitle == nil { return .line(active ? "진행 중" : "종료된 방") }
-    let places = routePlaces(departure: room.departure, destination: room.destination)
-    if active { return .route(places) }
-    return .route(places.enumerated().map { index, place in
-        guard index == 0 else { return place }
-        var closed = place
-        closed.label = "종료 · \(place.label)"
-        return closed
-    })
+    if item.peerTitle == nil {
+        let line: String
+        if let preview {
+            line = active ? preview : "종료 · \(preview)"
+        } else {
+            line = active ? "진행 중" : "종료된 방"
+        }
+        return ChatRoomSubtitle(route: nil, preview: line)
+    }
+    return ChatRoomSubtitle(
+        route: RouteLine(departure: room.departure, destination: room.destination, closed: !active),
+        preview: preview
+    )
+}
+
+/// 경로 한 줄의 폭 나누기 — 출발지와 도착지가 **각자** 쓸 폭.
+///
+/// 「출발 → 도착」을 통째로 끝에서 줄이면, 출발지가 길 때(역지오코딩 실주소가 들어온다) 화살표 뒤가 잘려
+/// **도착지가 통째로 사라진다.** 그래서 둘을 따로 줄인다:
+/// - 둘 다 들어가면 그대로
+/// - 한쪽이 절반 이하면 그쪽은 다 보이고, 남은 폭을 긴 쪽이 쓴다
+/// - 둘 다 절반을 넘으면 반씩 — 양쪽 다 앞부분이 남는다
+func splitRouteWidths(available: CGFloat, departure: CGFloat, destination: CGFloat) -> (departure: CGFloat, destination: CGFloat) {
+    guard available > 0 else { return (0, 0) }
+    if departure + destination <= available { return (departure, destination) }
+    let half = available / 2
+    if departure <= half { return (departure, available - departure) }
+    if destination <= half { return (available - destination, destination) }
+    return (half, available - half)
+}
+
+/// 「[종료 · ]출발 → 도착」 한 줄 — 출발지와 도착지를 따로 줄여 **둘 다 남긴다**(`splitRouteWidths`).
+/// VoiceOver 에는 화살표 대신 「출발지 …, 도착지 …」로 읽힌다.
+private struct RouteOneLine: View {
+    let route: RouteLine
+    let style: MoyeotaType
+    let color: Color
+
+    var body: some View {
+        RouteOneLineLayout {
+            Text(route.closed ? "종료 · " : "")
+            Text(route.departure)
+            Text(" → ")
+            Text(route.destination)
+        }
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .moyeotaText(style.hangulTrimmed, color: color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel((route.closed ? "종료, " : "") + "출발지 \(route.departure), 도착지 \(route.destination)")
+    }
+}
+
+/// `RouteOneLine` 의 배치 — 머리말·출발지·화살표·도착지 네 칸을 한 줄로 잇는다. 원본 `Layout` 자리.
+/// 네 칸이 같은 글꼴이라 높이가 같아 위에 맞춰 놓고, 기준선은 출발지 칸의 것을 쓴다.
+private struct RouteOneLineLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = sizes(proposal: proposal, subviews: subviews)
+        return CGSize(width: sizes.reduce(0) { $0 + $1.width }, height: sizes.map(\.height).max() ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        for (subview, size) in zip(subviews, sizes(proposal: proposal, subviews: subviews)) {
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width
+        }
+    }
+
+    func explicitAlignment(
+        of guide: VerticalAlignment,
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGFloat? {
+        let departure = sizes(proposal: proposal, subviews: subviews)[1]
+        return bounds.minY + subviews[1].dimensions(in: ProposedViewSize(departure))[guide]
+    }
+
+    private func sizes(proposal: ProposedViewSize, subviews: Subviews) -> [CGSize] {
+        let prefix = subviews[0].sizeThatFits(.unspecified)
+        let arrow = subviews[2].sizeThatFits(.unspecified)
+        let widths = splitRouteWidths(
+            available: max((proposal.width ?? .infinity) - prefix.width - arrow.width, 0),
+            departure: subviews[1].sizeThatFits(.unspecified).width,
+            destination: subviews[3].sizeThatFits(.unspecified).width
+        )
+        return [
+            prefix,
+            subviews[1].sizeThatFits(ProposedViewSize(width: widths.departure, height: nil)),
+            arrow,
+            subviews[3].sizeThatFits(ProposedViewSize(width: widths.destination, height: nil)),
+        ]
+    }
 }
 
 /// 목록 행 제목 — 참여자 닉네임(`ChatRoomListItem.peerTitle`), 못 받았으면 경로 한 줄.
@@ -173,16 +264,15 @@ private struct ChatRoomRow: View {
 
     var body: some View {
         let membership = item.room.membership
-        let title = chatRoomListTitle(item: item)
         let subtitle = chatRoomSubtitle(item: item)
         let timeLabel = membership.lastMessage?.createdAt.toListTimeLabel()
         let unread = membership.hasUnread
         Button(action: onClick) {
             HStack(alignment: .center, spacing: 0) {
-                // 제목이 부르는 사람의 얼굴(`ChatRoomListItem.peerImageUrl`) — 제목과 **같은 멤버 목록**에서
+                // 제목이 부르는 사람들의 얼굴(`ChatRoomListItem.peerImageUrls`) — 제목과 **같은 멤버 목록**에서
                 // 뽑아 Route 가 실어 보낸다. 참여자를 못 받은 방은 제목이 경로로 떨어지고 여기도 회색 원이다.
                 // 부제가 두 줄이 되어 행이 높아져도 아바타는 행 가운데에 선다.
-                AvatarCircle(size: ChatRowAvatarSize, imageUrl: item.peerImageUrl)
+                PeerAvatarGroup(imageUrls: item.peerImageUrls, size: ChatRowAvatarSize)
                 Spacer().frame(width: MoyeotaSpacing.Sm)
                 // 글 묶음과 오른쪽 시각은 **제목의 기준선**에 맞춘다 — 부제가 두 줄이 된 행에서 시각이 행 가운데로
                 // 내려가면 어느 줄의 시각인지 흐려진다(디자인 QA 4-10).
@@ -192,18 +282,40 @@ private struct ChatRoomRow: View {
                     VStack(alignment: .leading, spacing: 0) {
                         // 제목이 길어도 종이 밀려나지 않게 제목만 줄어든다 — 짧은 제목 바로 옆에 붙는다
                         HStack(alignment: .center, spacing: 0) {
-                            Text(title)
-                                .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                            if let peerTitle = item.peerTitle {
+                                Text(peerTitle)
+                                    .moyeotaText(MoyeotaType.HeadingMd.hangulTrimmed, color: MoyeotaColor.InkPrimary)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                            } else {
+                                // 참여자를 못 받은 방은 경로가 제목이다 — 제목에서도 도착지가 잘려 사라지지 않게 따로 줄인다
+                                RouteOneLine(
+                                    route: RouteLine(departure: item.room.room.departure, destination: item.room.room.destination),
+                                    style: MoyeotaType.HeadingMd,
+                                    color: MoyeotaColor.InkPrimary
+                                )
+                            }
+                            // 셋 이상인 방의 인원(나 포함, `chatRoomMemberCountLabel`) — 이름만으로는 몇 명이 탄 방인지
+                            // 모른다. 숫자만 쓰면 닉네임 끝 숫자와 붙어 읽혀 「명」을 붙인다. 제목이 길어도 밀려나지 않는다.
+                            if let label = chatRoomMemberCountLabel(count: item.memberCount) {
+                                Text(label)
+                                    .moyeotaText(MoyeotaType.BodySm.tabularNums().hangulTrimmed, color: MoyeotaColor.TextMute)
+                                    .lineLimit(1)
+                                    .fixedSize()
+                                    .padding(.leading, MoyeotaSpacing.Xs)
+                            }
                             if membership.notificationMuted {
                                 MutedMark().fixedSize()
                             }
                         }
-                        Spacer().frame(height: 2)
-                        switch subtitle {
-                        case .line(let text):
-                            Text(text)
+                        if let route = subtitle.route {
+                            Spacer().frame(height: 2)
+                            // 경로는 보조 정보라 미리보기보다 한 단계 작고 흐리게 둔다 — 눈은 제목 다음에 미리보기로 간다
+                            RouteOneLine(route: route, style: MoyeotaType.CaptionMd, color: MoyeotaColor.TextMute)
+                        }
+                        if let preview = subtitle.preview {
+                            Spacer().frame(height: 2)
+                            Text(preview)
                                 // 안 읽은 방은 미리보기를 진하게 — 배지와 함께 「새 대화」를 두 신호로 알린다
                                 .moyeotaText(
                                     MoyeotaType.BodySm.copy(fontWeight: unread ? .semibold : .regular).hangulTrimmed,
@@ -211,12 +323,6 @@ private struct ChatRoomRow: View {
                                 )
                                 .lineLimit(1)
                                 .truncationMode(.tail)
-                        case .route(let places):
-                            ForEach(Array(places.enumerated()), id: \.offset) { index, place in
-                                // 두 줄 사이 2(디자인 QA 4-10)
-                                if index > 0 { Spacer().frame(height: 2) }
-                                RoutePlaceLine(place: place)
-                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,6 +347,74 @@ private struct ChatRoomRow: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(PressOverlayStyle(shape: Rectangle()))
+    }
+}
+
+/// 묶음 아바타의 얼굴 한 자리 — 한 변이 1 인 상자 안에서 왼쪽 위 모서리(`x`·`y`)와 지름(`size`)의 비율.
+struct FaceSlot: Equatable, Sendable {
+    var x: CGFloat
+    var y: CGFloat
+    var size: CGFloat
+}
+
+/// 묶음 아바타 배치 — 얼굴 `count` 개를 한 상자에 모은다(2026-11 오너 피드백, 카카오톡 채팅 목록 모양).
+/// - 0·1개: 상자를 꽉 채운 하나(지금까지의 1:1 방 모양)
+/// - 2개: 왼쪽 위·오른쪽 아래로 비껴 겹친다
+/// - 3개: 위 가운데 하나, 아래 둘 — 삼각형
+/// - 4개 이상: 2×2(넘치는 얼굴은 `MAX_PEER_FACES` 에서 이미 잘렸다)
+///
+/// 뒤에 오는 얼굴이 위에 그려진다 — 제목의 첫 사람이 맨 뒤(왼쪽 위)다.
+func peerFaceSlots(count: Int) -> [FaceSlot] {
+    switch count {
+    case ...1:
+        return [FaceSlot(x: 0, y: 0, size: 1)]
+    case 2:
+        let d = PairFace
+        return [FaceSlot(x: 0, y: 0, size: d), FaceSlot(x: 1 - d, y: 1 - d, size: d)]
+    case 3:
+        let d = TrioFace
+        return [FaceSlot(x: (1 - d) / 2, y: 0, size: d), FaceSlot(x: 0, y: 1 - d, size: d), FaceSlot(x: 1 - d, y: 1 - d, size: d)]
+    default:
+        let d = GridFace
+        return [
+            FaceSlot(x: 0, y: 0, size: d), FaceSlot(x: 1 - d, y: 0, size: d),
+            FaceSlot(x: 0, y: 1 - d, size: d), FaceSlot(x: 1 - d, y: 1 - d, size: d),
+        ]
+    }
+}
+
+// 얼굴 지름 ÷ 상자 한 변. 둘은 크게 겹치고(48 상자에서 33), 셋은 서로 조금씩 물리며(29),
+// 넷은 겹치지 않고 사이를 조금 띄운다(23).
+private let PairFace: CGFloat = 0.68
+private let TrioFace: CGFloat = 0.6
+private let GridFace: CGFloat = 0.48
+
+/// 겹친 얼굴 사이의 흰 테 두께 — 앞 얼굴이 뒤 얼굴을 파고든 자리가 보여야 두 사람으로 읽힌다.
+private let PeerFaceRing: CGFloat = 1.5
+
+/// 목록 행 아바타 — 상대가 하나면 지금까지처럼 원 하나, 여럿이면 얼굴을 모아 그린다(`peerFaceSlots`).
+/// 사진은 장식이다(이름은 바로 옆 제목이 읽어 준다).
+private struct PeerAvatarGroup: View {
+    let imageUrls: [String?]
+    let size: CGFloat
+
+    var body: some View {
+        if imageUrls.count <= 1 {
+            AvatarCircle(size: size, imageUrl: imageUrls.first ?? nil)
+        } else {
+            let slots = peerFaceSlots(count: imageUrls.count)
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(imageUrls.enumerated()), id: \.offset) { index, url in
+                    let slot = slots[index]
+                    let face = size * slot.size
+                    AvatarCircle(size: face - PeerFaceRing * 2, imageUrl: url)
+                        .frame(width: face, height: face)
+                        .background(MoyeotaColor.SurfaceCanvas, in: Circle())
+                        .offset(x: size * slot.x, y: size * slot.y)
+                }
+            }
+            .frame(width: size, height: size, alignment: .topLeading)
+        }
     }
 }
 

@@ -76,10 +76,11 @@ func departureModeLabel(mode: DepartureMode) -> String {
     }
 }
 
-/// 고를 수 있는 정원 — **실시간·예약 모두 2~3**.
+/// 고를 수 있는 정원 — **실시간·예약 모두 2~4**(나 포함).
 ///
-/// 서버가 그렇게 받는다: 예약은 원래 2 이상이었고(`capacity 2~3`), 실시간도 백엔드 `80957504` 부터
-/// 「새로 만드는 방의 최소 정원 = 출발할 수 있는 인원(2)」이다. 1 을 보내면 400 이다.
+/// 서버가 그렇게 받는다: 정원 상한은 4(`Capacity`, `OpenPartyRequest`·`OpenReservationRequest` 「2~4」)이고,
+/// 실시간도 백엔드 `80957504` 부터 「새로 만드는 방의 최소 정원 = 출발할 수 있는 인원(2)」이다. 1 을 보내면 400 이다.
+/// 「4명」은 2026-11-19 에 더했다(오너 요청) — 그 전까지 앱은 서버가 받는 4 를 고를 길이 없었다.
 ///
 /// ### 「혼자 출발(1명)」을 **지웠다** (2026-11-17)
 /// 예전 실시간은 1~3 이었고 「1명」을 「혼자 타기」 상품으로 인정했다(만든 즉시 꽉 찬 방). 서버가 그
@@ -88,8 +89,8 @@ func departureModeLabel(mode: DepartureMode) -> String {
 /// 말하던 두 안내(「혼자 출발해요」·「예약 방은 2명부터」)도 함께 지웠다 — 이제 두 모드가 같다.
 func capacityChoices(mode: DepartureMode) -> [Int] {
     switch mode {
-    case .now: [2, 3]
-    case .scheduled: [2, 3]
+    case .now: [2, 3, 4]
+    case .scheduled: [2, 3, 4]
     }
 }
 
@@ -453,14 +454,14 @@ let RESERVATION_OPEN_FAILED_MESSAGE = "예약 방을 만들지 못했어요. 잠
 /// | 이미 참여 중인 방 | `ALREADY_JOINED_OTHER_PARTY` (409) | 홈 배너로 그 방을 정리한다 |
 /// | 출발지 = 도착지 | `SAME_DEPARTURE_DESTINATION` (400) | 핀을 옮긴다 |
 /// | 서비스 지역 밖 | `OUT_OF_SERVICE_AREA` (400) | 다른 장소를 고른다 |
-/// | 정원이 2~3 아님 | `INVALID_CAPACITY` (400) | 인원을 다시 고른다(사실상 앱 버그다) |
+/// | 정원이 2~4 아님 | `INVALID_CAPACITY` (400) | 인원을 다시 고른다(사실상 앱 버그다) |
 /// | 그 밖·네트워크 | 코드 없음 | `RESERVATION_OPEN_FAILED_MESSAGE` |
 ///
 /// ### 왜 실시간 문구를 그대로 쓰지 않는가
 /// 겹치는 네 가지는 **같은 문장을 재사용한다**(아래에서 `openFailureMessage` 를 부른다). 갈라야
 /// 하는 것은 두 곳이다.
 ///
-/// 1. **정원.** 예약은 「예약 방 인원은 2~3명」이라고 말한다. 범위는 2026-11-17 부터 실시간과 같지만(2~3),
+/// 1. **정원.** 예약은 「예약 방 인원은 2~4명」이라고 말한다. 범위는 2026-11-17 부터 실시간과 같지만(2~4),
 ///    예약 쪽 문구는 「예약 방」을 짚어 둔다.
 /// 2. **실시간 표에 갈래가 없는 두 코드**(409 `PARTY_TIME_CONFLICT` — 실시간 생성에도 온다 — 와
 ///    예약 전용 400 `INVALID_DEPARTURE_TIME`). 갈라 두지 않으면 둘 다 「잠시 후 다시 시도해
@@ -487,7 +488,7 @@ func reservationOpenFailureMessage(e: PartyOpenException) -> String {
     if e.isInvalidDepartureTime {
         return "출발 시각은 지금부터 7일 안이어야 해요. 다른 시간으로 골라 주세요"
     }
-    if e.isInvalidCapacity { return "예약 방 인원은 2~3명이어야 해요" }
+    if e.isInvalidCapacity { return "예약 방 인원은 2~4명이어야 해요" }
     // 아래 네 가지(이미 참여 중·출발지=도착지·서비스 지역 밖·그 밖)는 실시간과 **같은 사실**이라
     // 같은 문장을 쓴다. 다만 「그 밖」의 일반 문구만 예약 쪽으로 바꿔 끼운다 — 「동승 방을 만들지
     // 못했어요」는 예약을 만들려던 사람에게 무엇이 실패했는지 모호하다.
